@@ -52,15 +52,17 @@ func sourceTree(t *testing.T) (root, scripts string) {
 }
 
 type buildJSON struct {
-	Output        string   `json:"output"`
-	Kind          string   `json:"kind"`
-	Identifier    string   `json:"identifier"`
-	Version       string   `json:"version"`
-	NumberOfFiles int      `json:"numberOfFiles"`
-	InstallKBytes int      `json:"installKBytes"`
-	Scripts       []string `json:"scripts"`
-	SHA256        string   `json:"sha256"`
-	Signed        bool     `json:"signed"`
+	Output               string   `json:"output"`
+	Kind                 string   `json:"kind"`
+	Identifier           string   `json:"identifier"`
+	Version              string   `json:"version"`
+	NumberOfFiles        int      `json:"numberOfFiles"`
+	InstallKBytes        int      `json:"installKBytes"`
+	PayloadEncoding      string   `json:"payloadEncoding"`
+	MinimumSystemVersion string   `json:"minimumSystemVersion"`
+	Scripts              []string `json:"scripts"`
+	SHA256               string   `json:"sha256"`
+	Signed               bool     `json:"signed"`
 }
 
 const epoch = "1704164645" // 2024-01-02T03:04:05Z

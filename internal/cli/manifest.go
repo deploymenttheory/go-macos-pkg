@@ -34,7 +34,8 @@ type manifestFile struct {
 	SuppressBundleRelocation bool   `yaml:"suppress_bundle_relocation" json:"suppress_bundle_relocation" plist:"suppress_bundle_relocation"`
 	MinimumOSVersion         string `yaml:"minimum_os_version" json:"minimum_os_version" plist:"minimum_os_version"`
 	PreserveXattr            bool   `yaml:"preserve_xattr" json:"preserve_xattr" plist:"preserve_xattr"`
-	NoPayload                bool   `yaml:"nopayload" json:"nopayload" plist:"nopayload"` // added
+	NoPayload                bool   `yaml:"nopayload" json:"nopayload" plist:"nopayload"`       // added
+	Compression              string `yaml:"compression" json:"compression" plist:"compression"` // gzip | pbzx | latest (added)
 	ProductID                string `yaml:"product_id" json:"product_id" plist:"product_id"`
 
 	// Added by macospkg: payload paths and their modes, for trees that

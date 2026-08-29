@@ -25,11 +25,12 @@ type infoJSON struct {
 		TOCDigestValid    bool   `json:"tocDigestValid"`
 	} `json:"xar"`
 	Packages []struct {
-		Name            string `json:"name"`
-		Identifier      string `json:"identifier"`
-		Version         string `json:"version"`
-		InstallLocation string `json:"installLocation"`
-		Payload         *struct {
+		Name                 string `json:"name"`
+		Identifier           string `json:"identifier"`
+		Version              string `json:"version"`
+		InstallLocation      string `json:"installLocation"`
+		MinimumSystemVersion string `json:"minimumSystemVersion"`
+		Payload              *struct {
 			Entry          string `json:"entry"`
 			NumberOfFiles  int    `json:"numberOfFiles"`
 			InstallKBytes  int    `json:"installKBytes"`
@@ -85,7 +86,7 @@ func listJSON(t *testing.T, args ...string) []listLine {
 }
 
 func TestInfoComponentMatchesPkgbuild(t *testing.T) {
-	for _, name := range []string{"component-basic.pkg", "component-noscripts.pkg", "component-pbzx.pkg", "component-large-payload.pkg", "component-bundle.pkg"} {
+	for _, name := range []string{"component-basic.pkg", "component-noscripts.pkg", "component-pbzx.pkg", "component-latest-26.0.pkg", "component-large-payload.pkg", "component-bundle.pkg"} {
 		t.Run(name, func(t *testing.T) {
 			path, want := fixture(t, name)
 			var got infoJSON

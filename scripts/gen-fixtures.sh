@@ -180,6 +180,50 @@ cat >dist-custom.xml <<'XML'
 XML
 productbuild --quiet --distribution dist-custom.xml --package-path . product-custom-dist.pkg
 
+
+log "compression variants"
+# pkgbuild picks the payload container from --min-os-version. Build one
+# package per version and let the manifest record what came out; the
+# tests read the manifest rather than assuming.
+for v in 12.0 13.0 14.0 15.0 26.0; do
+	pkgbuild --quiet --root root --identifier "com.deploymenttheory.fixture.latest$v" --version 1.0 \
+		--install-location / --ownership recommended --scripts scripts --compression latest --min-os-version "$v" "component-latest-$v.pkg"
+done
+
+log "hard links and extended attributes"
+mkdir -p root-links/d root-links/attrs
+printf 'shared content\n' >root-links/a.txt
+ln root-links/a.txt root-links/b.txt
+ln root-links/a.txt root-links/d/c.txt
+printf 'three links\n' >root-links/p
+ln root-links/p root-links/q
+ln root-links/p root-links/r
+printf 'has attributes\n' >root-links/attrs/x
+printf 'finder\n' >root-links/attrs/finder
+printf 'rsrc\n' >root-links/attrs/rsrc
+: >root-links/attrs/empty
+ln -s x root-links/attrs/link
+stamp root-links
+# Attributes go on after stamp, which clears them; the mtimes are then
+# pinned again without touching the attributes.
+xattr -w com.example.one hello root-links/attrs/x
+xattr -wx com.example.big "$(deterministic_bytes 300 | xxd -p | tr -d '\n')" root-links/attrs/x
+xattr -wx com.apple.FinderInfo "$(printf '41%.0s' $(seq 32))" root-links/attrs/finder
+xattr -w com.apple.ResourceFork 'resource fork bytes' root-links/attrs/rsrc
+xattr -w com.example.empty v root-links/attrs/empty
+xattr -s -w com.example.onlink yes root-links/attrs/link
+xattr -w com.example.ondir dirval root-links/attrs
+find root-links -exec touch -h -t "$STAMP" {} +
+pkgbuild --quiet --root root-links --identifier com.deploymenttheory.fixture.links --version 1.0 \
+	--install-location / --ownership recommended component-links.pkg
+
+log "apple archive samples"
+mkdir -p "$ROOT/testdata/aa"
+for a in raw lzfse lzma zlib lz4; do
+	aa archive -d root-links -o "$ROOT/testdata/aa/aa-$a.aar" -a "$a"
+done
+aa list -v -i "$ROOT/testdata/aa/aa-raw.aar" >"$ROOT/testdata/aa/aa-raw.list.txt"
+
 # ---------------------------------------------------------------- signing keys
 
 # A private CA and a leaf shaped like a Developer ID Installer certificate
@@ -289,9 +333,17 @@ xar --dump-toc="$ROOT/testdata/xar/component-basic.toc.xml" -f component-basic.p
 # ----------------------------------------------------------------- manifest
 
 log "manifest"
-for pkg in component-basic component-noscripts component-pbzx component-large-payload component-bundle product-basic product-custom-dist; do
+for pkg in component-basic component-noscripts component-pbzx component-large-payload component-bundle product-basic product-custom-dist \
+	component-latest-26.0 component-links; do
 	cp "$pkg.pkg" "$OUT/"
 done
+# What --compression latest produced per --min-os-version, for the record.
+: >"$WORK/latest-probe.txt"
+for v in 12.0 13.0 14.0 15.0 26.0; do
+	rm -rf "$WORK/lp"; pkgutil --expand "component-latest-$v.pkg" "$WORK/lp"
+	printf '%s %s\n' "$v" "$(head -c 4 "$WORK/lp/Payload" | xxd -p)" >>"$WORK/latest-probe.txt"
+done
+python3 "$ROOT/scripts/decode-payload.py" "$OUT/component-links.pkg" >"$OUT/component-links.probe.json"
 if [[ $SIGNED == 1 ]]; then
 	cp signed-component.pkg signed-product.pkg "$OUT/"
 fi
@@ -315,15 +367,32 @@ def sniff(path):
     with open(path, "rb") as f:
         head = f.read(8)
     if head.startswith(b"\x1f\x8b\x08"): return "gzip-cpio"
-    if head.startswith(b"pbzx"): return "pbzx-cpio"
+    if head.startswith(b"pbz"): return "pbz%s-cpio" % head[3:4].decode()
     if head.startswith(b"070707") or head.startswith(b"07070"): return "cpio"
     if head[:4] in (b"AA01", b"YAA1", b"AEA1"): return "apple-archive"
     return "unknown"
 
+def pbz_info(path):
+    """Block size and chunk count of a pbz* container."""
+    import struct
+    with open(path, "rb") as f:
+        data = f.read()
+    if not data.startswith(b"pbz"):
+        return None
+    block = struct.unpack(">Q", data[4:12])[0]
+    pos, chunks = 12, 0
+    while pos + 16 <= len(data):
+        inflated, deflated = struct.unpack(">QQ", data[pos:pos + 16])
+        pos += 16 + deflated
+        chunks += 1
+    return {"blockSize": block, "chunks": chunks}
+
 roots = {
     "component-basic": "root", "component-noscripts": "root", "component-pbzx": "root-pbzx",
-    "component-large-payload": "root", "component-bundle": "root-app",
+    "component-large-payload": "root", "component-bundle": "root-app", "component-links": "root-links",
 }
+for _v in ("12.0", "13.0", "14.0", "15.0", "26.0"):
+    roots["component-latest-" + _v] = "root"
 
 def files_from_bom(bom, root):
     files = {}
@@ -346,7 +415,24 @@ def files_from_bom(bom, root):
         files[path] = entry
     return files
 
-def component(exp, root):
+import importlib.util
+_spec = importlib.util.spec_from_file_location("decode_payload", os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])) if False else os.path.join(os.path.dirname(out), "..", "scripts"), "decode-payload.py"))
+_dp = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_dp)
+
+def xar_entry(path, name):
+    try:
+        return _dp.read_xar_entry(path, name)
+    except KeyError:
+        return None
+
+def sniff_bytes(head):
+    if head.startswith(b"\x1f\x8b\x08"): return "gzip-cpio"
+    if head.startswith(b"pbz"): return "pbz%s-cpio" % head[3:4].decode()
+    if head.startswith(b"070707") or head.startswith(b"07070"): return "cpio"
+    return "unknown"
+
+def component(exp, root, pkg_path="", comp_prefix=""):
     info = ET.parse(os.path.join(exp, "PackageInfo")).getroot()
     payload = info.find("payload")
     scripts = info.find("scripts")
@@ -363,6 +449,14 @@ def component(exp, root):
         "scripts": [s.tag for s in scripts] if scripts is not None else [],
         "payloadEncoding": sniff(os.path.join(exp, payload_entry)) if payload_entry else "",
     }
+    if payload_entry:
+        info_pbz = pbz_info(os.path.join(exp, payload_entry))
+        if info_pbz:
+            c["payloadBlockSize"] = info_pbz["blockSize"]
+            c["payloadChunks"] = info_pbz["chunks"]
+    scripts_raw = xar_entry(pkg_path, (comp_prefix + "Scripts") if comp_prefix else "Scripts")
+    if scripts_raw is not None:
+        c["scriptsEncoding"] = sniff_bytes(scripts_raw)
     bundles = info.find("bundle-version")
     if bundles is not None and len(bundles):
         c["bundles"] = [{"id": b.get("id"), "path": b.get("path"), "version": b.get("CFBundleShortVersionString")} for b in bundles]
@@ -383,7 +477,12 @@ manifest = {
 }
 
 names = ["component-basic", "component-noscripts", "component-pbzx", "component-large-payload",
-         "component-bundle", "product-basic", "product-custom-dist"]
+         "component-bundle", "product-basic", "product-custom-dist", "component-links", "component-latest-26.0"]
+probe = {}
+for line in open(os.path.join(work, "latest-probe.txt")):
+    v, magic = line.split()
+    probe[v] = {"70627a78": "pbzx-cpio", "70627a65": "pbze-cpio", "70627a34": "pbz4-cpio", "70627a7a": "pbzz-cpio", "70627a62": "pbzb-cpio", "1f8b0800": "gzip-cpio"}.get(magic, magic)
+manifest["generator"]["compressionLatest"] = probe
 if signed:
     names += ["signed-component", "signed-product"]
 
@@ -405,10 +504,10 @@ for name in names:
         m["components"] = {}
         for d in sorted(os.listdir(exp)):
             if os.path.exists(os.path.join(exp, d, "PackageInfo")):
-                m["components"][d] = component(os.path.join(exp, d), None)
+                m["components"][d] = component(os.path.join(exp, d), None, path, d + "/")
     else:
         m["kind"] = "component"
-        m.update(component(exp, roots.get(base)))
+        m.update(component(exp, roots.get(base), path, ""))
         manifest["generator"]["pkgbuild"] = m.get("generatorVersion", "")
     if name.startswith("signed-"):
         m["signedBy"] = identity

@@ -10,6 +10,7 @@
 # Committed package fixtures are byte-exact oracles; a CRLF conversion on a
 # Windows checkout would corrupt them silently.
 *.pkg binary
+*.aar binary
 *.xar binary
 *.cpio binary
 *.p12 binary

@@ -21,3 +21,4 @@ dist/
 coverage.out
 *.test
 .acceptance-cache/
+__pycache__/

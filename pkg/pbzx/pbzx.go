@@ -1,60 +1,143 @@
-// Package pbzx decodes the pbzx container Apple wraps around xz-compressed
-// payloads (pkgbuild --compression latest, and OTA archives).
+// Package pbzx reads and writes the pbz* block-compression containers Apple
+// wraps around payloads: pkgbuild's pbzx (xz) for --compression latest,
+// and the siblings libParallelCompression and the aa tool produce.
 //
-// Layout, all integers big-endian:
+// Layout, integers big-endian:
 //
-//	magic      4  "pbzx"
-//	flags      8  the chunk size the writer used (informational)
-//	chunks:
+//	magic      4  "pbz" + an algorithm letter
+//	blockSize  8  the writer's block size
+//	chunks, until end of input:
 //	  inflated 8  size of the chunk once decoded
 //	  deflated 8  size of the chunk as stored
-//	  data     deflated bytes: an xz stream, or raw when deflated == inflated
+//	  data     deflated bytes: compressed, or the plain bytes when the
+//	           chunk did not shrink (deflated == inflated)
 //
-// The stream ends at end of input; there is no trailer.
+// There is no trailer. Algorithms: 'x' xz (LZMA2), 'e' LZFSE, '4' LZ4 in
+// Apple's bv4* framing, 'z' zlib, 'b' LZBITMAP (no public specification;
+// refused). What pkgbuild writes, from its own output: 16 MiB blocks, one
+// xz stream per chunk with no integrity check and an 8 MiB dictionary.
+// The same rules hold for every variant; pkgbuild has used only pbzx for
+// --compression latest on every --min-os-version from 12.0 to 26.0.
 package pbzx
 
 import (
 	"bytes"
+	"compress/zlib"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 
+	"github.com/go-compressions/lzfse"
 	"github.com/ulikunitz/xz"
 )
 
-// Magic is the four-byte signature "pbzx".
+// Algorithm is the letter after "pbz" in the magic.
+type Algorithm byte
+
+// Algorithms.
+const (
+	XZ       Algorithm = 'x'
+	LZFSE    Algorithm = 'e'
+	LZ4      Algorithm = '4'
+	Zlib     Algorithm = 'z'
+	LZBitmap Algorithm = 'b'
+)
+
+func (a Algorithm) String() string {
+	switch a {
+	case XZ:
+		return "xz"
+	case LZFSE:
+		return "lzfse"
+	case LZ4:
+		return "lz4"
+	case Zlib:
+		return "zlib"
+	case LZBitmap:
+		return "lzbitmap"
+	}
+	return fmt.Sprintf("unknown(%q)", byte(a))
+}
+
+// Magic returns the four-byte container magic for the algorithm.
+func (a Algorithm) Magic() []byte { return []byte{'p', 'b', 'z', byte(a)} }
+
+// DefaultBlockSize is what pkgbuild uses.
+const DefaultBlockSize = 16 << 20
+
+// maxBufferedChunk bounds chunks for the algorithms decoded in memory.
+const maxBufferedChunk = 1 << 30
+
+// Errors.
+var (
+	ErrNotPBZ               = errors.New("pbzx: not a pbz* container")
+	ErrUnsupportedAlgorithm = errors.New("pbzx: unsupported algorithm")
+)
+
+// Magic is the pbzx magic, kept for callers that only know that variant.
 var Magic = []byte("pbzx")
 
 var xzMagic = []byte{0xfd, '7', 'z', 'X', 'Z', 0x00}
 
-// IsPBZX reports whether head begins with the pbzx magic.
-func IsPBZX(head []byte) bool { return bytes.HasPrefix(head, Magic) }
-
-// Reader decodes a pbzx stream chunk by chunk.
-type Reader struct {
-	r      io.Reader
-	chunk  io.Reader // decoder over the current chunk, nil between chunks
-	stored io.Reader // the current chunk's stored bytes, to drain when done
-	left   int64     // decoded bytes still expected from the current chunk
-	flags  uint64
-	err    error
+// Sniff reports the algorithm of a pbz* header and whether head is one.
+func Sniff(head []byte) (Algorithm, bool) {
+	if len(head) < 4 || head[0] != 'p' || head[1] != 'b' || head[2] != 'z' {
+		return 0, false
+	}
+	switch Algorithm(head[3]) {
+	case XZ, LZFSE, LZ4, Zlib, LZBitmap:
+		return Algorithm(head[3]), true
+	}
+	return 0, false
 }
 
-// NewReader validates the magic and returns a streaming decoder.
+// IsPBZX reports whether head begins with any pbz* magic.
+func IsPBZX(head []byte) bool {
+	_, ok := Sniff(head)
+	return ok
+}
+
+// Reader decodes a pbz* stream chunk by chunk.
+type Reader struct {
+	r         io.Reader
+	algo      Algorithm
+	blockSize uint64
+	chunk     io.Reader // decoder over the current chunk, nil between chunks
+	stored    io.Reader // the current chunk's stored bytes, to drain when done
+	left      int64     // decoded bytes still expected from the current chunk
+	err       error
+}
+
+// NewReader validates the header and returns a streaming decoder.
 func NewReader(r io.Reader) (*Reader, error) {
 	var hdr [12]byte
-	if _, err := io.ReadFull(r, hdr[:]); err != nil {
+	if _, err := io.ReadFull(r, hdr[:4]); err != nil {
+		return nil, ErrNotPBZ
+	}
+	algo, ok := Sniff(hdr[:4])
+	if !ok {
+		return nil, ErrNotPBZ
+	}
+	if algo == LZBitmap {
+		return nil, fmt.Errorf("%w: %s (no public specification)", ErrUnsupportedAlgorithm, algo)
+	}
+	if _, err := io.ReadFull(r, hdr[4:]); err != nil {
 		return nil, fmt.Errorf("pbzx: unable to read header: %w", err)
 	}
-	if !bytes.Equal(hdr[:4], Magic) {
-		return nil, errors.New("pbzx: bad magic")
-	}
-	return &Reader{r: r, flags: binary.BigEndian.Uint64(hdr[4:12])}, nil
+	return &Reader{r: r, algo: algo, blockSize: binary.BigEndian.Uint64(hdr[4:12])}, nil
 }
 
-// Flags returns the header's flags word, which records the chunk size.
-func (pr *Reader) Flags() uint64 { return pr.flags }
+// Algorithm returns the container's compression algorithm.
+func (pr *Reader) Algorithm() Algorithm { return pr.algo }
+
+// BlockSize returns the block size the writer used.
+func (pr *Reader) BlockSize() uint64 { return pr.blockSize }
+
+// Flags is the old name of BlockSize.
+//
+// Deprecated: use BlockSize.
+func (pr *Reader) Flags() uint64 { return pr.blockSize }
 
 // Read decodes into p.
 func (pr *Reader) Read(p []byte) (int, error) {
@@ -75,9 +158,9 @@ func (pr *Reader) Read(p []byte) (int, error) {
 				pr.err = fmt.Errorf("pbzx: chunk decoded short by %d bytes", pr.left)
 				return n, pr.err
 			}
-			// The decoder stops once it has produced the chunk's bytes,
-			// which leaves the xz index and footer unread; drain them so
-			// the next chunk header is read from the right place.
+			// A streaming decoder may stop before the stream's trailer
+			// (xz index and footer); drain what is left of the stored
+			// chunk so the next header is read from the right place.
 			if _, err := io.Copy(io.Discard, pr.stored); err != nil {
 				pr.err = fmt.Errorf("pbzx: unable to skip chunk trailer: %w", err)
 				return n, pr.err
@@ -105,31 +188,59 @@ func (pr *Reader) nextChunk() error {
 	if inflated > 1<<40 || deflated > 1<<40 {
 		return fmt.Errorf("pbzx: implausible chunk sizes (%d, %d)", inflated, deflated)
 	}
+	if deflated > inflated {
+		return fmt.Errorf("pbzx: chunk grew (%d stored for %d decoded)", deflated, inflated)
+	}
 	stored := io.LimitReader(pr.r, int64(deflated))
 	pr.stored = stored
 	pr.left = int64(inflated)
 
-	// A chunk that did not compress is stored raw and its sizes agree.
-	// Otherwise it is an xz stream. Peek at the magic rather than trust the
-	// arithmetic, since a raw chunk of exactly the xz magic is a stretch and
-	// a compressed chunk that happens to be the same size is not.
-	br := &peekReader{r: stored}
-	head, err := br.peek(6)
-	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-		return fmt.Errorf("pbzx: unable to read chunk: %w", err)
+	// A chunk that did not compress is stored as is, and its sizes agree.
+	if inflated == deflated {
+		pr.chunk = stored
+		return nil
 	}
-	if bytes.Equal(head, xzMagic) {
+	switch pr.algo {
+	case XZ:
+		br := &peekReader{r: stored}
+		if head, err := br.peek(6); err == nil && !bytes.Equal(head, xzMagic) {
+			return fmt.Errorf("pbzx: chunk is not an xz stream")
+		}
 		xr, err := xz.NewReader(br)
 		if err != nil {
 			return fmt.Errorf("pbzx: bad xz chunk: %w", err)
 		}
 		pr.chunk = io.LimitReader(xr, int64(inflated))
-		return nil
+	case Zlib:
+		zr, err := zlib.NewReader(stored)
+		if err != nil {
+			return fmt.Errorf("pbzx: bad zlib chunk: %w", err)
+		}
+		pr.chunk = io.LimitReader(zr, int64(inflated))
+	case LZFSE, LZ4:
+		if inflated > maxBufferedChunk {
+			return fmt.Errorf("pbzx: %s chunk of %d bytes exceeds the %d-byte limit", pr.algo, inflated, maxBufferedChunk)
+		}
+		data, err := io.ReadAll(stored)
+		if err != nil {
+			return fmt.Errorf("pbzx: unable to read chunk: %w", err)
+		}
+		var out []byte
+		if pr.algo == LZFSE {
+			out, err = lzfse.Decompress(data)
+		} else {
+			out, err = decodeLZ4Frames(data, int(inflated))
+		}
+		if err != nil {
+			return fmt.Errorf("pbzx: bad %s chunk: %w", pr.algo, err)
+		}
+		if uint64(len(out)) != inflated {
+			return fmt.Errorf("pbzx: %s chunk decoded to %d bytes, header says %d", pr.algo, len(out), inflated)
+		}
+		pr.chunk = bytes.NewReader(out)
+	default:
+		return fmt.Errorf("%w: %s", ErrUnsupportedAlgorithm, pr.algo)
 	}
-	if inflated != deflated {
-		return fmt.Errorf("pbzx: chunk is neither xz nor stored (%d in, %d out)", deflated, inflated)
-	}
-	pr.chunk = br
 	return nil
 }
 
@@ -157,4 +268,150 @@ func (p *peekReader) Read(b []byte) (int, error) {
 		return n, nil
 	}
 	return p.r.Read(b)
+}
+
+// Writer encodes a pbz* stream.
+type Writer struct {
+	w         io.Writer
+	algo      Algorithm
+	blockSize int
+	buf       []byte
+	started   bool
+	closed    bool
+}
+
+// NewWriter returns a Writer producing the container for algo with the
+// given block size (0 selects pkgbuild's 16 MiB).
+func NewWriter(w io.Writer, algo Algorithm, blockSize uint64) (*Writer, error) {
+	switch algo {
+	case XZ, LZFSE, LZ4, Zlib:
+	case LZBitmap:
+		return nil, fmt.Errorf("%w: %s cannot be written", ErrUnsupportedAlgorithm, algo)
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedAlgorithm, byte(algo))
+	}
+	if blockSize == 0 {
+		blockSize = DefaultBlockSize
+	}
+	if blockSize > maxBufferedChunk {
+		return nil, fmt.Errorf("pbzx: block size %d exceeds the %d-byte limit", blockSize, maxBufferedChunk)
+	}
+	return &Writer{w: w, algo: algo, blockSize: int(blockSize), buf: make([]byte, 0, blockSize)}, nil
+}
+
+func (pw *Writer) header() error {
+	if pw.started {
+		return nil
+	}
+	pw.started = true
+	hdr := make([]byte, 12)
+	copy(hdr, pw.algo.Magic())
+	binary.BigEndian.PutUint64(hdr[4:], uint64(pw.blockSize))
+	_, err := pw.w.Write(hdr)
+	return err
+}
+
+// Write buffers p, emitting a chunk whenever a full block is available.
+func (pw *Writer) Write(p []byte) (int, error) {
+	if pw.closed {
+		return 0, errors.New("pbzx: write after close")
+	}
+	if err := pw.header(); err != nil {
+		return 0, err
+	}
+	written := 0
+	for len(p) > 0 {
+		room := pw.blockSize - len(pw.buf)
+		n := min(room, len(p))
+		pw.buf = append(pw.buf, p[:n]...)
+		p = p[n:]
+		written += n
+		if len(pw.buf) == pw.blockSize {
+			if err := pw.flush(); err != nil {
+				return written, err
+			}
+		}
+	}
+	return written, nil
+}
+
+// flush compresses and writes the buffered block.
+func (pw *Writer) flush() error {
+	if len(pw.buf) == 0 {
+		return nil
+	}
+	compressed, err := compressChunk(pw.algo, pw.buf)
+	if err != nil {
+		return err
+	}
+	data := compressed
+	if len(compressed) >= len(pw.buf) {
+		data = pw.buf // incompressible: stored, sizes equal
+	}
+	var hdr [16]byte
+	binary.BigEndian.PutUint64(hdr[0:8], uint64(len(pw.buf)))
+	binary.BigEndian.PutUint64(hdr[8:16], uint64(len(data)))
+	if _, err := pw.w.Write(hdr[:]); err != nil {
+		return err
+	}
+	if _, err := pw.w.Write(data); err != nil {
+		return err
+	}
+	pw.buf = pw.buf[:0]
+	return nil
+}
+
+// Close writes the final, possibly short, chunk. An empty input still
+// gets a header.
+func (pw *Writer) Close() error {
+	if pw.closed {
+		return nil
+	}
+	pw.closed = true
+	if err := pw.header(); err != nil {
+		return err
+	}
+	return pw.flush()
+}
+
+// compressChunk compresses one block with the algorithm's Apple-matching
+// parameters.
+func compressChunk(algo Algorithm, block []byte) ([]byte, error) {
+	var out bytes.Buffer
+	switch algo {
+	case XZ:
+		// One xz stream per chunk, no integrity check, 8 MiB LZMA2
+		// dictionary: what pkgbuild writes (stream flags 0x0000, LZMA2
+		// property 0x16), the equivalent of xz -6.
+		cfg := xz.WriterConfig{DictCap: 8 << 20, NoCheckSum: true}
+		zw, err := cfg.NewWriter(&out)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := zw.Write(block); err != nil {
+			return nil, err
+		}
+		if err := zw.Close(); err != nil {
+			return nil, err
+		}
+	case Zlib:
+		zw := zlib.NewWriter(&out)
+		if _, err := zw.Write(block); err != nil {
+			return nil, err
+		}
+		if err := zw.Close(); err != nil {
+			return nil, err
+		}
+	case LZFSE:
+		data, err := lzfse.Compress(block)
+		if err != nil {
+			return nil, err
+		}
+		return data, nil
+	case LZ4:
+		return encodeLZ4Frames(block), nil
+	default:
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedAlgorithm, algo)
+	}
+	return out.Bytes(), nil
 }

@@ -1,9 +1,13 @@
 // Payload container detection and opening.
 //
-// A Payload is a cpio archive, but pkgbuild wraps it in one of three ways
+// A Payload is a cpio archive, but pkgbuild wraps it in one of two ways
 // depending on its flags: gzip (the default and the only one every macOS
-// reads), pbzx around xz chunks (--compression latest), or Apple Archive
-// (--large-payload). The first bytes tell them apart.
+// reads) or a pbz* block-compression container (--compression latest,
+// which has meant pbzx — xz chunks — on every macOS from 12 to 26).
+// --large-payload keeps gzip but names the entry LargeSegmentedPayload.
+// Apple Archive is recognised so that an .aar handed to the tool is named
+// correctly; the Installer itself never reads it. The first bytes tell
+// them apart.
 package flatpkg
 
 import (
@@ -13,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/deploymenttheory/go-macos-pkg/pkg/cpio"
 	"github.com/deploymenttheory/go-macos-pkg/pkg/pbzx"
@@ -21,17 +26,34 @@ import (
 // PayloadEncoding names how a Payload's cpio stream is wrapped.
 type PayloadEncoding string
 
-// Payload encodings, as reported by info and list.
+// Payload encodings, as reported by info and list. The pbz* names carry
+// the container's algorithm letter: pbzx is xz, pbze LZFSE, pbz4 LZ4,
+// pbzz zlib, pbzb LZBITMAP (detected, not decodable).
 const (
 	PayloadGzip         PayloadEncoding = "gzip-cpio"
 	PayloadPBZX         PayloadEncoding = "pbzx-cpio"
+	PayloadPBZE         PayloadEncoding = "pbze-cpio"
+	PayloadPBZ4         PayloadEncoding = "pbz4-cpio"
+	PayloadPBZZ         PayloadEncoding = "pbzz-cpio"
+	PayloadPBZB         PayloadEncoding = "pbzb-cpio"
 	PayloadCPIO         PayloadEncoding = "cpio"
 	PayloadAppleArchive PayloadEncoding = "apple-archive"
 	PayloadUnknown      PayloadEncoding = "unknown"
 )
 
+// IsPBZ reports whether the encoding is one of the pbz* containers.
+func (e PayloadEncoding) IsPBZ() bool {
+	return strings.HasPrefix(string(e), "pbz")
+}
+
+// pbzEncoding names the encoding for a container algorithm.
+func pbzEncoding(a pbzx.Algorithm) PayloadEncoding {
+	return PayloadEncoding("pbz" + string(rune(a)) + "-cpio")
+}
+
 // ErrUnsupportedPayload reports a payload container this tool cannot
-// decode: Apple Archive today.
+// decode: Apple Archive (which the Installer does not read either) and
+// pbzb, whose LZBITMAP compression has no public specification.
 var ErrUnsupportedPayload = errors.New("flatpkg: unsupported payload encoding")
 
 var (
@@ -45,7 +67,8 @@ func SniffPayload(head []byte) PayloadEncoding {
 	case bytes.HasPrefix(head, gzipMagic):
 		return PayloadGzip
 	case pbzx.IsPBZX(head):
-		return PayloadPBZX
+		a, _ := pbzx.Sniff(head)
+		return pbzEncoding(a)
 	case bytes.HasPrefix(head, []byte(cpio.MagicODC)),
 		bytes.HasPrefix(head, []byte(cpio.MagicNewc)),
 		bytes.HasPrefix(head, []byte(cpio.MagicNewcCRC)):
@@ -112,20 +135,22 @@ func OpenCPIO(r io.Reader) (*cpio.Reader, PayloadEncoding, error) {
 		if err != nil {
 			return nil, enc, err
 		}
-		if innerEnc == PayloadPBZX {
-			enc = PayloadPBZX
+		if innerEnc.IsPBZ() {
+			enc = innerEnc
 		}
 		return inner, enc, nil
-	case PayloadPBZX:
+	case PayloadPBZX, PayloadPBZE, PayloadPBZ4, PayloadPBZZ:
 		pr, err := pbzx.NewReader(br)
 		if err != nil {
 			return nil, enc, err
 		}
 		return cpio.NewReader(pr), enc, nil
+	case PayloadPBZB:
+		return nil, enc, fmt.Errorf("%w: pbzb (LZBITMAP has no public specification)", ErrUnsupportedPayload)
 	case PayloadCPIO:
 		return cpio.NewReader(br), enc, nil
 	case PayloadAppleArchive:
-		return nil, enc, fmt.Errorf("%w: Apple Archive (pkgbuild --large-payload or --compression latest on newer systems)", ErrUnsupportedPayload)
+		return nil, enc, fmt.Errorf("%w: Apple Archive (the Installer does not read it either)", ErrUnsupportedPayload)
 	default:
 		return nil, enc, fmt.Errorf("%w: unrecognised payload container", ErrUnsupportedPayload)
 	}
