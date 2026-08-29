@@ -41,8 +41,12 @@
 //
 // # Environment
 //
-//	MACOSPKG_ACCEPTANCE_PKG   path to a real, Apple-signed and stapled .pkg
-//	                          for the signature and staple checks; unset skips
+//	MACOSPKG_ACCEPTANCE_PKG      path to a real, Apple-signed and stapled .pkg
+//	                             for the signature, staple and round-trip
+//	                             checks; unset skips
+//	MACOSPKG_ACCEPTANCE_INSTALL  set to run the installer oracles outside CI;
+//	                             they need passwordless sudo and run a
+//	                             package's scripts as root
 //
 // # Recorded results
 //

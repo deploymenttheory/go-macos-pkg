@@ -28,8 +28,15 @@ type PackageInfo struct {
 	PreserveXattr         *bool  `xml:"preserve-xattr,attr,omitempty"`
 	UseHFSPlusCompression *bool  `xml:"useHFSPlusCompression,attr,omitempty"`
 
+	// Element order is pkgbuild's: payload, bundle, the bundle lists,
+	// then scripts.
 	Payload *Payload `xml:"payload"`
-	Scripts *Scripts `xml:"scripts"`
+
+	// Bundles describes each bundle in the payload (path, identifier,
+	// versions); the lists below refer to them by id. Older pkgbuild
+	// versions put the details inside bundle-version instead, which the
+	// reader accepts too.
+	Bundles []Bundle `xml:"bundle"`
 
 	BundleVersion      *BundleList `xml:"bundle-version"`
 	UpgradeBundle      *BundleRefs `xml:"upgrade-bundle"`
@@ -37,6 +44,8 @@ type PackageInfo struct {
 	AtomicUpdateBundle *BundleRefs `xml:"atomic-update-bundle"`
 	StrictIdentifier   *BundleRefs `xml:"strict-identifier"`
 	Relocate           *BundleRefs `xml:"relocate"`
+
+	Scripts *Scripts `xml:"scripts"`
 
 	// Raw is the document as read, kept so an expand writes what it saw.
 	Raw []byte `xml:"-"`
@@ -97,10 +106,11 @@ type BundleList struct {
 	Bundles []Bundle `xml:"bundle"`
 }
 
-// Bundle describes one bundle in the payload.
+// Bundle describes one bundle in the payload. Attribute order is
+// pkgbuild's.
 type Bundle struct {
+	Path                       string `xml:"path,attr,omitempty"`
 	ID                         string `xml:"id,attr"`
-	Path                       string `xml:"path,attr"`
 	CFBundleIdentifier         string `xml:"CFBundleIdentifier,attr,omitempty"`
 	CFBundleShortVersionString string `xml:"CFBundleShortVersionString,attr,omitempty"`
 	CFBundleVersion            string `xml:"CFBundleVersion,attr,omitempty"`
@@ -154,6 +164,47 @@ func selfClose(xml []byte) []byte {
 		}
 		return []byte("<" + string(sub[1]) + string(sub[2]) + "/>")
 	})
+}
+
+// AllBundles returns the bundles the PackageInfo describes, with path and
+// version details: from the top-level bundle elements when present, else
+// from bundle-version (the older layout).
+func (p *PackageInfo) AllBundles() []Bundle {
+	byID := map[string]Bundle{}
+	var order []string
+	add := func(b Bundle) {
+		if b.ID == "" {
+			return
+		}
+		if have, ok := byID[b.ID]; ok {
+			if have.Path == "" {
+				have.Path = b.Path
+			}
+			if have.CFBundleShortVersionString == "" {
+				have.CFBundleShortVersionString = b.CFBundleShortVersionString
+			}
+			if have.CFBundleVersion == "" {
+				have.CFBundleVersion = b.CFBundleVersion
+			}
+			byID[b.ID] = have
+			return
+		}
+		byID[b.ID] = b
+		order = append(order, b.ID)
+	}
+	for _, b := range p.Bundles {
+		add(b)
+	}
+	if p.BundleVersion != nil {
+		for _, b := range p.BundleVersion.Bundles {
+			add(b)
+		}
+	}
+	out := make([]Bundle, 0, len(order))
+	for _, id := range order {
+		out = append(out, byID[id])
+	}
+	return out
 }
 
 // BoolPtr returns a pointer to b, for the optional boolean attributes.

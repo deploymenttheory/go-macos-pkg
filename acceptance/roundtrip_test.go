@@ -108,6 +108,19 @@ func TestRealPackageRoundTrip(t *testing.T) {
 		if o.Payload.Encoding != r.Payload.Encoding {
 			t.Errorf("%s payload encoding: rebuilt %s, original %s", o.Name, r.Payload.Encoding, o.Payload.Encoding)
 		}
+		// Bundles pkgbuild found are found again, at the same paths.
+		var ob, rb []string
+		for _, b := range o.Bundles {
+			ob = append(ob, b.ID+"@"+b.Path)
+		}
+		for _, b := range r.Bundles {
+			rb = append(rb, b.ID+"@"+b.Path)
+		}
+		sort.Strings(ob)
+		sort.Strings(rb)
+		if !equalStrings(ob, rb) {
+			t.Errorf("%s bundles: rebuilt %v, original %v", o.Name, rb, ob)
+		}
 		attest(t, "%s: %d files, %d KB installed — rebuilt identically", o.Name, r.Payload.NumberOfFiles, r.Payload.InstallKBytes)
 	}
 	if orig.Distribution.Title != ours.Distribution.Title || !equalStrings(orig.Distribution.Resources, ours.Distribution.Resources) {
@@ -241,6 +254,20 @@ func TestRealPackageRoundTripApple(t *testing.T) {
 	}
 }
 
+// installedPath maps a payload path to where installer puts it on a
+// target volume: /etc, /var and /tmp are symlinks into /private on a
+// boot volume, and installer writes under private/ on any volume rather
+// than creating the symlinks.
+func installedPath(rel string) string {
+	slash := filepath.ToSlash(rel)
+	for _, top := range []string{"etc/", "var/", "tmp/"} {
+		if strings.HasPrefix(slash, top) || slash == strings.TrimSuffix(top, "/") {
+			return filepath.FromSlash("private/" + slash)
+		}
+	}
+	return rel
+}
+
 // TestRealPackageRoundTripInstalls installs the rebuilt component
 // packages with macOS's installer onto a scratch volume and compares the
 // result with the original payload. The components, not the product
@@ -249,9 +276,7 @@ func TestRealPackageRoundTripApple(t *testing.T) {
 // package installs wherever installer is pointed.
 func TestRealPackageRoundTripInstalls(t *testing.T) {
 	requireTools(t, "installer", "hdiutil", "sudo")
-	if err := exec.Command("sudo", "-n", "true").Run(); err != nil {
-		t.Skip("passwordless sudo is not available; installer needs root")
-	}
+	requireInstallerOptIn(t)
 	expanded, _, components, packages := roundTrip(t)
 
 	dmg := filepath.Join(t.TempDir(), "target.dmg")
@@ -283,7 +308,7 @@ func TestRealPackageRoundTripInstalls(t *testing.T) {
 			}
 			rel, _ := filepath.Rel(src, p)
 			a, _ := fileSHA256(p)
-			b, err := fileSHA256(filepath.Join(mount, rel))
+			b, err := fileSHA256(filepath.Join(mount, installedPath(rel)))
 			if err != nil || a != b {
 				if checked < 20 {
 					t.Errorf("%s: installed %s differs from the payload (%v)", comp, rel, err)

@@ -302,6 +302,21 @@ func hostTool(t *testing.T, name string, args ...string) string {
 	return string(out)
 }
 
+// requireInstallerOptIn skips the tests that run macOS's installer as
+// root unless this is CI or the user opted in. A third-party package's
+// scripts run as root and may touch the boot volume regardless of the
+// target (Go's preinstall removes /usr/local/go), which is fine on an
+// ephemeral runner and not on a developer's machine.
+func requireInstallerOptIn(t *testing.T) {
+	t.Helper()
+	if os.Getenv("CI") != "true" && os.Getenv("MACOSPKG_ACCEPTANCE_INSTALL") == "" {
+		t.Skip("installer tests run as root and may modify the boot volume; set MACOSPKG_ACCEPTANCE_INSTALL=1 to run them outside CI")
+	}
+	if err := exec.Command("sudo", "-n", "true").Run(); err != nil {
+		t.Skip("passwordless sudo is not available; installer needs root")
+	}
+}
+
 // hostToolOutput runs an operating-system tool and returns its combined
 // output and error, for tests that expect a failure.
 func hostToolOutput(name string, args ...string) (string, error) {

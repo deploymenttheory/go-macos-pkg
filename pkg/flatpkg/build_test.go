@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,8 +114,26 @@ func TestBuildComponent(t *testing.T) {
 	if len(res.Bundles) != 1 || res.Bundles[0].ID != "com.example.fixture" || res.Bundles[0].Path != "./Applications/Fixture.app" {
 		t.Errorf("bundles = %+v", res.Bundles)
 	}
-	if c.Info.BundleVersion == nil || len(c.Info.BundleVersion.Bundles) != 1 || c.Info.Relocate == nil || len(c.Info.Relocate.Bundles) != 1 {
-		t.Errorf("bundle-version/relocate not written: %+v %+v", c.Info.BundleVersion, c.Info.Relocate)
+	// pkgbuild's layout: the details in a top-level bundle element, id
+	// references in bundle-version, upgrade-bundle, strict-identifier and
+	// relocate, and scripts last.
+	if len(c.Info.Bundles) != 1 || c.Info.Bundles[0].Path != "./Applications/Fixture.app" || c.Info.Bundles[0].CFBundleVersion != "100" {
+		t.Errorf("top-level bundle = %+v", c.Info.Bundles)
+	}
+	for name, refs := range map[string]*BundleRefs{"upgrade-bundle": c.Info.UpgradeBundle, "strict-identifier": c.Info.StrictIdentifier, "relocate": c.Info.Relocate} {
+		if refs == nil || len(refs.Bundles) != 1 || refs.Bundles[0].ID != "com.example.fixture" {
+			t.Errorf("%s = %+v", name, refs)
+		}
+	}
+	if c.Info.BundleVersion == nil || len(c.Info.BundleVersion.Bundles) != 1 || c.Info.BundleVersion.Bundles[0].Path != "" {
+		t.Errorf("bundle-version = %+v, want an id reference", c.Info.BundleVersion)
+	}
+	if all := c.Info.AllBundles(); len(all) != 1 || all[0].Path != "./Applications/Fixture.app" {
+		t.Errorf("AllBundles = %+v", all)
+	}
+	raw := string(c.Info.Raw)
+	if strings.Index(raw, "<bundle ") > strings.Index(raw, "<bundle-version>") || strings.Index(raw, "<relocate>") > strings.Index(raw, "<scripts>") {
+		t.Errorf("element order is not pkgbuild's:\n%s", raw)
 	}
 	// Archive entries in pkgbuild's order, TOC digest valid, every entry verifies.
 	var names []string

@@ -426,9 +426,7 @@ func isASCII(s string) bool {
 // matches the source. It needs root (passwordless sudo, as on CI).
 func TestInstallerInstallsOurPackage(t *testing.T) {
 	requireTools(t, "installer", "hdiutil", "sudo", "pkgutil")
-	if err := exec.Command("sudo", "-n", "true").Run(); err != nil {
-		t.Skip("passwordless sudo is not available; installer needs root")
-	}
+	requireInstallerOptIn(t)
 	root, scripts := sourceTree(t)
 	ours := filepath.Join(t.TempDir(), "ours.pkg")
 	mustRun(t, buildArgs(root, scripts, ours)...)
