@@ -79,6 +79,12 @@ func rewrite(src, dst string, fn func(archiveEnd int64, in *os.File, out io.Writ
 		_ = os.Remove(tmp.Name())
 		return err
 	}
+	// Windows will not replace a file that is still open, and src may be
+	// dst: release the input before renaming over it.
+	if err := in.Close(); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
 	if err := os.Rename(tmp.Name(), dst); err != nil {
 		_ = os.Remove(tmp.Name())
 		return fmt.Errorf("staple: unable to write %s: %w", dst, err)
