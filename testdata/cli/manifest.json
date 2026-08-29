@@ -1,0 +1,1127 @@
+{
+ "generator": {
+  "appleDouble": true,
+  "macos": "26.5.1",
+  "pkgbuild": "InstallCmds-864.12 (25F80)",
+  "script": "scripts/gen-fixtures.sh"
+ },
+ "packages": {
+  "component-basic.pkg": {
+   "entries": [
+    "Bom",
+    "PackageInfo",
+    "Payload",
+    "Scripts"
+   ],
+   "files": {
+    ".": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./._usr": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/._local": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/._fixture": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/._big.bin": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/._bin": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/._empty.txt": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/._hello.txt": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/._link": {
+     "gid": 0,
+     "mode": "755",
+     "target": "",
+     "type": "link",
+     "uid": 0
+    },
+    "./usr/local/fixture/._sub": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/._unicode-é.txt": {
+     "gid": 0,
+     "mode": "0",
+     "type": "other",
+     "uid": 0
+    },
+    "./usr/local/fixture/big.bin": {
+     "crc32": 2298990615,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "4fdd4f46c0e0ebc7c282fdda35810986a627fb9fe3c478f6ecfb074796b37e3b",
+     "size": 307200,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/bin": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/bin/._tool": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "755",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/bin/tool": {
+     "crc32": 1349717306,
+     "gid": 0,
+     "mode": "755",
+     "sha256": "bf664cf84f00f6ed76164c8457fdeaf8e4dee547226e9ffcf8274e2d2246fed9",
+     "size": 20,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/empty.txt": {
+     "crc32": 4294967295,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/hello.txt": {
+     "crc32": 1398783287,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "853ff93762a06ddbf722c4ebe9ddd66d8f63ddaea97f521c3ecc20da7c976020",
+     "size": 13,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/link": {
+     "gid": 0,
+     "mode": "755",
+     "target": "hello.txt",
+     "type": "link",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub/._nested": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub/nested": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub/nested/._deep.txt": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub/nested/deep.txt": {
+     "crc32": 2976348667,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599",
+     "size": 5,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/unicode-é.txt": {
+     "crc32": 597547859,
+     "gid": 20,
+     "mode": "644",
+     "sha256": "ebc45fabefbabdd06424b3c476b11e93fec784069ff10844e7383d59f491f8cb",
+     "size": 8,
+     "type": "file",
+     "uid": 501
+    }
+   },
+   "generatorVersion": "InstallCmds-864.12 (25F80)",
+   "identifier": "com.deploymenttheory.fixture.basic",
+   "installKBytes": 306,
+   "installLocation": "/",
+   "kind": "component",
+   "numberOfFiles": 27,
+   "payloadEncoding": "gzip-cpio",
+   "payloadEntry": "Payload",
+   "scripts": [
+    "preinstall",
+    "postinstall"
+   ],
+   "sha256": "77c32106baa7b97c93d4dbc1da0808e89fd5aa717d39bbeed23ae16b0145b1b4",
+   "version": "1.0.0"
+  },
+  "component-bundle.pkg": {
+   "bundles": [
+    {
+     "id": "com.deploymenttheory.fixture.app",
+     "path": null,
+     "version": null
+    }
+   ],
+   "entries": [
+    "Bom",
+    "PackageInfo",
+    "Payload"
+   ],
+   "files": {
+    ".": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./._Applications": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./Applications": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./Applications/._Fixture.app": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./Applications/Fixture.app": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./Applications/Fixture.app/._Contents": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./Applications/Fixture.app/Contents": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./Applications/Fixture.app/Contents/._Info.plist": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./Applications/Fixture.app/Contents/._MacOS": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./Applications/Fixture.app/Contents/Info.plist": {
+     "crc32": 1280503497,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "0414f54e23544e2699788d9427176e14294161665fea895b3d2179ad3ade2f3d",
+     "size": 532,
+     "type": "file",
+     "uid": 0
+    },
+    "./Applications/Fixture.app/Contents/MacOS": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./Applications/Fixture.app/Contents/MacOS/._Fixture": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "755",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./Applications/Fixture.app/Contents/MacOS/Fixture": {
+     "crc32": 2603929188,
+     "gid": 0,
+     "mode": "755",
+     "sha256": "6ecf06f6dbbab6a920b5b208bc7c4069ca266b150d6c00533a00b5975a8417ca",
+     "size": 23,
+     "type": "file",
+     "uid": 0
+    }
+   },
+   "generatorVersion": "InstallCmds-864.12 (25F80)",
+   "identifier": "com.deploymenttheory.fixture.bundle",
+   "installKBytes": 4,
+   "installLocation": "/",
+   "kind": "component",
+   "numberOfFiles": 13,
+   "payloadEncoding": "gzip-cpio",
+   "payloadEntry": "Payload",
+   "scripts": [],
+   "sha256": "becdb870482cf76b2074c5e3de538272edd04b3571fd6e8133e99ce4fab34804",
+   "version": "1.0"
+  },
+  "component-large-payload.pkg": {
+   "entries": [
+    "Bom",
+    "LargeSegmentedPayload",
+    "PackageInfo"
+   ],
+   "files": {
+    ".": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./._usr": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/._local": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/._fixture": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/._big.bin": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/._bin": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/._empty.txt": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/._hello.txt": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/._link": {
+     "gid": 0,
+     "mode": "755",
+     "target": "",
+     "type": "link",
+     "uid": 0
+    },
+    "./usr/local/fixture/._sub": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/._unicode-é.txt": {
+     "gid": 0,
+     "mode": "0",
+     "type": "other",
+     "uid": 0
+    },
+    "./usr/local/fixture/big.bin": {
+     "crc32": 2298990615,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "4fdd4f46c0e0ebc7c282fdda35810986a627fb9fe3c478f6ecfb074796b37e3b",
+     "size": 307200,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/bin": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/bin/._tool": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "755",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/bin/tool": {
+     "crc32": 1349717306,
+     "gid": 0,
+     "mode": "755",
+     "sha256": "bf664cf84f00f6ed76164c8457fdeaf8e4dee547226e9ffcf8274e2d2246fed9",
+     "size": 20,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/empty.txt": {
+     "crc32": 4294967295,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/hello.txt": {
+     "crc32": 1398783287,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "853ff93762a06ddbf722c4ebe9ddd66d8f63ddaea97f521c3ecc20da7c976020",
+     "size": 13,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/link": {
+     "gid": 0,
+     "mode": "755",
+     "target": "hello.txt",
+     "type": "link",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub/._nested": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub/nested": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub/nested/._deep.txt": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub/nested/deep.txt": {
+     "crc32": 2976348667,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599",
+     "size": 5,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/unicode-é.txt": {
+     "crc32": 597547859,
+     "gid": 20,
+     "mode": "644",
+     "sha256": "ebc45fabefbabdd06424b3c476b11e93fec784069ff10844e7383d59f491f8cb",
+     "size": 8,
+     "type": "file",
+     "uid": 501
+    }
+   },
+   "generatorVersion": "InstallCmds-864.12 (25F80)",
+   "identifier": "com.deploymenttheory.fixture.largepayload",
+   "installKBytes": 306,
+   "installLocation": "/",
+   "kind": "component",
+   "numberOfFiles": 27,
+   "payloadEncoding": "gzip-cpio",
+   "payloadEntry": "LargeSegmentedPayload",
+   "scripts": [],
+   "sha256": "14b72ee45db211b8cf162ffd35d6be433e5722c99169279770e3eb7ad4005fb8",
+   "version": "1.0"
+  },
+  "component-noscripts.pkg": {
+   "entries": [
+    "Bom",
+    "PackageInfo",
+    "Payload"
+   ],
+   "files": {
+    ".": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./._usr": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/._local": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/._fixture": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/._big.bin": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/._bin": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/._empty.txt": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/._hello.txt": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/._link": {
+     "gid": 0,
+     "mode": "755",
+     "target": "",
+     "type": "link",
+     "uid": 0
+    },
+    "./usr/local/fixture/._sub": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/._unicode-é.txt": {
+     "gid": 0,
+     "mode": "0",
+     "type": "other",
+     "uid": 0
+    },
+    "./usr/local/fixture/big.bin": {
+     "crc32": 2298990615,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "4fdd4f46c0e0ebc7c282fdda35810986a627fb9fe3c478f6ecfb074796b37e3b",
+     "size": 307200,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/bin": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/bin/._tool": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "755",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/bin/tool": {
+     "crc32": 1349717306,
+     "gid": 0,
+     "mode": "755",
+     "sha256": "bf664cf84f00f6ed76164c8457fdeaf8e4dee547226e9ffcf8274e2d2246fed9",
+     "size": 20,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/empty.txt": {
+     "crc32": 4294967295,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/hello.txt": {
+     "crc32": 1398783287,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "853ff93762a06ddbf722c4ebe9ddd66d8f63ddaea97f521c3ecc20da7c976020",
+     "size": 13,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/link": {
+     "gid": 0,
+     "mode": "755",
+     "target": "hello.txt",
+     "type": "link",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub/._nested": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub/nested": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub/nested/._deep.txt": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub/nested/deep.txt": {
+     "crc32": 2976348667,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599",
+     "size": 5,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/unicode-é.txt": {
+     "crc32": 597547859,
+     "gid": 20,
+     "mode": "644",
+     "sha256": "ebc45fabefbabdd06424b3c476b11e93fec784069ff10844e7383d59f491f8cb",
+     "size": 8,
+     "type": "file",
+     "uid": 501
+    }
+   },
+   "generatorVersion": "InstallCmds-864.12 (25F80)",
+   "identifier": "com.deploymenttheory.fixture.noscripts",
+   "installKBytes": 306,
+   "installLocation": "/opt/fixture",
+   "kind": "component",
+   "numberOfFiles": 27,
+   "payloadEncoding": "gzip-cpio",
+   "payloadEntry": "Payload",
+   "scripts": [],
+   "sha256": "5ee1ccc332d3a75bea4afba07ec36d99c616cdd0bc10d324c889bde8dc4c9e79",
+   "version": "2.1"
+  },
+  "component-pbzx.pkg": {
+   "entries": [
+    "Bom",
+    "PackageInfo",
+    "Payload"
+   ],
+   "files": {
+    ".": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./._usr": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/._local": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/._fixture": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/._big.bin": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/._bin": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/._empty.txt": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/._hello.txt": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/._huge.bin": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/._link": {
+     "gid": 0,
+     "mode": "755",
+     "target": "",
+     "type": "link",
+     "uid": 0
+    },
+    "./usr/local/fixture/._sub": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/._unicode-é.txt": {
+     "gid": 0,
+     "mode": "0",
+     "type": "other",
+     "uid": 0
+    },
+    "./usr/local/fixture/big.bin": {
+     "crc32": 2298990615,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "4fdd4f46c0e0ebc7c282fdda35810986a627fb9fe3c478f6ecfb074796b37e3b",
+     "size": 307200,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/bin": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/bin/._tool": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "755",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/bin/tool": {
+     "crc32": 1349717306,
+     "gid": 0,
+     "mode": "755",
+     "sha256": "bf664cf84f00f6ed76164c8457fdeaf8e4dee547226e9ffcf8274e2d2246fed9",
+     "size": 20,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/empty.txt": {
+     "crc32": 4294967295,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/hello.txt": {
+     "crc32": 1398783287,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "853ff93762a06ddbf722c4ebe9ddd66d8f63ddaea97f521c3ecc20da7c976020",
+     "size": 13,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/huge.bin": {
+     "crc32": 183754203,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "3568217a72eed5450d704907de96e14c75cc1b18661f38e0c9f458e462b38def",
+     "size": 20971520,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/link": {
+     "gid": 0,
+     "mode": "755",
+     "target": "hello.txt",
+     "type": "link",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub/._nested": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub/nested": {
+     "gid": 0,
+     "mode": "755",
+     "type": "dir",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub/nested/._deep.txt": {
+     "crc32": 0,
+     "gid": 0,
+     "mode": "644",
+     "size": 0,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/sub/nested/deep.txt": {
+     "crc32": 2976348667,
+     "gid": 0,
+     "mode": "644",
+     "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599",
+     "size": 5,
+     "type": "file",
+     "uid": 0
+    },
+    "./usr/local/fixture/unicode-é.txt": {
+     "crc32": 597547859,
+     "gid": 20,
+     "mode": "644",
+     "sha256": "ebc45fabefbabdd06424b3c476b11e93fec784069ff10844e7383d59f491f8cb",
+     "size": 8,
+     "type": "file",
+     "uid": 501
+    }
+   },
+   "generatorVersion": "InstallCmds-864.12 (25F80)",
+   "identifier": "com.deploymenttheory.fixture.pbzx",
+   "installKBytes": 20786,
+   "installLocation": "/",
+   "kind": "component",
+   "numberOfFiles": 29,
+   "payloadEncoding": "pbzx-cpio",
+   "payloadEntry": "Payload",
+   "scripts": [],
+   "sha256": "f972b3ae7efdf9960ebe4a9fd354e3251c2ddb2f441fd48061efd242c5816992",
+   "version": "1.0"
+  },
+  "product-basic.pkg": {
+   "choices": [
+    "default",
+    "com.deploymenttheory.fixture.basic",
+    "com.deploymenttheory.fixture.noscripts"
+   ],
+   "components": {
+    "component-basic.pkg": {
+     "generatorVersion": "InstallCmds-864.12 (25F80)",
+     "identifier": "com.deploymenttheory.fixture.basic",
+     "installKBytes": 306,
+     "installLocation": "/",
+     "numberOfFiles": 27,
+     "payloadEncoding": "gzip-cpio",
+     "payloadEntry": "Payload",
+     "scripts": [
+      "preinstall",
+      "postinstall"
+     ],
+     "version": "1.0.0"
+    },
+    "component-noscripts.pkg": {
+     "generatorVersion": "InstallCmds-864.12 (25F80)",
+     "identifier": "com.deploymenttheory.fixture.noscripts",
+     "installKBytes": 306,
+     "installLocation": "/opt/fixture",
+     "numberOfFiles": 27,
+     "payloadEncoding": "gzip-cpio",
+     "payloadEntry": "Payload",
+     "scripts": [],
+     "version": "2.1"
+    }
+   },
+   "entries": [
+    "Distribution",
+    "Resources",
+    "Resources/license.txt",
+    "Resources/welcome.html",
+    "component-basic.pkg",
+    "component-basic.pkg/Bom",
+    "component-basic.pkg/PackageInfo",
+    "component-basic.pkg/Payload",
+    "component-basic.pkg/Scripts",
+    "component-noscripts.pkg",
+    "component-noscripts.pkg/Bom",
+    "component-noscripts.pkg/PackageInfo",
+    "component-noscripts.pkg/Payload"
+   ],
+   "kind": "product",
+   "pkgRefs": [
+    {
+     "id": "com.deploymenttheory.fixture.basic",
+     "installKBytes": "306",
+     "path": "#component-basic.pkg",
+     "version": "1.0.0"
+    },
+    {
+     "id": "com.deploymenttheory.fixture.noscripts",
+     "installKBytes": "306",
+     "path": "#component-noscripts.pkg",
+     "version": "2.1"
+    }
+   ],
+   "resources": [
+    "Resources/license.txt",
+    "Resources/welcome.html"
+   ],
+   "sha256": "e6ece632e5c7641d2aaed3fb35985c2b21c9c68f3bd7485153560f88bc331566",
+   "title": "Fixture"
+  },
+  "product-custom-dist.pkg": {
+   "choices": [
+    "basic",
+    "extra"
+   ],
+   "components": {
+    "component-basic.pkg": {
+     "generatorVersion": "InstallCmds-864.12 (25F80)",
+     "identifier": "com.deploymenttheory.fixture.basic",
+     "installKBytes": 306,
+     "installLocation": "/",
+     "numberOfFiles": 27,
+     "payloadEncoding": "gzip-cpio",
+     "payloadEntry": "Payload",
+     "scripts": [
+      "preinstall",
+      "postinstall"
+     ],
+     "version": "1.0.0"
+    },
+    "component-noscripts.pkg": {
+     "generatorVersion": "InstallCmds-864.12 (25F80)",
+     "identifier": "com.deploymenttheory.fixture.noscripts",
+     "installKBytes": 306,
+     "installLocation": "/opt/fixture",
+     "numberOfFiles": 27,
+     "payloadEncoding": "gzip-cpio",
+     "payloadEntry": "Payload",
+     "scripts": [],
+     "version": "2.1"
+    }
+   },
+   "entries": [
+    "Distribution",
+    "component-basic.pkg",
+    "component-basic.pkg/Bom",
+    "component-basic.pkg/PackageInfo",
+    "component-basic.pkg/Payload",
+    "component-basic.pkg/Scripts",
+    "component-noscripts.pkg",
+    "component-noscripts.pkg/Bom",
+    "component-noscripts.pkg/PackageInfo",
+    "component-noscripts.pkg/Payload"
+   ],
+   "kind": "product",
+   "pkgRefs": [
+    {
+     "id": "com.deploymenttheory.fixture.basic",
+     "installKBytes": "306",
+     "path": "#component-basic.pkg",
+     "version": "1.0.0"
+    },
+    {
+     "id": "com.deploymenttheory.fixture.noscripts",
+     "installKBytes": "306",
+     "path": "#component-noscripts.pkg",
+     "version": "2.1"
+    }
+   ],
+   "resources": [],
+   "sha256": "4ce0307280f303616a6f445d82f0d8fe25224f3794e57fea27e0bd439ac9d5ec",
+   "title": "Fixture Custom"
+  }
+ }
+}
