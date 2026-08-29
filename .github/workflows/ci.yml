@@ -101,7 +101,7 @@ jobs:
         run: |
           mkdir -p .acceptance-cache
           curl -fsSL --retry 3 -o .acceptance-cache/go.pkg "https://go.dev/dl/go1.26.5.darwin-arm64.pkg"
-      - name: Acceptance tests (real package: Apple's roots, ticket database)
+      - name: "Acceptance tests (real package: Apple's roots, ticket database)"
         env:
           CGO_ENABLED: "0"
           MACOSPKG_ACCEPTANCE_PKG: ${{ github.workspace }}/.acceptance-cache/go.pkg
