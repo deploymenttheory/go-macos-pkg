@@ -90,28 +90,36 @@ jobs:
         # and openssl as independent oracles; those tests skip elsewhere.
         run: go test -v ./acceptance/
 
-      - name: Cache the real-world package
+      - name: Cache the real-world packages
         id: pkg-cache
         uses: actions/cache@v6
         with:
           path: .acceptance-cache
-          key: acceptance-go1.27.0-darwin-arm64-pkg
-      - name: Download Go's macOS installer (Apple-signed, notarized, stapled)
+          key: acceptance-go1.27.0-powershell-7.6.1
+      - name: Download real-world packages (Apple-signed, notarized)
         if: steps.pkg-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           mkdir -p .acceptance-cache
           curl -fsSL --retry 3 -o .acceptance-cache/go.pkg "https://go.dev/dl/go1.27.0.darwin-arm64.pkg"
-      - name: "Acceptance tests (real package: verify, staple, round trip)"
+          curl -fsSL --retry 3 -o .acceptance-cache/powershell.pkg "https://github.com/PowerShell/PowerShell/releases/download/v7.6.1/powershell-7.6.1-osx-arm64.pkg"
+      # Each real package is verified against Apple's roots, its ticket checked
+      # with Apple's database, then expanded and rebuilt with macospkg and the
+      # two compared entry for entry. On macOS, pkgutil, lsbom, xar and
+      # installer judge the rebuilt package as well.
+      - name: "Acceptance tests (real package: Go 1.27.0 — stapled, no bundles)"
         env:
           CGO_ENABLED: "0"
           MACOSPKG_ACCEPTANCE_PKG: ${{ github.workspace }}/.acceptance-cache/go.pkg
           MACOSPKG_ACCEPTANCE_TEAM_ID: EQHXZ8M8AV
         shell: bash
-        # Verifies Google's signature against Apple's roots, checks its ticket
-        # with Apple's database, then expands the package and rebuilds it with
-        # macospkg and compares the two entry for entry. On macOS, pkgutil,
-        # lsbom, xar and installer judge the rebuilt package as well.
+        run: go test -v -run 'TestRealPackage' -timeout 30m ./acceptance/
+      - name: "Acceptance tests (real package: PowerShell 7.6.1 — app bundle, symlink, postinstall)"
+        env:
+          CGO_ENABLED: "0"
+          MACOSPKG_ACCEPTANCE_PKG: ${{ github.workspace }}/.acceptance-cache/powershell.pkg
+          MACOSPKG_ACCEPTANCE_TEAM_ID: UBF8T346G9
+        shell: bash
         run: go test -v -run 'TestRealPackage' -timeout 30m ./acceptance/
 
   apple-signing:

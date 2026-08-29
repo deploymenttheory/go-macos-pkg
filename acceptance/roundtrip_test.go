@@ -108,6 +108,19 @@ func TestRealPackageRoundTrip(t *testing.T) {
 		if o.Payload.Encoding != r.Payload.Encoding {
 			t.Errorf("%s payload encoding: rebuilt %s, original %s", o.Name, r.Payload.Encoding, o.Payload.Encoding)
 		}
+		// Bundles pkgbuild found are found again, at the same paths.
+		var ob, rb []string
+		for _, b := range o.Bundles {
+			ob = append(ob, b.ID+"@"+b.Path)
+		}
+		for _, b := range r.Bundles {
+			rb = append(rb, b.ID+"@"+b.Path)
+		}
+		sort.Strings(ob)
+		sort.Strings(rb)
+		if !equalStrings(ob, rb) {
+			t.Errorf("%s bundles: rebuilt %v, original %v", o.Name, rb, ob)
+		}
 		attest(t, "%s: %d files, %d KB installed — rebuilt identically", o.Name, r.Payload.NumberOfFiles, r.Payload.InstallKBytes)
 	}
 	if orig.Distribution.Title != ours.Distribution.Title || !equalStrings(orig.Distribution.Resources, ours.Distribution.Resources) {

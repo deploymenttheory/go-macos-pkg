@@ -243,9 +243,16 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 		}
 		res.Bundles = bundles
 		for _, b := range bundles {
-			info.BundleVersion.Bundles = append(info.BundleVersion.Bundles, b)
+			// pkgbuild's layout: details once, at the top level, then id
+			// references in bundle-version (version checking),
+			// upgrade-bundle, strict-identifier and relocate.
+			info.Bundles = append(info.Bundles, b)
+			ref := BundleRef{ID: b.ID}
+			info.BundleVersion.Bundles = append(info.BundleVersion.Bundles, Bundle{ID: b.ID})
+			info.UpgradeBundle.Bundles = append(info.UpgradeBundle.Bundles, ref)
+			info.StrictIdentifier.Bundles = append(info.StrictIdentifier.Bundles, ref)
 			if !o.NoBundleRelocation {
-				info.Relocate.Bundles = append(info.Relocate.Bundles, BundleRef{ID: b.ID})
+				info.Relocate.Bundles = append(info.Relocate.Bundles, ref)
 			}
 		}
 	}

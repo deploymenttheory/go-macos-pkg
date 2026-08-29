@@ -222,14 +222,12 @@ func summariseComponent(c *flatpkg.Component) componentSummary {
 		}
 		cs.Payload = ps
 	}
-	if info.BundleVersion != nil {
-		for _, b := range info.BundleVersion.Bundles {
-			v := b.CFBundleShortVersionString
-			if v == "" {
-				v = b.CFBundleVersion
-			}
-			cs.Bundles = append(cs.Bundles, bundleSummary{ID: b.ID, Path: b.Path, Version: v})
+	for _, b := range info.AllBundles() {
+		v := b.CFBundleShortVersionString
+		if v == "" {
+			v = b.CFBundleVersion
 		}
+		cs.Bundles = append(cs.Bundles, bundleSummary{ID: b.ID, Path: b.Path, Version: v})
 	}
 	return cs
 }
