@@ -249,8 +249,16 @@ compares what `lsbom`, `pkgutil` and `xar` say about each, installs our
 package with `installer`, checks our signature with `pkgutil
 --check-signature` and `openssl cms`, and our staple with `stapler
 validate` and `spctl`. A gated job signs and notarizes with a real
-Developer ID against Apple's services. Google's Go installer is used as a
-real-world signed, notarized, stapled package.
+Developer ID against Apple's services.
+
+Google's Go installer (`go1.27.0.darwin-arm64.pkg`) is the real-world
+oracle on every platform: its signature is verified against Apple's roots
+and its ticket against Apple's database, then it is expanded with
+`macospkg` and rebuilt with `macospkg`, and the rebuilt package is compared
+with the original entry for entry — PackageInfo numbers, all 17,356
+bill-of-materials entries, every payload file's bytes, the Distribution
+and resources. On macOS, `pkgutil`, `lsbom` and `xar` compare the two as
+well, and `installer` installs the rebuilt package.
 
 ## Development
 

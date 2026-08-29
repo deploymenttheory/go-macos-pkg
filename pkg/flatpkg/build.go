@@ -8,7 +8,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -399,7 +398,9 @@ func collectPayload(o ComponentOptions, epoch time.Time) ([]payloadEntry, error)
 		}
 		e.uid, e.gid = owners(fi, o.Ownership)
 		if relSlash != "." {
-			childCount[path.Dir(relSlash)]++
+			// Not path.Dir: it cleans "./a" to ".", and "./a/b" to "a",
+			// which would never match the "./"-prefixed entry names.
+			childCount[parentPath(relSlash)]++
 		}
 		entries = append(entries, e)
 		return nil
@@ -416,6 +417,15 @@ func collectPayload(o ComponentOptions, epoch time.Time) ([]payloadEntry, error)
 		}
 	}
 	return entries, nil
+}
+
+// parentPath returns the parent of a "./a/b" payload path, "." for a
+// top-level entry.
+func parentPath(rel string) string {
+	if i := strings.LastIndexByte(rel, '/'); i > 1 {
+		return rel[:i]
+	}
+	return "."
 }
 
 // permBits returns the permission bits to record for an entry. Unix hosts

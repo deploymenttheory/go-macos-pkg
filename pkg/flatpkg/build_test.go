@@ -160,6 +160,18 @@ func TestBuildComponent(t *testing.T) {
 	if rootEntry := byPath["."]; rootEntry.Type != bom.TypeDirectory || rootEntry.Mode != 0o40755 || rootEntry.Size != 32*(2+2) {
 		t.Errorf("root entry = %+v", rootEntry)
 	}
+	// Nested directories count their own children: fixture/ holds hello,
+	// empty, bin, sub, big (and link on Unix).
+	wantFixtureKids := 5
+	if runtime.GOOS != "windows" {
+		wantFixtureKids++
+	}
+	if d := byPath["./usr/local/fixture"]; d.Size != int64(32*(wantFixtureKids+2)) {
+		t.Errorf("fixture dir size = %d, want %d (%d children)", d.Size, 32*(wantFixtureKids+2), wantFixtureKids)
+	}
+	if d := byPath["./usr/local/fixture/sub"]; d.Size != 32*(1+2) {
+		t.Errorf("sub dir size = %d, want %d (1 child)", d.Size, 32*3)
+	}
 	if runtime.GOOS != "windows" {
 		link := byPath["./usr/local/fixture/link"]
 		if link.Type != bom.TypeLink || link.LinkTarget != "hello.txt" || link.Size != 9 {

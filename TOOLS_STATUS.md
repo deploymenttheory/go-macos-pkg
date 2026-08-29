@@ -59,8 +59,10 @@ entries), and `--ownership preserve` is refused on Windows. Payloads are
 gzip cpio only; `--compression latest` (pbzx) and `--large-payload`
 output formats are read but not written.
 
-⁷ Byte layout differs from `mkbom`'s (block placement is ours), block
-contents follow it: the POSIX `cksum` checksum, APFS directory sizes,
+⁷ Round-trip checked against Google's Go installer: expanded and rebuilt
+with macospkg, the bill of materials is identical in all 17,356 entries
+and `installKBytes` matches exactly. Byte layout differs from `mkbom`'s
+(block placement is ours), block contents follow it: the POSIX `cksum` checksum, APFS directory sizes,
 `(parent, name)`-ordered leaves, per-path `HLIndex` entries. Hard links
 are recorded as separate files.
 

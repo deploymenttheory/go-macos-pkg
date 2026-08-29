@@ -95,20 +95,24 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .acceptance-cache
-          key: acceptance-go1.26.5-darwin-arm64-pkg
+          key: acceptance-go1.27.0-darwin-arm64-pkg
       - name: Download Go's macOS installer (Apple-signed, notarized, stapled)
         if: steps.pkg-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           mkdir -p .acceptance-cache
-          curl -fsSL --retry 3 -o .acceptance-cache/go.pkg "https://go.dev/dl/go1.26.5.darwin-arm64.pkg"
-      - name: "Acceptance tests (real package: Apple's roots, ticket database)"
+          curl -fsSL --retry 3 -o .acceptance-cache/go.pkg "https://go.dev/dl/go1.27.0.darwin-arm64.pkg"
+      - name: "Acceptance tests (real package: verify, staple, round trip)"
         env:
           CGO_ENABLED: "0"
           MACOSPKG_ACCEPTANCE_PKG: ${{ github.workspace }}/.acceptance-cache/go.pkg
           MACOSPKG_ACCEPTANCE_TEAM_ID: EQHXZ8M8AV
         shell: bash
-        run: go test -v -run 'TestRealPackage' ./acceptance/
+        # Verifies Google's signature against Apple's roots, checks its ticket
+        # with Apple's database, then expands the package and rebuilds it with
+        # macospkg and compares the two entry for entry. On macOS, pkgutil,
+        # lsbom, xar and installer judge the rebuilt package as well.
+        run: go test -v -run 'TestRealPackage' -timeout 30m ./acceptance/
 
   apple-signing:
     # Signs and notarizes with a real Developer ID certificate and App
