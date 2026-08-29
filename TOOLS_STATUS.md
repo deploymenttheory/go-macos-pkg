@@ -1,0 +1,81 @@
+# Implementation status
+
+A snapshot of what is implemented. See [`README.md`](README.md) for usage and
+[`TOOLS_ROADMAP.md`](TOOLS_ROADMAP.md) for what is planned.
+
+Legend: ✅ implemented · 🟡 partial · ⬜ not yet
+
+Every ✅ below is backed by the acceptance suite on all three platforms; the
+macOS leg additionally checks the result against Apple's own tools.
+
+| Area | macOS | Linux | Windows |
+|---|:---:|:---:|:---:|
+| CLI skeleton, exit codes, release pipeline | ✅ | ✅ | ✅ |
+| Read xar (header, TOC, entries, checksums, signature elements) | ✅ | ✅ | ✅ |
+| Read bill of materials (Bom) | ✅¹ | ✅¹ | ✅¹ |
+| Read cpio payloads: gzip, pbzx, odc, newc | ✅ | ✅ | ✅ |
+| Read `--large-payload` packages (LargeSegmentedPayload) | ✅ | ✅ | ✅ |
+| Apple Archive payloads | ⬜² | ⬜² | ⬜² |
+| PackageInfo and Distribution models | ✅ | ✅ | ✅ |
+| `info`, `list`, `cat`, `inspect` | ✅ | ✅ | ✅ |
+| `expand` (pkgutil --expand / --expand-full parity) | ✅³ | ✅³ | ✅³ |
+| `extract` (payload, scripts, pattern, verify) | ✅ | ✅ | 🟡⁴ |
+| `build` (component package) | ✅⁶ | ✅⁶ | ✅⁶ |
+| `product` (product archive) | ✅ | ✅ | ✅ |
+| Reproducible output (`SOURCE_DATE_EPOCH`) | ✅ | ✅ | ✅ |
+| Bill of materials writer | ✅⁷ | ✅⁷ | ✅⁷ |
+| `sign` (RSA + CMS, Apple timestamp) | ✅⁸ | ✅⁸ | ✅⁸ |
+| `verify` (digest, signatures, chain to Apple's roots, timestamp, staple) | ✅⁹ | ✅⁹ | ✅⁹ |
+| `notarize` (submit, upload, wait, log) | ✅¹⁰ | ✅¹⁰ | ✅¹⁰ |
+| `staple`, `unstaple`, `verify --online` | ✅ | ✅ | ✅ |
+
+¹ The `Size64` tree, which records sizes over 4 GiB, is read on a
+best-effort basis: its layout is not documented anywhere and no fixture
+exercises it. Sizes under 4 GiB come from the path record and are exact.
+
+² Apple Archive is detected and reported (exit 5); nothing decodes it yet.
+Note that `pkgbuild --large-payload` does not produce Apple Archive on
+current macOS — it produces a gzip cpio named `LargeSegmentedPayload`,
+which is fully supported.
+
+³ Byte-identical to `pkgutil` for every entry, with one deliberate
+difference: `pkgutil` turns `._` AppleDouble sidecar entries back into
+extended attributes, while `macospkg` writes them as files, on every
+platform, because only macOS has the attributes to restore.
+
+⁴ On Windows, permission bits and ownership cannot be applied; symbolic
+links need the symlink privilege, and `--symlinks auto` writes the target
+as a file where they cannot be created (reported, exit 6 if you asked for
+`--symlinks real`). Names Windows cannot store are sanitised and reported.
+
+⁵ (superseded by ⁸–¹⁰ below)
+
+⁶ Parity with `pkgbuild` is checked by the macOS acceptance leg: the same
+source tree built both ways gives identical `lsbom` output, identical
+`installKBytes`, identical `xar -tf` and `pkgutil --payload-files`, and
+`installer` installs the result. Two deliberate differences: extended
+attributes are not carried (pkgbuild writes them as `._` AppleDouble
+entries), and `--ownership preserve` is refused on Windows. Payloads are
+gzip cpio only; `--compression latest` (pbzx) and `--large-payload`
+output formats are read but not written.
+
+⁷ Byte layout differs from `mkbom`'s (block placement is ours), block
+contents follow it: the POSIX `cksum` checksum, APFS directory sizes,
+`(parent, name)`-ordered leaves, per-path `HLIndex` entries. Hard links
+are recorded as separate files.
+
+⁸ Checked against Apple's tools on macOS: `pkgutil --check-signature`
+parses our signature and its timestamp, `openssl cms -verify` accepts the
+CMS blob, `xar` and `pkgutil --expand` read the signed archive. Only RSA
+identities are supported (Developer ID Installer certificates are RSA).
+No keychain is used; the identity comes from a PKCS#12 or PEM files.
+
+⁹ Validated against Google's Go installer (Apple-signed, notarized,
+stapled): the BER-encoded CMS Apple writes is normalised, Apple's critical
+marker extensions are accepted, and the chain reaches the built-in Apple
+Root CA. No revocation checking.
+
+¹⁰ The four notary API calls go through `deploymenttheory/go-sdk-appleservices`;
+the S3 upload (single PUT, 5 GiB limit), polling and log download are
+here. The end-to-end job needs Developer ID secrets and runs on the main
+repository's CI only.

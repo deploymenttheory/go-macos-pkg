@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build ./...
+
+  guards:
+    name: No Apple tools, no exec, no relic
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: The binary must never shell out
+        run: |
+          # os/exec is allowed only in the acceptance suite (which runs the
+          # built binary and Apple's tools as oracles) and in fixture scripts.
+          if grep -rln --include='*.go' '"os/exec"' . | grep -v '^./acceptance/' | grep -v '^./scripts/'; then
+            echo "::error::os/exec imported outside acceptance/ and scripts/"
+            exit 1
+          fi
+      - name: The runtime must not name an Apple tool
+        run: |
+          # A cheap tripwire: if production code mentions one of these as a
+          # string, a dependency on Apple's tools is creeping in.
+          if grep -rlnE --include='*.go' --exclude='*_test.go' \
+               '"(xcrun|pkgbuild|productbuild|productsign|pkgutil|stapler|notarytool|/usr/bin/security)"' . \
+             | grep -v '^./acceptance/' | grep -v '^./scripts/'; then
+            echo "::error::production code references an Apple command-line tool"
+            exit 1
+          fi
+      - name: relic is a reference, not a dependency
+        run: |
+          if grep -q 'sassoftware/relic' go.mod; then
+            echo "::error::go.mod depends on sassoftware/relic; the xar signer is our own"
+            exit 1
+          fi
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+      - name: Unit tests
+        env:
+          CGO_ENABLED: "0"
+        # Everything except the acceptance suite, which runs separately below.
+        run: go test ./pkg/... ./internal/...
+
+      - name: Acceptance tests (committed fixtures and the full pipeline)
+        env:
+          CGO_ENABLED: "0"
+        # Every platform builds, signs, verifies, expands, extracts and
+        # staples with only the macospkg binary. On macOS this leg also
+        # hands what we built to Apple's pkgutil, lsbom, xar, installer
+        # and openssl as independent oracles; those tests skip elsewhere.
+        run: go test -v ./acceptance/
+
+      - name: Cache the real-world package
+        id: pkg-cache
+        uses: actions/cache@v6
+        with:
+          path: .acceptance-cache
+          key: acceptance-go1.26.5-darwin-arm64-pkg
+      - name: Download Go's macOS installer (Apple-signed, notarized, stapled)
+        if: steps.pkg-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p .acceptance-cache
+          curl -fsSL --retry 3 -o .acceptance-cache/go.pkg "https://go.dev/dl/go1.26.5.darwin-arm64.pkg"
+      - name: "Acceptance tests (real package: Apple's roots, ticket database)"
+        env:
+          CGO_ENABLED: "0"
+          MACOSPKG_ACCEPTANCE_PKG: ${{ github.workspace }}/.acceptance-cache/go.pkg
+          MACOSPKG_ACCEPTANCE_TEAM_ID: EQHXZ8M8AV
+        shell: bash
+        run: go test -v -run 'TestRealPackage' ./acceptance/
+
+  apple-signing:
+    # Signs and notarizes with a real Developer ID certificate and App
+    # Store Connect API key, then lets macOS judge the result. Needs the
+    # repository's secrets, which forks do not get; the job skips itself
+    # without them rather than failing.
+    name: Notarize end to end (Developer ID)
+    needs: test
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: macos-latest
+    timeout-minutes: 45
+    concurrency:
+      group: apple-notarization-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Check for signing secrets
+        id: secrets
+        env:
+          HAVE_KEY: ${{ secrets.APPLE_KEY_ID != '' && secrets.APPLE_ISSUER_ID != '' && secrets.APPLE_PRIVATE_KEY_PEM != '' && secrets.MACOSPKG_DEVID_P12_BASE64 != '' }}
+        run: echo "present=$HAVE_KEY" >> "$GITHUB_OUTPUT"
+      - name: Write the Developer ID certificate
+        if: steps.secrets.outputs.present == 'true'
+        env:
+          P12_BASE64: ${{ secrets.MACOSPKG_DEVID_P12_BASE64 }}
+        run: echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+      - name: Sign, notarize and staple, then ask macOS
+        if: steps.secrets.outputs.present == 'true'
+        env:
+          CGO_ENABLED: "0"
+          APPLE_KEY_ID: ${{ secrets.APPLE_KEY_ID }}
+          APPLE_ISSUER_ID: ${{ secrets.APPLE_ISSUER_ID }}
+          APPLE_PRIVATE_KEY_PEM: ${{ secrets.APPLE_PRIVATE_KEY_PEM }}
+          MACOSPKG_DEVID_P12: ${{ runner.temp }}/developer-id.p12
+          MACOSPKG_P12_PASSWORD: ${{ secrets.MACOSPKG_DEVID_P12_PASSWORD }}
+          MACOSPKG_DEVID_TEAM_ID: ${{ secrets.MACOSPKG_DEVID_TEAM_ID }}
+        run: go test -v -run 'TestDeveloperID' -timeout 40m ./acceptance/
+      - name: Skipped
+        if: steps.secrets.outputs.present != 'true'
+        run: echo "::notice::Developer ID secrets are not available; the notarization job did not run"

@@ -1,0 +1,77 @@
+go-macos-pkg
+Copyright (c) 2026 Deployment Theory
+
+This product is licensed under the MIT License (see LICENSE).
+
+All of the xar, bill-of-materials, cpio, flat-package, signing, notarization
+and stapling code in this repository is original. The formats it implements
+are Apple's, and understanding them required reading other people's
+implementations. This file records what was read and what was taken from it,
+so the provenance of every package is stated rather than guessed. Nothing
+below is imported or vendored; each entry is a reference that informed a
+design, and none of its expression was copied.
+
+1. xar (Apple) — https://github.com/apple-oss-distributions/xar
+   Copyright (c) 2005-2007 Rob Braun; BSD-3-Clause.
+   Authoritative header layout, checksum algorithm numbering (3 = SHA-256,
+   4 = SHA-512 in Apple's fork), table-of-contents element set, timestamp
+   formats and the way `xar --sign` reserves signature space. Informed
+   pkg/xar.
+
+2. xar (mackyle fork) — https://github.com/mackyle/xar
+   BSD-3-Clause. Documents the upstream divergence in which checksum
+   algorithm 3 means "other" with an extended header, and the
+   application/zlib encoding alias. pkg/xar reads both conventions.
+
+3. libarchive — https://github.com/libarchive/libarchive
+   Copyright (c) 2010-2012 Michihiro NAKAJIMA; BSD-2-Clause.
+   The only complete standalone C xar writer. Its TOC construction order,
+   <data> field order, encoding MIME strings and reserved-digest technique
+   were cross-checked against Apple's writer. Informed pkg/xar's writer.
+
+4. 7-Zip — XarHandler.cpp. LGPL-2.1. Read as a reference for which
+   malformed inputs a practical reader tolerates. No code taken.
+
+5. Kaitai Struct xar.ksy — https://github.com/kaitai-io/kaitai_struct_formats
+   CC0-1.0. Formal header specification.
+
+6. relic — https://github.com/sassoftware/relic
+   Copyright (c) SAS Institute Inc.; Apache-2.0.
+   The design foundation for pkg/pkgsign: the RSA-plus-CMS heap layout, the
+   signature-space reservation and the strip-and-shift re-signing approach.
+   Re-implemented; relic is not a dependency of this project.
+
+7. apple-platform-rs — https://github.com/indygreg/apple-platform-rs
+   Copyright (c) Gregory Szorc. apple-bom is MIT OR Apache-2.0; apple-xar,
+   apple-flat-package, cpio-archive and apple-codesign are MPL-2.0.
+   The best prose documentation of the flat package, bill of materials,
+   cpio and xar signing formats, and of the notarization ticket trailer.
+   Read for the formats only; no MPL-licensed code was transliterated.
+
+8. bomutils — https://github.com/hogliux/bomutils
+   Copyright (c) 2013 Fabian Renn; GPL-2.0.
+   Read only, for the bill-of-materials structure and the tutorial on
+   assembling a flat package without Apple's tools. No code was taken, so
+   that pkg/bom can be MIT.
+
+9. ipsw — https://github.com/blacktop/ipsw
+   Copyright (c) blacktop; MIT.
+   Its pkg/bom reader and pkg/ota/pbzx reader informed pkg/bom's reader and
+   pkg/pbzx.
+
+10. munki-pkg — https://github.com/munki/munki-pkg
+    Copyright (c) Greg Neagle; Apache-2.0.
+    The build-info manifest schema that `macospkg build --manifest` accepts
+    is compatible with it by design.
+
+11. libarchive — https://github.com/libarchive/libarchive
+    Copyright (c) 2010-2012 Michihiro NAKAJIMA; BSD-2-Clause.
+    The only complete standalone C xar writer; its table-of-contents
+    construction was cross-checked against Apple's. Informed pkg/xar.
+
+12. Kaitai Struct xar.ksy — https://github.com/kaitai-io/kaitai_struct_formats
+    CC0-1.0. Formal header specification.
+
+Third-party Go modules this project depends on are listed in go.mod; each
+carries its own licence. Apple's root certificates in pkg/pkgsign/roots
+were exported from macOS's system root store and are Apple's.

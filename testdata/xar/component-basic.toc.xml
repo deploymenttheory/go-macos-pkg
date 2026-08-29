@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xar>
+ <toc>
+  <checksum style="sha1">
+   <size>20</size>
+   <offset>0</offset>
+  </checksum>
+  <creation-time>2026-08-29T14:09:42</creation-time>
+  <file id="1">
+   <name>Bom</name>
+   <type>file</type>
+   <inode>211107092</inode>
+   <deviceno>16777233</deviceno>
+   <mode>0644</mode>
+   <uid>501</uid>
+   <user>dafyddwatkins</user>
+   <gid>20</gid>
+   <group>staff</group>
+   <atime>2026-08-29T14:09:42Z</atime>
+   <mtime>2026-08-29T14:09:42Z</mtime>
+   <ctime>2026-08-29T14:09:42Z</ctime>
+   <FinderCreateTime>
+    <time>1900-01-00T13:17:52</time>
+    <nanoseconds>0</nanoseconds>
+   </FinderCreateTime>
+   <ea id="0">
+    <name>com.apple.provenance</name>
+    <archived-checksum style="sha1">a6100671c0c355751130a96fc642ea92c4e16f08</archived-checksum>
+    <extracted-checksum style="sha1">ba402fadc56cf3ff3241553f16ffae770ded0bb9</extracted-checksum>
+    <encoding style="application/x-gzip"/>
+    <size>11</size>
+    <offset>20</offset>
+    <length>19</length>
+   </ea>
+   <data>
+    <archived-checksum style="sha1">a14d0434f7d2664bda8b2716329d4401e5554775</archived-checksum>
+    <extracted-checksum style="sha1">4a0286395fabb03c8a478f17c47df6c74a5c33c5</extracted-checksum>
+    <encoding style="application/x-gzip"/>
+    <size>60782</size>
+    <offset>39</offset>
+    <length>1935</length>
+   </data>
+  </file>
+  <file id="2">
+   <name>Payload</name>
+   <type>file</type>
+   <inode>211107093</inode>
+   <deviceno>16777233</deviceno>
+   <mode>0644</mode>
+   <uid>501</uid>
+   <user>dafyddwatkins</user>
+   <gid>20</gid>
+   <group>staff</group>
+   <atime>2026-08-29T14:09:42Z</atime>
+   <mtime>2026-08-29T14:09:42Z</mtime>
+   <ctime>2026-08-29T14:09:42Z</ctime>
+   <FinderCreateTime>
+    <time>1900-01-00T08:04:16</time>
+    <nanoseconds>0</nanoseconds>
+   </FinderCreateTime>
+   <ea id="0">
+    <name>com.apple.provenance</name>
+    <archived-checksum style="sha1">ba402fadc56cf3ff3241553f16ffae770ded0bb9</archived-checksum>
+    <extracted-checksum style="sha1">ba402fadc56cf3ff3241553f16ffae770ded0bb9</extracted-checksum>
+    <size>11</size>
+    <offset>1974</offset>
+    <encoding style="application/octet-stream"/>
+    <length>11</length>
+   </ea>
+   <data>
+    <archived-checksum style="sha1">c4e240c36bae27514b88488c58dfcd1655060218</archived-checksum>
+    <extracted-checksum style="sha1">c4e240c36bae27514b88488c58dfcd1655060218</extracted-checksum>
+    <size>308321</size>
+    <offset>1985</offset>
+    <encoding style="application/octet-stream"/>
+    <length>308321</length>
+   </data>
+  </file>
+  <file id="3">
+   <name>Scripts</name>
+   <type>file</type>
+   <inode>211107108</inode>
+   <deviceno>16777233</deviceno>
+   <mode>0644</mode>
+   <uid>501</uid>
+   <user>dafyddwatkins</user>
+   <gid>20</gid>
+   <group>staff</group>
+   <atime>2026-08-29T14:09:42Z</atime>
+   <mtime>2026-08-29T14:09:42Z</mtime>
+   <ctime>2026-08-29T14:09:42Z</ctime>
+   <FinderCreateTime>
+    <time>1900-01-00T06:58:08</time>
+    <nanoseconds>0</nanoseconds>
+   </FinderCreateTime>
+   <ea id="0">
+    <name>com.apple.provenance</name>
+    <archived-checksum style="sha1">ba402fadc56cf3ff3241553f16ffae770ded0bb9</archived-checksum>
+    <extracted-checksum style="sha1">ba402fadc56cf3ff3241553f16ffae770ded0bb9</extracted-checksum>
+    <size>11</size>
+    <offset>310306</offset>
+    <encoding style="application/octet-stream"/>
+    <length>11</length>
+   </ea>
+   <data>
+    <archived-checksum style="sha1">f0c41c65958b66c9297b8be38167d86e57ffed4a</archived-checksum>
+    <extracted-checksum style="sha1">f0c41c65958b66c9297b8be38167d86e57ffed4a</extracted-checksum>
+    <size>269</size>
+    <offset>310317</offset>
+    <encoding style="application/octet-stream"/>
+    <length>269</length>
+   </data>
+  </file>
+  <file id="4">
+   <name>PackageInfo</name>
+   <type>file</type>
+   <data>
+    <archived-checksum style="sha1">e74462afc0c46ca909990dcfa8996e05ccb61446</archived-checksum>
+    <extracted-checksum style="sha1">2615a108b61aa8fc03fdde4bf3892c48d3312ff7</extracted-checksum>
+    <encoding style="application/x-gzip"/>
+    <size>630</size>
+    <offset>310586</offset>
+    <length>334</length>
+   </data>
+  </file>
+ </toc>
+</xar>
