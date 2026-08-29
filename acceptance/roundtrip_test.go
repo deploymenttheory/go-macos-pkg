@@ -16,12 +16,12 @@ import (
 )
 
 // roundTrip expands the real package and rebuilds it, returning the
-// expanded directory, the rebuilt product archive, and the component
-// names. The rebuilt component is given the original's identity; modes
+// expanded directory, the rebuilt product archive, the component names,
+// and the rebuilt component packages. The rebuilt component is given the original's identity; modes
 // are taken from the extracted tree, except that the original's
 // executables are named explicitly so hosts without execute bits
 // (Windows) rebuild the same package as everyone else.
-func roundTrip(t *testing.T) (expanded, rebuilt string, components []string) {
+func roundTrip(t *testing.T) (expanded, rebuilt string, components, packages []string) {
 	t.Helper()
 	pkg := realPackage(t)
 	base := t.TempDir()
@@ -35,7 +35,6 @@ func roundTrip(t *testing.T) (expanded, rebuilt string, components []string) {
 	}
 	rebuiltDir := filepath.Join(base, "rebuilt")
 	os.MkdirAll(rebuiltDir, 0o755)
-	var packages []string
 	for _, c := range info.Packages {
 		compDir := filepath.Join(expanded, filepath.FromSlash(c.Name))
 		out := filepath.Join(rebuiltDir, c.Name) // the archive directory name must match the Distribution's #ref
@@ -62,7 +61,7 @@ func roundTrip(t *testing.T) (expanded, rebuilt string, components []string) {
 		args = append(args, "--package", p)
 	}
 	mustRun(t, args...)
-	return expanded, rebuilt, components
+	return expanded, rebuilt, components, packages
 }
 
 // executablePattern builds an anchored alternation of the original's
@@ -83,7 +82,7 @@ func executablePattern(t *testing.T, pkg, component string) string {
 
 func TestRealPackageRoundTrip(t *testing.T) {
 	pkg := realPackage(t)
-	expanded, rebuilt, components := roundTrip(t)
+	expanded, rebuilt, components, _ := roundTrip(t)
 
 	// Identity and payload numbers, as PackageInfo records them.
 	var orig, ours infoJSON
@@ -200,7 +199,7 @@ func TestRealPackageRoundTrip(t *testing.T) {
 func TestRealPackageRoundTripApple(t *testing.T) {
 	requireTools(t, "pkgutil", "lsbom", "xar")
 	pkg := realPackage(t)
-	_, rebuilt, components := roundTrip(t)
+	_, rebuilt, components, _ := roundTrip(t)
 
 	pf := func(p string) []string {
 		out := nonEmptyLines(hostTool(t, "pkgutil", "--payload-files", p))
@@ -242,15 +241,18 @@ func TestRealPackageRoundTripApple(t *testing.T) {
 	}
 }
 
-// TestRealPackageRoundTripInstalls installs the rebuilt package with
-// macOS's installer onto a scratch volume and compares the result with
-// the original payload.
+// TestRealPackageRoundTripInstalls installs the rebuilt component
+// packages with macOS's installer onto a scratch volume and compares the
+// result with the original payload. The components, not the product
+// archive: a Distribution decides where it may be installed (Go's allows
+// the boot volume only) and runs its own checks, whereas a component
+// package installs wherever installer is pointed.
 func TestRealPackageRoundTripInstalls(t *testing.T) {
 	requireTools(t, "installer", "hdiutil", "sudo")
 	if err := exec.Command("sudo", "-n", "true").Run(); err != nil {
 		t.Skip("passwordless sudo is not available; installer needs root")
 	}
-	expanded, rebuilt, components := roundTrip(t)
+	expanded, _, components, packages := roundTrip(t)
 
 	dmg := filepath.Join(t.TempDir(), "target.dmg")
 	hostTool(t, "hdiutil", "create", "-quiet", "-size", "1g", "-fs", "HFS+", "-volname", "MacospkgRoundTrip", dmg)
@@ -266,9 +268,11 @@ func TestRealPackageRoundTripInstalls(t *testing.T) {
 	}
 	defer exec.Command("hdiutil", "detach", "-quiet", mount).Run()
 
-	out, err := exec.Command("sudo", "-n", "installer", "-pkg", rebuilt, "-target", mount, "-verboseR").CombinedOutput()
-	if err != nil {
-		t.Fatalf("installer failed on the rebuilt package: %v\n%s", err, out)
+	for _, p := range packages {
+		out, err := exec.Command("sudo", "-n", "installer", "-pkg", p, "-target", mount, "-verboseR").CombinedOutput()
+		if err != nil {
+			t.Fatalf("installer failed on the rebuilt %s: %v\n%s", filepath.Base(p), err, out)
+		}
 	}
 	checked := 0
 	for _, comp := range components {
