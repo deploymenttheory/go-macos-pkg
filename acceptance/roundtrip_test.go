@@ -263,9 +263,7 @@ func installedPath(rel string) string {
 // package installs wherever installer is pointed.
 func TestRealPackageRoundTripInstalls(t *testing.T) {
 	requireTools(t, "installer", "hdiutil", "sudo")
-	if err := exec.Command("sudo", "-n", "true").Run(); err != nil {
-		t.Skip("passwordless sudo is not available; installer needs root")
-	}
+	requireInstallerOptIn(t)
 	expanded, _, components, packages := roundTrip(t)
 
 	dmg := filepath.Join(t.TempDir(), "target.dmg")
