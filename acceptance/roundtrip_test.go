@@ -241,6 +241,20 @@ func TestRealPackageRoundTripApple(t *testing.T) {
 	}
 }
 
+// installedPath maps a payload path to where installer puts it on a
+// target volume: /etc, /var and /tmp are symlinks into /private on a
+// boot volume, and installer writes under private/ on any volume rather
+// than creating the symlinks.
+func installedPath(rel string) string {
+	slash := filepath.ToSlash(rel)
+	for _, top := range []string{"etc/", "var/", "tmp/"} {
+		if strings.HasPrefix(slash, top) || slash == strings.TrimSuffix(top, "/") {
+			return filepath.FromSlash("private/" + slash)
+		}
+	}
+	return rel
+}
+
 // TestRealPackageRoundTripInstalls installs the rebuilt component
 // packages with macOS's installer onto a scratch volume and compares the
 // result with the original payload. The components, not the product
@@ -283,7 +297,7 @@ func TestRealPackageRoundTripInstalls(t *testing.T) {
 			}
 			rel, _ := filepath.Rel(src, p)
 			a, _ := fileSHA256(p)
-			b, err := fileSHA256(filepath.Join(mount, rel))
+			b, err := fileSHA256(filepath.Join(mount, installedPath(rel)))
 			if err != nil || a != b {
 				if checked < 20 {
 					t.Errorf("%s: installed %s differs from the payload (%v)", comp, rel, err)
