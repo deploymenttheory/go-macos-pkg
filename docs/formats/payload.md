@@ -82,3 +82,61 @@ every entry except the root rounded up to 512-byte blocks, summed, in
 whole kilobytes rounded up; directories count with the size APFS reports
 (32 × (children + 2)), symlinks with their target length. `macospkg`
 reproduces this exactly, which the parity test checks against `pkgbuild`.
+
+## Hard links
+
+pkgbuild writes every member of a hard-link set as a full entry — each
+carries the data — with the same cpio inode number and a link count of
+the set's size; the bill of materials records each member normally and
+indexes the inode once (see `bom.md`). `installKBytes` counts the set
+once. `macospkg build` does the same when the host reports inodes
+(`--hard-links auto`); `--hard-links copy` packages the members as
+separate files, which is all Windows can do. `extract` and `expand --full`
+link later members to the first (`--hard-links=false` writes copies).
+
+## Extended attributes: AppleDouble sidecars
+
+pkgbuild carries a file's extended attributes as a second entry named
+`._<name>` beside it, holding an AppleDouble file. Pinned from
+`testdata/cli/component-links.probe.json` (pkgbuild on macOS 26):
+
+- A file's sidecar follows the file; a directory's follows its whole
+  subtree; the payload root gets none. Symlinks get sidecars too.
+- Sidecar cpio header: mode `100644` whatever the owner is; uid, gid,
+  mtime and link count copied from the owner. A sidecar of a hard-linked
+  file shares the owner's inode number; other sidecars get their own.
+- Sidecar Bom record: 31 bytes — type 1 (file), architecture 1, the
+  owner's full mode (so `lsbom` shows a directory's sidecar with a
+  directory mode), and zero uid, gid, mtime, size and checksum. Sidecars
+  count in `numberOfFiles` but not in `installKBytes` or in a directory's
+  size.
+- The Scripts archive gets the same treatment.
+
+The AppleDouble layout (`pkg/appledouble`):
+
+```
+0    00 05 16 07                magic
+4    00 02 00 00                version
+8    "Mac OS X        "         16-byte filler
+24   u16 2                      entries
+26   {9, 50, attrEnd-50}        Finder info entry: covers everything up to the resource fork
+38   {2, attrEnd, len(rsrc)}    resource fork entry
+50   32 bytes                   Finder info (com.apple.FinderInfo, else zeros)
+82   2 bytes                    pad
+84   "ATTR" u32 debug_tag=0 u32 total_size=attrEnd u32 data_start
+     u32 data_length u32 reserved[3] u16 flags=0 u16 num_attrs
+120  entries                    {u32 offset, u32 length, u16 flags=0, u8 namelen incl. NUL, name NUL}
+                                each padded to a multiple of 4; sorted by name
+data_start                      values, in entry order
+attrEnd                         resource fork (com.apple.ResourceFork)
+```
+
+`com.apple.FinderInfo` and `com.apple.ResourceFork` go in their slots,
+never in the attribute list. `macospkg build` reads attributes from the
+tree (all of them on macOS, `user.*` on Linux, none on Windows), from a
+manifest's `file_xattrs`, and from `._` files already in the tree (a tree
+exported from macOS), and encodes the same bytes on every host, so a
+Linux build of a manifest reproduces a macOS build. `--exclude-xattr`
+drops names such as `com.apple.provenance`, which macOS stamps on files a
+process creates and which pkgbuild copies into every package built on
+such a host.

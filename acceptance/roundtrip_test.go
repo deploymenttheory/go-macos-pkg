@@ -38,7 +38,9 @@ func roundTrip(t *testing.T) (expanded, rebuilt string, components, packages []s
 	for _, c := range info.Packages {
 		compDir := filepath.Join(expanded, filepath.FromSlash(c.Name))
 		out := filepath.Join(rebuiltDir, c.Name) // the archive directory name must match the Distribution's #ref
-		args := []string{"build", filepath.Join(compDir, "Payload"), out, "--identifier", c.Identifier, "--version", c.Version}
+		// The host may stamp its own attributes on the extracted files;
+		// those must not become sidecars the original never had.
+		args := []string{"build", filepath.Join(compDir, "Payload"), out, "--identifier", c.Identifier, "--version", c.Version, "--exclude-xattr", hostNoiseXattrs}
 		if c.InstallLocation != "" {
 			args = append(args, "--install-location", c.InstallLocation)
 		}

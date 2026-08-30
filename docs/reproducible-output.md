@@ -41,3 +41,12 @@ same container bytes on every platform. The output is not byte-identical
 to pkgbuild's — Apple's liblzma and Go's encoder choose matches
 differently — but it has the same block size, chunk count and stream
 flags, and unpacks to the same files.
+
+## Extended attributes
+
+A build reads the tree's extended attributes, and macOS stamps
+`com.apple.provenance` on files a process creates, so two builds of the
+same tree on different Macs can differ by those sidecars. Pass
+`--exclude-xattr '^com\.apple\.(provenance|quarantine)$'` (or put the
+attributes you want in the manifest's `file_xattrs` and build with
+`--xattrs none`) to make the output depend on the tree alone.

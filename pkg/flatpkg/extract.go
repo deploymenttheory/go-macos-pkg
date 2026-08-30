@@ -2,6 +2,7 @@
 package flatpkg
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/deploymenttheory/go-macos-pkg/pkg/appledouble"
 	"github.com/deploymenttheory/go-macos-pkg/pkg/bom"
 	"github.com/deploymenttheory/go-macos-pkg/pkg/cpio"
 )
@@ -46,11 +48,64 @@ func ParseSymlinkMode(s string) (SymlinkMode, error) {
 }
 
 // ExtractOptions configures ExtractCPIO.
+// XattrMode says what extract does with the AppleDouble "._" sidecar
+// entries that carry extended attributes.
+type XattrMode int
+
+// Sidecar handling.
+const (
+	// XattrDefault applies attributes where the host supports them
+	// (macOS, Linux) and writes sidecar files elsewhere.
+	XattrDefault XattrMode = iota
+	// XattrApply sets the attributes on the extracted owner and writes no
+	// sidecar file. Attributes the host refuses are recorded as skipped.
+	XattrApply
+	// XattrFile writes the sidecars as files, beside their owners.
+	XattrFile
+	// XattrSkip drops the sidecars.
+	XattrSkip
+)
+
+// ParseXattrMode parses apply, file or skip.
+func ParseXattrMode(s string) (XattrMode, error) {
+	switch strings.ToLower(s) {
+	case "", "auto":
+		return XattrDefault, nil
+	case "apply":
+		return XattrApply, nil
+	case "file":
+		return XattrFile, nil
+	case "skip":
+		return XattrSkip, nil
+	}
+	return 0, fmt.Errorf("unknown xattrs mode %q: want apply, file or skip", s)
+}
+
+func (m XattrMode) resolve() XattrMode {
+	if m == XattrDefault {
+		if hostXattrsSupported {
+			return XattrApply
+		}
+		return XattrFile
+	}
+	return m
+}
+
+// maxSidecar bounds a sidecar read into memory: the attribute header is
+// at most 64 KiB, the resource fork after it is not, and 64 MiB covers
+// any resource fork worth carrying.
+const maxSidecar = 64 << 20
+
 type ExtractOptions struct {
 	// Pattern, when set, limits extraction to entries whose path matches.
 	Pattern *regexp.Regexp
 	// Symlinks selects symbolic link handling.
 	Symlinks SymlinkMode
+	// Xattrs says what to do with "._" sidecar entries.
+	Xattrs XattrMode
+	// NoHardLinks writes every member of a hard-link set as a separate
+	// file instead of linking the later members to the first.
+	NoHardLinks bool
 	// Checksums, when set, verifies each regular file against the bill of
 	// materials' cksum (the map is keyed by payload path, "./a/b").
 	Checksums map[string]uint32
@@ -69,6 +124,10 @@ type ExtractResult struct {
 	Files    int
 	Dirs     int
 	Symlinks int
+	// HardLinks counts the entries recreated as hard links; Xattrs the
+	// sidecars whose attributes were applied to their owners.
+	HardLinks int
+	Xattrs    int
 	// Renamed lists entries written under a different name because the
 	// host cannot store the original (Windows).
 	Renamed []Skip
@@ -101,6 +160,9 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 		t    time.Time
 	}
 	var dirTimes []dirTime
+	xattrMode := o.Xattrs.resolve()
+	// The first extracted path of each hard-link set, by cpio inode.
+	linked := map[uint64]string{}
 
 	for {
 		h, err := cr.Next()
@@ -124,6 +186,50 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 		target := filepath.Join(dir, filepath.FromSlash(rel))
 
 		switch {
+		case h.IsRegular() && appledouble.IsSidecarName(h.Name) && xattrMode != XattrFile:
+			handled, raw, err := applySidecar(cr, h, dir, xattrMode, res)
+			if err != nil {
+				return res, err
+			}
+			if handled {
+				continue
+			}
+			// Not AppleDouble after all: an ordinary file whose name
+			// starts with "._"; it has been buffered, so write it out.
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return res, err
+			}
+			sum, err := writeFile(target, bytes.NewReader(raw), h)
+			if err != nil {
+				return res, fmt.Errorf("unable to write %s: %w", rel, err)
+			}
+			if want, ok := o.Checksums[h.Name]; ok && sum != want {
+				res.Mismatched = append(res.Mismatched, h.Name)
+			}
+			res.Files++
+		case h.IsRegular() && !o.NoHardLinks && h.NLink > 1 && !appledouble.IsSidecarName(h.Name) && linked[h.Inode] != "":
+			// A later member of a hard-link set: link it to the first.
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return res, err
+			}
+			_ = os.Remove(target)
+			if err := os.Link(linked[h.Inode], target); err == nil {
+				if _, err := io.Copy(io.Discard, cr); err != nil {
+					return res, fmt.Errorf("unable to read %s: %w", rel, err)
+				}
+				res.HardLinks++
+				res.Files++
+				break
+			}
+			// The host refused the link; write a copy.
+			sum, err := writeFile(target, cr, h)
+			if err != nil {
+				return res, fmt.Errorf("unable to write %s: %w", rel, err)
+			}
+			if want, ok := o.Checksums[h.Name]; ok && sum != want {
+				res.Mismatched = append(res.Mismatched, h.Name)
+			}
+			res.Files++
 		case h.IsDir():
 			if rel != "." {
 				if err := os.MkdirAll(target, 0o755); err != nil {
@@ -145,6 +251,9 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 				res.Mismatched = append(res.Mismatched, h.Name)
 			}
 			res.Files++
+			if h.NLink > 1 && !appledouble.IsSidecarName(h.Name) {
+				linked[h.Inode] = target
+			}
 		case h.IsSymlink():
 			linkTarget, err := io.ReadAll(io.LimitReader(cr, 65536))
 			if err != nil {
@@ -178,6 +287,44 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 }
 
 var errSymlinkRefused = errors.New("host refused")
+
+// applySidecar reads a "._" entry and applies (or skips) its attributes.
+// It reports false, and the bytes it read, when the entry is not an
+// AppleDouble file after all and the caller should write it as a file.
+func applySidecar(r io.Reader, h *cpio.Header, dir string, mode XattrMode, res *ExtractResult) (bool, []byte, error) {
+	if h.Size > maxSidecar {
+		return false, nil, fmt.Errorf("%s: sidecar of %d bytes is larger than %d", h.Name, h.Size, maxSidecar)
+	}
+	b, err := io.ReadAll(io.LimitReader(r, h.Size))
+	if err != nil {
+		return false, nil, fmt.Errorf("unable to read %s: %w", h.Name, err)
+	}
+	f, err := appledouble.Decode(b)
+	if err != nil {
+		return false, b, nil
+	}
+	if mode == XattrSkip {
+		res.Skipped = append(res.Skipped, Skip{Path: h.Name, Reason: "extended attributes skipped"})
+		return true, nil, nil
+	}
+	owner, _ := appledouble.OwnerName(h.Name)
+	rel, _, reason := SafeRelPath(owner)
+	if reason != "" {
+		res.Skipped = append(res.Skipped, Skip{Path: h.Name, Reason: reason})
+		return true, nil, nil
+	}
+	target := filepath.Join(dir, filepath.FromSlash(rel))
+	if _, err := os.Lstat(target); err != nil {
+		res.Skipped = append(res.Skipped, Skip{Path: h.Name, Reason: "owner " + owner + " was not extracted"})
+		return true, nil, nil
+	}
+	if err := setHostXattrs(target, f.Xattrs()); err != nil {
+		res.Skipped = append(res.Skipped, Skip{Path: h.Name, Reason: "attribute not set: " + err.Error()})
+		return true, nil, nil
+	}
+	res.Xattrs++
+	return true, nil, nil
+}
 
 func writeFile(target string, r io.Reader, h *cpio.Header) (uint32, error) {
 	f, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)

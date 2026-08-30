@@ -6,6 +6,7 @@ package acceptance
 import (
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -67,7 +68,19 @@ type buildJSON struct {
 
 const epoch = "1704164645" // 2024-01-02T03:04:05Z
 
+// hostNoiseXattrs matches the attributes a macOS build host stamps on
+// the files it creates. They describe the host, not the package, so the
+// tests that count entries leave them out; the parity tests keep them,
+// because pkgbuild carries them too.
+const hostNoiseXattrs = `^com\.apple\.(provenance|quarantine)$`
+
 func buildArgs(root, scripts, out string) []string {
+	return append(parityBuildArgs(root, scripts, out), "--exclude-xattr", hostNoiseXattrs)
+}
+
+// parityBuildArgs builds exactly as pkgbuild would, host attributes and
+// all.
+func parityBuildArgs(root, scripts, out string) []string {
 	args := []string{"build", root, out, "--identifier", "com.deploymenttheory.acceptance", "--version", "1.0.0", "--scripts", scripts, "--source-date-epoch", epoch}
 	if runtime.GOOS == "windows" {
 		args = append(args, "--executable", `bin/tool$`)
@@ -153,11 +166,7 @@ func TestBuildReproducible(t *testing.T) {
 	}
 	// The bare SOURCE_DATE_EPOCH variable is honoured, and the flag beats it.
 	c := filepath.Join(t.TempDir(), "c.pkg")
-	args := buildArgs(root, scripts, c)
-	args = args[:len(args)-2] // drop --source-date-epoch
-	if runtime.GOOS == "windows" {
-		args = append(args, "--executable", `bin/tool$`)
-	}
+	args := withoutFlag(buildArgs(root, scripts, c), "--source-date-epoch")
 	_, stderr, code := runEnv(t, []string{"SOURCE_DATE_EPOCH=" + epoch}, args...)
 	if code != 0 {
 		t.Fatalf("build with SOURCE_DATE_EPOCH: %s", stderr)
@@ -322,11 +331,12 @@ func TestBuildParityWithPkgbuild(t *testing.T) {
 
 	ours := filepath.Join(t.TempDir(), "ours.pkg")
 	theirs := filepath.Join(t.TempDir(), "theirs.pkg")
-	mustRun(t, buildArgs(root, scripts, ours)...)
+	mustRun(t, parityBuildArgs(root, scripts, ours)...)
 	hostTool(t, "pkgbuild", "--quiet", "--root", root, "--identifier", "com.deploymenttheory.acceptance", "--version", "1.0.0", "--scripts", scripts, "--ownership", "recommended", theirs)
 
-	// Bill of materials, as lsbom prints it (dropping the ._ sidecars a
-	// provenance-tracking host makes pkgbuild add).
+	// Bill of materials, as lsbom prints it, ._ sidecars included: a
+	// provenance-tracking host makes pkgbuild add them, and we read the
+	// same attributes.
 	oursDir := filepath.Join(t.TempDir(), "ours")
 	theirsDir := filepath.Join(t.TempDir(), "theirs")
 	hostTool(t, "pkgutil", "--expand", ours, oursDir)
@@ -335,15 +345,24 @@ func TestBuildParityWithPkgbuild(t *testing.T) {
 		var out []string
 		for _, l := range nonEmptyLines(hostTool(t, "lsbom", "-p", "fmugsc", filepath.Join(dir, "Bom"))) {
 			cols := strings.Split(l, "\t")
-			if isAppleDouble(cols[0]) {
-				continue
-			}
 			// pkgbuild's --ownership recommended misses files whose names
 			// are not ASCII (the NFD name on disk does not match) and
 			// records the builder's own uid:gid for them. That is a
 			// pkgbuild bug, not a rule to copy; compare everything else.
+			// The same bug zeroes the mode of such a file's ._ sidecar
+			// and spells that sidecar's name decomposed while leaving the
+			// file's own entry precomposed, so the two halves of
+			// pkgbuild's own bill of materials disagree: an installer
+			// restoring it would put "._e<U+0301>" beside "é" on a
+			// normalisation-preserving volume. We name a sidecar after
+			// its owner, byte for byte. Compare that the entry is there,
+			// not how pkgbuild spelled it.
 			if len(cols) >= 4 && !isASCII(cols[0]) {
 				cols[2], cols[3] = "-", "-"
+				if isAppleDouble(cols[0]) {
+					cols[0] = path.Dir(cols[0]) + "/._<non-ascii>"
+					cols[1] = "-"
+				}
 			}
 			out = append(out, strings.Join(cols, "\t"))
 		}
@@ -356,8 +375,7 @@ func TestBuildParityWithPkgbuild(t *testing.T) {
 	}
 	attest(t, "lsbom agrees with pkgbuild on %d entries", len(a))
 
-	// PackageInfo numbers: files differ by the sidecars, kilobytes should
-	// not (sidecars are not counted).
+	// PackageInfo numbers.
 	var oursInfo, theirsInfo infoJSON
 	mustRunJSON(t, &oursInfo, "info", ours)
 	mustRunJSON(t, &theirsInfo, "info", theirs)
@@ -365,7 +383,7 @@ func TestBuildParityWithPkgbuild(t *testing.T) {
 	if op.InstallKBytes != tp.InstallKBytes {
 		t.Errorf("installKBytes: ours %d, pkgbuild %d", op.InstallKBytes, tp.InstallKBytes)
 	}
-	if !manifest.Generator.AppleDouble && op.NumberOfFiles != tp.NumberOfFiles {
+	if op.NumberOfFiles != tp.NumberOfFiles {
 		t.Errorf("numberOfFiles: ours %d, pkgbuild %d", op.NumberOfFiles, tp.NumberOfFiles)
 	}
 	if !equalStrings(oursInfo.Packages[0].Scripts, theirsInfo.Packages[0].Scripts) {
@@ -384,11 +402,7 @@ func TestBuildParityWithPkgbuild(t *testing.T) {
 	// pkgutil's payload listing.
 	pf := func(p string) []string {
 		var out []string
-		for _, l := range nonEmptyLines(hostTool(t, "pkgutil", "--payload-files", p)) {
-			if !isAppleDouble(l) {
-				out = append(out, l)
-			}
-		}
+		out = append(out, nonEmptyLines(hostTool(t, "pkgutil", "--payload-files", p))...)
 		sort.Strings(out)
 		return out
 	}
@@ -412,6 +426,20 @@ func TestBuildParityWithPkgbuild(t *testing.T) {
 	if !strings.Contains(listing, "root") || !strings.Contains(listing, "wheel") {
 		t.Errorf("payload owners are not root:wheel:\n%s", listing)
 	}
+}
+
+// withoutFlag drops a "--name value" pair from an argument list, so a
+// test can build the same way but for one option.
+func withoutFlag(args []string, name string) []string {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		if args[i] == name {
+			i++ // and its value
+			continue
+		}
+		out = append(out, args[i])
+	}
+	return out
 }
 
 func isASCII(s string) bool {

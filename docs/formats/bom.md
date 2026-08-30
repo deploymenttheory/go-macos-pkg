@@ -68,7 +68,24 @@ gzip use, which is what bomutils documents.
 
 `BomInfo` is `version u32 = 1, numberOfPaths u32 = paths + 1,
 numberOfEntries u32, entries × 16 bytes`; `mkbom` writes one entry whose
-third word is the total size of all files. `HLIndex` carries one entry
+third word is the total size of all files. `HLIndex` (see below) carries one entry
 per path whose value is an empty 64-byte tree of its own; `VIndex` and
 `Size64` are empty trees, the latter holding sizes over 4 GiB keyed by
 path id when there are any.
+
+## HLIndex and hard links
+
+`HLIndex` is keyed by a path's record block and valued with an empty
+64-byte tree per entry. It holds one entry per inode: every path, except
+that the members of a hard-link set (same device and inode in the source
+tree) contribute only their **last member in Paths order** — from the
+links probe, `a.txt`, `b.txt` and `d/c.txt` share an inode and only
+`d/c.txt` is indexed. `._` sidecars are always indexed, even when they
+share their owner's cpio inode. The tree's path count is the number of
+entries.
+
+## Sidecar records
+
+A `._` AppleDouble entry gets a 31-byte record: type 1, architecture 1,
+the owner's full mode, zero uid/gid/mtime/size/checksum, one trailing
+zero word. See `payload.md` for the sidecar's content and placement.

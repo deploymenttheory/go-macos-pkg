@@ -44,6 +44,7 @@ Notarized: yes (ticket on record with Apple)
 | Verify signatures against Apple's roots; team, timestamp, staple | ✅ | ✅ | ✅ |
 | Notarize (App Store Connect API key) and staple | ✅ | ✅ | ✅ |
 | Payloads: gzip cpio, pbzx (`--compression latest`), `--large-payload` | read+write / read+write / read |||
+| Hard links and extended attributes (`._` sidecars), as pkgbuild carries them | ✅ | ✅ | xattrs from a manifest; links as copies |
 
 See [`TOOLS_STATUS.md`](TOOLS_STATUS.md) for the exact state of each area.
 

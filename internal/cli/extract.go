@@ -16,6 +16,8 @@ var (
 	extractPattern   string
 	extractSymlinks  string
 	extractVerify    bool
+	extractXattrs    string
+	extractHardLinks bool
 )
 
 var extractCmd = &cobra.Command{
@@ -51,6 +53,8 @@ func init() {
 	extractCmd.Flags().BoolVar(&extractScripts, "scripts", false, "extract the Scripts archives rather than the payloads")
 	extractCmd.Flags().StringVar(&extractPattern, "pattern", "", "only payload paths matching this regular expression")
 	extractCmd.Flags().StringVar(&extractSymlinks, "symlinks", "auto", "symbolic links: auto, real or file")
+	extractCmd.Flags().StringVar(&extractXattrs, "xattrs", "auto", "\"._\" sidecars: apply (set the attributes on the owner), file (write them as files) or skip; auto applies where the host can")
+	extractCmd.Flags().BoolVar(&extractHardLinks, "hard-links", true, "recreate hard links; --hard-links=false writes copies")
 	extractCmd.Flags().BoolVar(&extractVerify, "verify", false, "verify each file's CRC-32 against the bill of materials")
 }
 
@@ -69,6 +73,8 @@ type componentReport struct {
 	Files      int      `json:"files"`
 	Dirs       int      `json:"dirs"`
 	Symlinks   int      `json:"symlinks"`
+	HardLinks  int      `json:"hardLinks"`
+	Xattrs     int      `json:"xattrs"`
 	Renamed    []string `json:"renamed"`
 	Skipped    []string `json:"skipped"`
 	Mismatched []string `json:"mismatched"`
@@ -76,6 +82,10 @@ type componentReport struct {
 
 func runExtract(cmd *cobra.Command, args []string) error {
 	mode, err := flatpkg.ParseSymlinkMode(extractSymlinks)
+	if err != nil {
+		return usageErrorf("%v", err)
+	}
+	xattrMode, err := flatpkg.ParseXattrMode(extractXattrs)
 	if err != nil {
 		return usageErrorf("%v", err)
 	}
@@ -104,9 +114,11 @@ func runExtract(cmd *cobra.Command, args []string) error {
 			dir = filepath.Join(args[1], filepath.FromSlash(c.Name))
 		}
 		o := flatpkg.ExtractOptions{
-			Pattern:  pattern,
-			Symlinks: mode,
-			Progress: func(path string) { verbosef("wrote %s", path) },
+			Pattern:     pattern,
+			Symlinks:    mode,
+			Xattrs:      xattrMode,
+			NoHardLinks: !extractHardLinks,
+			Progress:    func(path string) { verbosef("wrote %s", path) },
 		}
 		var res *flatpkg.ExtractResult
 		var enc flatpkg.PayloadEncoding
@@ -139,7 +151,7 @@ func runExtract(cmd *cobra.Command, args []string) error {
 		}
 		cr := componentReport{
 			Component: c.Name, Dir: dir, Encoding: string(enc),
-			Files: res.Files, Dirs: res.Dirs, Symlinks: res.Symlinks,
+			Files: res.Files, Dirs: res.Dirs, Symlinks: res.Symlinks, HardLinks: res.HardLinks, Xattrs: res.Xattrs,
 			Renamed: []string{}, Skipped: []string{}, Mismatched: res.Mismatched,
 		}
 		if cr.Mismatched == nil {
