@@ -231,3 +231,79 @@ func TestInstallerInstallsOurLinksPackage(t *testing.T) {
 	}
 	attest(t, "installer installed hard links and extended attributes from our package onto %s", mount)
 }
+
+// TestManifestXattrOverrides drives the manifest's file_xattrs through
+// the binary on every platform: base64 values, a per-file rule, a folder
+// rule that covers a subtree, replace, and stripping a path. It is the
+// only cover for the manifest decoding, and it needs no host attributes,
+// since the rules supply them.
+func TestManifestXattrOverrides(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "root")
+	for _, f := range []string{"keep/a.txt", "sub/b.txt", "sub/deep/c.txt", "gone/d.txt"} {
+		p := filepath.Join(root, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// "hello" and "team" in base64.
+	manifest := filepath.Join(base, "build-info.yaml")
+	if err := os.WriteFile(manifest, []byte(`
+identifier: com.deploymenttheory.overrides
+version: "1.0"
+xattrs: none
+file_xattrs:
+  - path: keep/a.txt
+    xattrs:
+      com.example.tag: aGVsbG8=
+  - path: sub/
+    replace: true
+    xattrs:
+      com.example.owner: dGVhbQ==
+  - path: gone/
+    replace: true
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(base, "out.pkg")
+	mustRun(t, "build", root, out, "--manifest", manifest, "--source-date-epoch", epoch)
+
+	// The sidecars written are exactly the paths the rules name.
+	var got []string
+	for _, l := range nonEmptyLines(mustRun(t, "list", out)) {
+		if isAppleDouble(l) {
+			got = append(got, l)
+		}
+	}
+	sort.Strings(got)
+	// keep/a.txt from its own rule; ./sub and everything under it from the
+	// folder rule; nothing under ./gone, which was replaced with nothing.
+	want := []string{"./._sub", "./keep/._a.txt", "./sub/._b.txt", "./sub/._deep", "./sub/deep/._c.txt"}
+	if !equalStrings(got, want) {
+		t.Errorf("sidecars = %v, want %v", got, want)
+	}
+
+	// And they carry the values the rules gave.
+	dir := filepath.Join(base, "x")
+	mustRun(t, "extract", out, dir, "--xattrs", "file")
+	attrs := func(rel string) string {
+		b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatalf("%s: %v", rel, err)
+		}
+		return string(b)
+	}
+	if a := attrs("keep/._a.txt"); !strings.Contains(a, "com.example.tag") || !strings.Contains(a, "hello") {
+		t.Errorf("keep/._a.txt does not carry com.example.tag=hello")
+	}
+	for _, rel := range []string{"._sub", "sub/._b.txt", "sub/._deep", "sub/deep/._c.txt"} {
+		if a := attrs(rel); !strings.Contains(a, "com.example.owner") || !strings.Contains(a, "team") {
+			t.Errorf("%s does not carry the folder rule's com.example.owner=team", rel)
+		}
+	}
+	attest(t, "manifest file_xattrs applied per file, per folder, and stripped a subtree")
+}
