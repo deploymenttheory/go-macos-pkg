@@ -3,7 +3,7 @@
 // A Payload is a cpio archive, but pkgbuild wraps it in one of two ways
 // depending on its flags: gzip (the default and the only one every macOS
 // reads) or a pbz* block-compression container (--compression latest,
-// which has meant pbzx — xz chunks — on every macOS from 12 to 26).
+// which has meant pbzx (xz chunks) on every macOS from 12 to 26).
 // --large-payload keeps gzip but names the entry LargeSegmentedPayload.
 // Apple Archive is recognised so that an .aar handed to the tool is named
 // correctly; the Installer itself never reads it. The first bytes tell

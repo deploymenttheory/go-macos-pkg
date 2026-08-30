@@ -1,4 +1,4 @@
-// macospkg expand PKG DIR — unpack the archive like pkgutil --expand.
+// macospkg expand PKG DIR: unpack the archive like pkgutil --expand.
 package cli
 
 import (
@@ -22,7 +22,7 @@ var expandCmd = &cobra.Command{
 	Long: `Write the package's archive entries, decoded, into a new directory DIR:
 PackageInfo, Bom, Distribution and Resources as files, each Scripts archive
 unpacked into a Scripts directory, and each Payload left as the gzip cpio
-stream it is — exactly the layout pkgutil --expand produces.
+stream it is, exactly the layout pkgutil --expand produces.
 
 --full also unpacks every Payload into a directory of the same name, as
 pkgutil --expand-full does.

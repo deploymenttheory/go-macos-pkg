@@ -1,4 +1,4 @@
-// macospkg sign PKG OUT.pkg — sign a package with a Developer ID
+// macospkg sign PKG OUT.pkg: sign a package with a Developer ID
 // Installer certificate.
 package cli
 

@@ -131,8 +131,8 @@ func ParseXattrSource(s string) (XattrSource, error) {
 
 // XattrOverride sets extended attributes on the payload paths it names,
 // overriding what the tree and its "._" sidecars carry. Attributes are
-// reapplied by default — unpacking and packing again reproduces the
-// original package — and an override is how a path departs from that.
+// reapplied by default (unpacking and packing again reproduces the
+// original package), and an override is how a path departs from that.
 //
 // A rule's own values are not subject to ExcludeXattr: naming a path and
 // a value is more specific than filtering a name across the whole tree.

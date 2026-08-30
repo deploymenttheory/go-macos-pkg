@@ -1,4 +1,4 @@
-// macospkg product -o OUT.pkg --package X.pkg... — build a product archive.
+// macospkg product -o OUT.pkg --package X.pkg...: build a product archive.
 package cli
 
 import (
@@ -24,7 +24,7 @@ var (
 var productCmd = &cobra.Command{
 	Use:   "product OUT.pkg --package X.pkg [--package Y.pkg ...]",
 	Short: "Build a product archive (distribution) from component packages",
-	Long: `Build a product archive — what productbuild makes — from one or more
+	Long: `Build a product archive (what productbuild makes) from one or more
 component packages. A product archive carries a Distribution script that
 the Installer runs to present choices and decide what to install; it is
 the form to distribute, and the form notarization expects.

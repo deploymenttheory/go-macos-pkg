@@ -2,7 +2,7 @@
 // rebuilt with macospkg from what came out, and the two are compared
 // entry for entry. This is the writers' hardest test: every rule
 // pkgbuild and productbuild followed must be reproduced for the rebuilt
-// package to match — and on macOS, Apple's own readers judge both.
+// package to match, and on macOS, Apple's own readers judge both.
 package acceptance
 
 import (
@@ -131,7 +131,7 @@ func TestRealPackageRoundTrip(t *testing.T) {
 		if !equalStrings(ob, rb) {
 			t.Errorf("%s bundles: rebuilt %v, original %v", o.Name, rb, ob)
 		}
-		attest(t, "%s: %d files, %d KB installed — rebuilt identically", o.Name, r.Payload.NumberOfFiles, r.Payload.InstallKBytes)
+		attest(t, "%s: %d files, %d KB installed, rebuilt identically", o.Name, r.Payload.NumberOfFiles, r.Payload.InstallKBytes)
 	}
 	if orig.Distribution.Title != ours.Distribution.Title || !equalStrings(orig.Distribution.Resources, ours.Distribution.Resources) {
 		t.Errorf("distribution: rebuilt %+v, original %+v", ours.Distribution, orig.Distribution)

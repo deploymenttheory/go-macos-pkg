@@ -1,4 +1,4 @@
-// macospkg list PKG — payload files from the bill of materials, or archive
+// macospkg list PKG: payload files from the bill of materials, or archive
 // entries.
 package cli
 

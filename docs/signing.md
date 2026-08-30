@@ -2,7 +2,7 @@
 
 `macospkg sign`, and `--sign-*` on `build` and `product`, produce the
 signature `productsign` produces, and `verify` checks it the way `pkgutil
---check-signature` does — with no keychain, on any platform.
+--check-signature` does, with no keychain, on any platform.
 
 ## What a signature is
 
@@ -50,8 +50,8 @@ service requires one.
 
 ## Verification
 
-`verify` reports every fact separately in JSON — digest, RSA, CMS, chain,
-team, timestamp, staple — and exits 7 if any check fails. Trust is
+`verify` reports every fact separately in JSON (digest, RSA, CMS, chain,
+team, timestamp, staple) and exits 7 if any check fails. Trust is
 evaluated against Apple's root certificates built in (`pkg/pkgsign/roots`,
 exported from macOS's system roots), or `--trust-anchors file.pem` for a
 private CA. Apple marks its certificate extensions critical; those are

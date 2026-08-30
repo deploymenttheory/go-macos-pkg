@@ -5,9 +5,9 @@ input, on every platform, when the build timestamp is pinned.
 
 ## How it works
 
-Every timestamp a package carries — cpio and bill-of-materials
+Every timestamp a package carries (cpio and bill-of-materials
 modification times, the xar creation time and entry times, the CMS
-signing time — is taken from the epoch instead of the clock. Directory
+signing time) is taken from the epoch instead of the clock. Directory
 walks are sorted. Inode numbers are handed out in payload order, and the
 members of a hard-link set share the one their first member was given, so
 they depend on the tree rather than on the host's own inodes. gzip streams
@@ -40,8 +40,8 @@ the hashes across a run.
 16 MiB block is compressed by a pure-Go xz encoder with fixed parameters
 (8 MiB dictionary, no integrity check), so the same input bytes give the
 same container bytes on every platform. The output is not byte-identical
-to pkgbuild's — Apple's liblzma and Go's encoder choose matches
-differently — but it has the same block size, chunk count and stream
+to pkgbuild's, because Apple's liblzma and Go's encoder choose matches
+differently, but it has the same block size, chunk count and stream
 flags, and unpacks to the same files.
 
 ## Extended attributes

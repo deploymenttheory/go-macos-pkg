@@ -1,4 +1,4 @@
-// macospkg extract PKG DIR — extract payload files to the local file system.
+// macospkg extract PKG DIR: extract payload files to the local file system.
 package cli
 
 import (

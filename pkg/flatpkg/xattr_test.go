@@ -372,7 +372,7 @@ func TestXattrOverrides(t *testing.T) {
 	if len(got) != 2 || string(got["com.example.orig"]) != "tree" || string(got["com.example.new"]) != "v" {
 		t.Errorf("./keep/a = %v, want the tree's attribute plus the new one", got)
 	}
-	// Replaced, throughout the folder — the directory entry included.
+	// Replaced, throughout the folder, the directory entry included.
 	for _, rel := range []string{"./sub", "./sub/b", "./sub/deep", "./sub/deep/c"} {
 		got := attrsOf(entries, rel)
 		if len(got) != 1 || string(got["com.example.folder"]) != "f" {

@@ -1,4 +1,4 @@
-// macospkg inspect PKG VERB — low-level structural inspection.
+// macospkg inspect PKG VERB: low-level structural inspection.
 package cli
 
 import (

@@ -1,8 +1,8 @@
 # Notarization
 
 `macospkg notarize` submits a signed package to Apple's notary service,
-waits for the verdict and staples the ticket — `notarytool submit --wait`
-and `stapler staple` — from Linux, Windows or macOS. `build --notarize`
+waits for the verdict and staples the ticket, the work of `notarytool submit --wait`
+and `stapler staple`, from Linux, Windows or macOS. `build --notarize`
 and `product --notarize` do it as the last step of a build.
 
 ## Credentials

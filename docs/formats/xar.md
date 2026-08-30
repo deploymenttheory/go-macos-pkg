@@ -69,7 +69,7 @@ tools sometimes write duplicate `<name>` elements; the last one wins.
 ## Heap
 
 The heap begins at `28 + toc_length_compressed`. Every offset in the TOC
-is relative to it. Its first bytes are the TOC digest — the hash, with
+is relative to it. Its first bytes are the TOC digest: the hash, with
 the header's algorithm, of the **compressed** TOC bytes. A signed archive
 keeps its signatures right after the digest, then the entry data.
 
@@ -86,5 +86,5 @@ stored (they are already gzip cpio), real inode/uid/user metadata, a
 `macospkg build` writes a SHA-256 digest, the same entry order and
 encodings, `root`/`wheel` ownership and no `<ea>` elements. Those describe
 the archive entries themselves; a payload file's own extended attributes
-travel inside the payload, as `._` AppleDouble entries — see
+travel inside the payload, as `._` AppleDouble entries. See
 [`payload.md`](payload.md).

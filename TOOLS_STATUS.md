@@ -37,7 +37,7 @@ exercises it. Sizes under 4 GiB come from the path record and are exact.
 
 ² Apple Archive is detected and reported (exit 5); nothing decodes it yet.
 Note that `pkgbuild --large-payload` does not produce Apple Archive on
-current macOS — it produces a gzip cpio named `LargeSegmentedPayload`,
+current macOS: it produces a gzip cpio named `LargeSegmentedPayload`,
 which is fully supported.
 
 ³ Byte-identical to `pkgutil` for every entry. `._` AppleDouble sidecar
