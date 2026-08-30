@@ -43,10 +43,34 @@ Notarized: yes (ticket on record with Apple)
 | Sign with a Developer ID Installer certificate, with Apple timestamps | ✅ | ✅ | ✅ |
 | Verify signatures against Apple's roots; team, timestamp, staple | ✅ | ✅ | ✅ |
 | Notarize (App Store Connect API key) and staple | ✅ | ✅ | ✅ |
-| Payloads: gzip cpio, pbzx (`--compression latest`), `--large-payload` | read+write / read+write / read |||
+| Payloads: read and write gzip cpio and pbzx | ✅ | ✅ | ✅ |
+| Payloads: read `pbze`/`pbz4`/`pbzz` and `pkgbuild --large-payload` | ✅ | ✅ | ✅ |
 | Hard links and extended attributes (`._` sidecars), as pkgbuild carries them | ✅ | ✅ | xattrs as `._` files; links as copies |
 
 See [`TOOLS_STATUS.md`](TOOLS_STATUS.md) for the exact state of each area.
+
+### Payload containers
+
+A Payload is a cpio archive; what differs between packages is the
+container it is wrapped in, which the first bytes identify. None of this
+depends on the host — the readers and writers are ordinary Go, so macOS,
+Linux and Windows behave identically.
+
+| Container | What it is | Support |
+|---|---|---|
+| gzip cpio | `pkgbuild`'s default, and the only container every macOS can install | read + write (the default) |
+| `pbzx` | xz-compressed 16 MiB blocks: smaller, but only macOS 12 and later installs it | read + write (`--compression pbzx`, which `pkgbuild` spells `latest`) |
+| `pbze`, `pbz4`, `pbzz` | the same container with LZFSE, Apple-framed LZ4 or zlib chunks, written by `aa` and libParallelCompression rather than `pkgbuild` | read |
+| `pbzb` | the same container with LZBITMAP, which has no public specification | detected, reported, exit 5 |
+| Apple Archive | a different format entirely; the Installer does not read it either | detected, reported, exit 5 |
+
+`--large-payload` is `pkgbuild`'s flag, not one of ours. It writes an
+ordinary gzip cpio but names the archive entry `LargeSegmentedPayload`,
+so such packages are read like any other; `macospkg build` always writes
+the entry as `Payload`. Choosing `--compression pbzx` sets the package's
+minimum system version to 12.0 unless you ask for a higher one, because
+older systems cannot install it. The byte-level details are in
+[`docs/formats/payload.md`](docs/formats/payload.md).
 
 ## Install
 
