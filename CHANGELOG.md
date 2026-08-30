@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.1](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.3.0...v0.3.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* match sentinel errors by identity, not by message text ([85ed68b](https://github.com/deploymenttheory/go-macos-pkg/commit/85ed68be62c144efc1310972cc4c70c793d79058))
+* match sentinel errors by identity, not by message text ([7c32ea8](https://github.com/deploymenttheory/go-macos-pkg/commit/7c32ea85968b8d62b252cb09b6da0150c8a643bf))
+
+
+### Performance Improvements
+
+* stop the LZBITMAP search sweeping history that never matches ([684bb1d](https://github.com/deploymenttheory/go-macos-pkg/commit/684bb1df4f9625f2e22a93101571da44097521a4))
+* stop the LZBITMAP search sweeping history that never matches ([bc218b7](https://github.com/deploymenttheory/go-macos-pkg/commit/bc218b78172e2ec0ab12bf6823892f16f9dfaea3))
+
 ## [0.3.0](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.2.0...v0.3.0) (2026-08-30)
 
 
