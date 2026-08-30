@@ -29,10 +29,11 @@ Attributes: `identifier`, `version`, `format-version` (2),
 (`none`|`logout`|`restart`|`shutdown`), `minimumSystemVersion`,
 `preserve-xattr`, `useHFSPlusCompression`. Recognised scripts:
 `preflight`, `preinstall`, `preupgrade`, `postinstall`, `postupgrade`,
-`postflight`. Every bundle found in the payload (directories named
-`*.app`, `*.framework`, `*.bundle`, `*.plugin`, `*.kext`, … with an
-`Info.plist`) is listed in `bundle-version`, and in `relocate` unless
-bundle relocation is suppressed.
+`postflight`. Every bundle found in the payload is listed in `bundle-version`, and in
+`relocate` unless bundle relocation is suppressed. A bundle is a directory
+with an `Info.plist` whose name ends in `.app`, `.framework`, `.bundle`,
+`.plugin`, `.kext`, `.appex`, `.xpc`, `.prefPane`, `.qlgenerator`,
+`.saver` or `.mdimporter`.
 
 ## Distribution
 
