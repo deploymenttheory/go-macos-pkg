@@ -231,7 +231,7 @@ func TestBuildSignsInline(t *testing.T) {
 
 // TestPkgutilReadsOurSignature: Apple's pkgutil parses the signature we
 // wrote and names the certificate. The fixture CA is not trusted by the
-// system, so the status is "untrusted" — which is the point: pkgutil got
+// system, so the status is "untrusted", which is the point: pkgutil got
 // as far as evaluating trust, so the structure is right.
 func TestPkgutilReadsOurSignature(t *testing.T) {
 	requireTools(t, "pkgutil", "xar")

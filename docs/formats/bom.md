@@ -78,7 +78,7 @@ path id when there are any.
 `HLIndex` is keyed by a path's record block and valued with an empty
 64-byte tree per entry. It holds one entry per inode: every path, except
 that the members of a hard-link set (same device and inode in the source
-tree) contribute only their **last member in Paths order** — from the
+tree) contribute only their **last member in Paths order**. From the
 links probe, `a.txt`, `b.txt` and `d/c.txt` share an inode and only
 `d/c.txt` is indexed. `._` sidecars are always indexed, even when they
 share their owner's cpio inode. The tree's path count is the number of

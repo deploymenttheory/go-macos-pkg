@@ -1,4 +1,4 @@
-// macospkg verify PKG — verify a package signature.
+// macospkg verify PKG: verify a package signature.
 package cli
 
 import (

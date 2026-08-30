@@ -58,7 +58,7 @@ func TestHLIndexPerInode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// ., ._a.txt, d, d/c.txt, x — not a.txt or b.txt.
+	// ., ._a.txt, d, d/c.txt, x, but not a.txt or b.txt.
 	if tree.PathCount != 5 {
 		t.Errorf("HLIndex has %d leaves, want 5", tree.PathCount)
 	}

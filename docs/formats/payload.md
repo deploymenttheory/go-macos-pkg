@@ -85,8 +85,8 @@ reproduces this exactly, which the parity test checks against `pkgbuild`.
 
 ## Hard links
 
-pkgbuild writes every member of a hard-link set as a full entry — each
-carries the data — with the same cpio inode number and a link count of
+pkgbuild writes every member of a hard-link set as a full entry (each
+carries the data) with the same cpio inode number and a link count of
 the set's size; the bill of materials records each member normally and
 indexes the inode once (see `bom.md`). `installKBytes` counts the set
 once. `macospkg build` does the same when the host reports inodes
@@ -105,7 +105,7 @@ pkgbuild carries a file's extended attributes as a second entry named
 - Sidecar cpio header: mode `100644` whatever the owner is; uid, gid,
   mtime and link count copied from the owner. A sidecar of a hard-linked
   file shares the owner's inode number; other sidecars get their own.
-- Sidecar Bom record: 31 bytes — type 1 (file), architecture 1, the
+- Sidecar Bom record: 31 bytes: type 1 (file), architecture 1, the
   owner's full mode (so `lsbom` shows a directory's sidecar with a
   directory mode), and zero uid, gid, mtime, size and checksum. Sidecars
   count in `numberOfFiles` but not in `installKBytes` or in a directory's
@@ -146,7 +146,7 @@ into every package built on such a host.
 Nothing is dropped on a host that cannot store Apple's attributes.
 `extract` and `expand --full` set each attribute individually; Linux
 takes `user.*` and refuses the rest, so under `--xattrs auto` the refused
-ones are written back out as a `._` sidecar file beside their owner —
+ones are written back out as a `._` sidecar file beside their owner,
 the same name and encoding a build reads. Building that tree again
 restores the whole set, so an unpack/repack round trip on Linux or
 Windows reproduces the package it started from. The count is reported as

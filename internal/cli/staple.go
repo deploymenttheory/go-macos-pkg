@@ -1,4 +1,4 @@
-// macospkg staple PKG — attach a notarization ticket; unstaple removes it.
+// macospkg staple PKG: attach a notarization ticket; unstaple removes it.
 package cli
 
 import (

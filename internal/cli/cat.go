@@ -1,4 +1,4 @@
-// macospkg cat PKG ENTRY — one archive entry or payload file to stdout.
+// macospkg cat PKG ENTRY: one archive entry or payload file to stdout.
 package cli
 
 import (

@@ -22,7 +22,7 @@ jobs:
 
     # The org's release-please GitHub App rather than a personal token: the
     # token is minted per run and expires in an hour, and it belongs to the
-    # org rather than to whoever created the PAT — a PAT dies with its
+    # org rather than to whoever created the PAT. A PAT dies with its
     # owner's access and takes every repo's releases with it.
     #
     # actions:write is the load-bearing permission. Tags pushed with the
@@ -46,7 +46,7 @@ jobs:
         if [ -n "${{ steps.app-token.outputs.token }}" ]; then
           echo "release-please is using the org's release-please App"
         else
-          echo "::warning::App token unavailable (RP_APP_ID/RP_APP_PRIVATE_KEY unset, or the App is not installed here) — falling back to the repo PAT"
+          echo "::warning::App token unavailable (RP_APP_ID/RP_APP_PRIVATE_KEY unset, or the App is not installed here), falling back to the repo PAT"
         fi
 
     - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0

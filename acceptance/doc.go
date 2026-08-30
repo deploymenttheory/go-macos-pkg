@@ -1,5 +1,5 @@
 // Package acceptance holds the acceptance tests for this repository. It has no
-// production code in it — only tests.
+// production code in it, only tests.
 //
 // A test belongs here if something outside our own code decides whether it
 // passed: either the real macospkg command, run as a subprocess, or a tool
@@ -10,7 +10,7 @@
 // package and then read it back with our own reader, both halves can share
 // the same misunderstanding of the format and the test still passes. Handing
 // the package to Apple's pkgutil, lsbom, xar and installer removes that blind
-// spot — and it is the only way to know a package built on Linux or Windows
+// spot, and it is the only way to know a package built on Linux or Windows
 // actually installs on a Mac.
 //
 // # The three kinds of test here
@@ -29,13 +29,13 @@
 //
 // Pipeline tests build packages with macospkg itself from a deterministic
 // source tree generated in the test, then sign, verify, expand and extract
-// them — again with only the macospkg binary. These run everywhere and are
+// them, again with only the macospkg binary. These run everywhere and are
 // deliberately not skippable: they are the proof the tool works end to end
 // where Apple's tools do not exist.
 //
 // Oracle tests hand what we built to the tools that come with macOS: pkgutil,
 // lsbom, xar, installer, stapler and spctl. Each one skips if its tool is
-// missing, so passing these on a machine without them proves nothing — the
+// missing, so passing these on a machine without them proves nothing: the
 // macOS CI runner is where they count. They never run in production code:
 // the binary itself never calls an Apple tool.
 //
@@ -50,8 +50,9 @@
 //
 // # Recorded results
 //
-// Tests that observe something worth knowing — file counts, checksums, what
-// pkgutil reported — log it through attest, which writes to the test output
-// and, in CI, to the GitHub Actions step summary. A passing run therefore
-// states the numbers it observed rather than only that it passed.
+// Tests that observe something worth knowing (file counts, checksums,
+// what pkgutil reported) log it through attest, which writes to the test
+// output and, in CI, to the GitHub Actions step summary. A passing run
+// therefore states the numbers it observed rather than only that it
+// passed.
 package acceptance

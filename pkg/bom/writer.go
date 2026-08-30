@@ -255,7 +255,7 @@ func (b *Builder) Build(w io.Writer) error {
 	pathsTree := buildTree(bw, leaves, pathsBlockSize, uint32(len(b.entries)))
 
 	// HLIndex: one entry per inode, keyed by its record block, each
-	// valued with an empty 64-byte tree of its own — the shape mkbom
+	// valued with an empty 64-byte tree of its own: the shape mkbom
 	// writes. A hard-link set is one inode, and mkbom keeps the last
 	// member in path order (see the links probe: a.txt, b.txt, d/c.txt
 	// share an inode and only d/c.txt is indexed; sidecars are always

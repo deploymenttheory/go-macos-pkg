@@ -308,7 +308,7 @@ var errSymlinkRefused = errors.New("host refused")
 // refuse others: Linux accepts only user.*, so a package built on macOS
 // carries com.apple.* names that no Linux file system will store. Under
 // "auto" the refused ones are kept in a sidecar file beside their owner
-// — the same "._" name and bytes a build reads back — so unpacking on a
+// (the same "._" name and bytes a build reads back), so unpacking on a
 // host without Apple's attributes never loses them, and repacking the
 // unpacked tree restores exactly what was there. An explicit
 // --xattrs apply reports them as skipped instead, since the caller asked

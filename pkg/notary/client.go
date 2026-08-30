@@ -1,6 +1,6 @@
 // Package notary submits packages to Apple's notary service, waits for
-// the verdict and fetches the log — the parts of notarytool a CI job needs
-// — on any platform.
+// the verdict and fetches the log (the parts of notarytool a CI job
+// needs) on any platform.
 //
 // The four REST calls go through the deploymenttheory Apple services SDK;
 // everything the SDK does not do (the S3 upload, polling, log download,

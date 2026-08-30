@@ -135,7 +135,7 @@ func (cr *Reader) readNewc(magic string) (*Header, error) {
 		return nil, fmt.Errorf("%w: truncated newc header: %v", ErrHeader, err)
 	}
 	// After the magic: ino, mode, uid, gid, nlink, mtime, filesize, devmajor,
-	// devminor, rdevmajor, rdevminor, namesize, check — thirteen 8-char hex
+	// devminor, rdevmajor, rdevminor, namesize, check: thirteen 8-char hex
 	// fields.
 	vals := make([]uint64, 13)
 	for i := range vals {

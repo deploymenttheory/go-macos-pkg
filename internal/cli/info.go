@@ -1,4 +1,4 @@
-// macospkg info PKG — package summary.
+// macospkg info PKG: package summary.
 package cli
 
 import (

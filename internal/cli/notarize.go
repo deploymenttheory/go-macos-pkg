@@ -1,4 +1,4 @@
-// macospkg notarize PKG — submit a package to Apple's notary service.
+// macospkg notarize PKG: submit a package to Apple's notary service.
 package cli
 
 import (

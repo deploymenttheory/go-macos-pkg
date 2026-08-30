@@ -8,9 +8,9 @@
 
 A cross-platform, self-contained toolkit for macOS installer packages
 (`.pkg`). It reads and writes the xar container, the bill of materials, the
-cpio payload, `PackageInfo` and `Distribution` directly — without
+cpio payload, `PackageInfo` and `Distribution` directly, without
 `pkgbuild`, `productbuild`, `productsign`, `pkgutil`, `notarytool`,
-`stapler` or a Mac — so a package can be inspected, built, signed,
+`stapler` or a Mac, so a package can be inspected, built, signed,
 notarized and stapled on a Linux or Windows CI runner exactly as on macOS.
 
 ```console
@@ -53,7 +53,7 @@ See [`TOOLS_STATUS.md`](TOOLS_STATUS.md) for the exact state of each area.
 
 A Payload is a cpio archive; what differs between packages is the
 container it is wrapped in, which the first bytes identify. None of this
-depends on the host — the readers and writers are ordinary Go, so macOS,
+depends on the host: the readers and writers are ordinary Go, so macOS,
 Linux and Windows behave identically.
 
 | Container | What it is | Support |
@@ -108,7 +108,7 @@ notarization ticket is stapled.
 
 ### `list PKG [--archive] [--component NAME] [-l|--long] [--scripts]`
 
-The files the package installs, from the bill of materials — what `lsbom`
+The files the package installs, from the bill of materials: what `lsbom`
 prints for an expanded package, without expanding. `-l` adds mode, owner,
 size and time; `--archive` lists the xar entries; `--scripts` the Scripts
 archives.
@@ -151,7 +151,7 @@ restores the package (`--xattrs auto`, the default; `apply`, `file` and
 
 ### `build SRC [OUT.pkg] --identifier ID --version V [options]`
 
-A component package — `pkgbuild` — from a directory. Options:
+A component package, what `pkgbuild` makes, from a directory. Options:
 `--install-location`, `--scripts DIR`, `--ownership recommended|preserve|preserve-other`,
 `--min-os-version`, `--postinstall-action`, `--nopayload`,
 `--no-bundle-relocation`, `--relocatable`, `--preserve-xattr`,
@@ -167,7 +167,7 @@ says whether to read attributes from the tree, `--exclude-xattr RE`
 (repeatable) drops names such as `com.apple.provenance`, and
 `--hard-links auto|copy` says whether files sharing an inode are packaged
 as one. A manifest's `file_xattrs` overrides attributes per file, or per
-folder with a trailing `/` — see [`docs/formats/payload.md`](docs/formats/payload.md).
+folder with a trailing `/`. See [`docs/formats/payload.md`](docs/formats/payload.md).
 
 `SRC` may be a munkipkg-style project directory holding
 `build-info.yaml|json|plist`, `payload/` and `scripts/`; flags override
@@ -181,8 +181,8 @@ rules.
 
 ### `product OUT.pkg --package X.pkg… [--distribution D.xml] [--resources DIR] [--title T] [--min-os-version] [--host-architectures]`
 
-A product archive — `productbuild` — from component packages, with a
-synthesised Distribution or one you supply. `--product-id` and
+A product archive, what `productbuild` makes, from component packages,
+with a synthesised Distribution or one you supply. `--product-id` and
 `--product-version` set the synthesised Distribution's identity; `--sign-*`
 and `--notarize` finish the job in one run, as for `build`.
 
@@ -308,7 +308,7 @@ PowerShell (`powershell-7.6.1-osx-arm64.pkg`, an app bundle with a symlink
 and a postinstall script). Each has its signature verified against Apple's
 roots and its ticket against Apple's database, then is expanded with
 `macospkg` and rebuilt with `macospkg`, and the rebuilt package is compared
-with the original entry for entry — PackageInfo numbers, every
+with the original entry for entry: PackageInfo numbers, every
 bill-of-materials entry (17,356 of them for Go), every payload file's
 bytes, the Distribution and resources. On macOS, `pkgutil`, `lsbom` and
 `xar` compare the two as well, and `installer` installs the rebuilt

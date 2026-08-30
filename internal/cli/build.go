@@ -1,4 +1,4 @@
-// macospkg build SRC -o OUT.pkg — build a component package from a directory.
+// macospkg build SRC -o OUT.pkg: build a component package from a directory.
 package cli
 
 import (
@@ -41,7 +41,7 @@ var (
 var buildCmd = &cobra.Command{
 	Use:   "build SRC [OUT.pkg]",
 	Short: "Build a component package from a directory",
-	Long: `Build a component package — what pkgbuild makes — from SRC, the directory
+	Long: `Build a component package (what pkgbuild makes) from SRC, the directory
 whose contents are to be installed at --install-location.
 
 SRC may instead be a project directory holding a build-info.yaml (or .json,

@@ -2,7 +2,7 @@
 // signing an already-built package needs.
 //
 // The entries' bytes stay exactly where they are relative to each other;
-// only the prefix of the heap — the digest and the signatures — changes
+// only the prefix of the heap (the digest and the signatures) changes
 // size, so every entry offset shifts by the same amount and the heap can
 // be copied through untouched. That is what lets a multi-gigabyte package
 // be signed without re-encoding anything.
