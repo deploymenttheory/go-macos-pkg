@@ -45,9 +45,13 @@ func roundTrip(t *testing.T) (expanded, rebuilt string, components, packages []s
 			args = append(args, "--install-location", c.InstallLocation)
 		}
 		// Keep the original's payload container, so a pbzx package is
-		// rebuilt as pbzx.
-		if c.Payload != nil && c.Payload.Encoding == "pbzx-cpio" {
-			args = append(args, "--compression", "pbzx")
+		// rebuilt as pbzx and a pbze one as pbze.
+		enc := ""
+		if c.Payload != nil {
+			enc = containerFlag(c.Payload.Encoding)
+		}
+		if enc != "" {
+			args = append(args, "--compression", enc)
 			if c.MinimumSystemVersion != "" {
 				args = append(args, "--min-os-version", c.MinimumSystemVersion)
 			}
@@ -329,4 +333,16 @@ func TestRealPackageRoundTripInstalls(t *testing.T) {
 		})
 	}
 	attest(t, "installer installed the rebuilt package: %d files checked against the original payload", checked)
+}
+
+// containerFlag maps a payload encoding to the --compression value that
+// reproduces it, and "" for gzip or a container the builder cannot write.
+func containerFlag(encoding string) string {
+	switch encoding {
+	case "pbzx-cpio":
+		return "pbzx"
+	case "pbze-cpio":
+		return "lzfse"
+	}
+	return ""
 }

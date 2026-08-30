@@ -73,9 +73,21 @@ const (
 	// CompressionLatest is whatever pkgbuild --compression latest means
 	// today: pbzx.
 	CompressionLatest
+	// CompressionLZFSE is the pbze container. pkgbuild never writes it,
+	// but macOS reads it: pkgutil --expand-full unpacks such a payload
+	// byte for byte, single-chunk and multi-chunk alike (pinned by the
+	// acceptance suite). It is the one sibling of pbzx a package can
+	// safely use.
+	CompressionLZFSE
 )
 
-// ParseCompression parses gzip, pbzx or latest.
+// ParseCompression parses gzip, pbzx, latest or lzfse.
+//
+// The pbz* family also has pbz4 (Apple-framed LZ4) and pbzz (zlib), and
+// pkg/pbzx writes both: Apple's own aa reads what we produce. They are
+// refused here because macOS will not read them in a package. pkgutil
+// --expand-full fails with "cpio read error: bad file format" on a pbz4
+// or pbzz Payload, so a package built with one could not be installed.
 func ParseCompression(s string) (Compression, error) {
 	switch strings.ToLower(s) {
 	case "gzip", "legacy", "":
@@ -84,22 +96,40 @@ func ParseCompression(s string) (Compression, error) {
 		return CompressionPBZX, nil
 	case "latest":
 		return CompressionLatest, nil
+	case "lzfse", "pbze":
+		return CompressionLZFSE, nil
+	case "lz4", "pbz4", "zlib", "pbzz":
+		return 0, fmt.Errorf("compression %q writes a payload macOS cannot read: pkgutil refuses a pbz4 or pbzz Payload, so the package would not install (pkg/pbzx writes the container itself, if you need one outside a package)", s)
 	}
-	return 0, fmt.Errorf("unknown compression %q: want gzip, pbzx or latest", s)
+	return 0, fmt.Errorf("unknown compression %q: want gzip, pbzx, latest or lzfse", s)
 }
 
 func (c Compression) String() string {
 	switch c {
 	case CompressionPBZX, CompressionLatest:
 		return "pbzx"
+	case CompressionLZFSE:
+		return "lzfse"
 	}
 	return "gzip"
 }
 
+// Algorithm is the pbz* container algorithm the compression selects, and
+// false for gzip, which is not a pbz container at all.
+func (c Compression) Algorithm() (pbzx.Algorithm, bool) {
+	switch c {
+	case CompressionPBZX, CompressionLatest:
+		return pbzx.XZ, true
+	case CompressionLZFSE:
+		return pbzx.LZFSE, true
+	}
+	return 0, false
+}
+
 // Encoding is the payload encoding the compression produces.
 func (c Compression) Encoding() PayloadEncoding {
-	if c == CompressionPBZX || c == CompressionLatest {
-		return PayloadPBZX
+	if a, ok := c.Algorithm(); ok {
+		return pbzEncoding(a)
 	}
 	return PayloadGzip
 }
@@ -356,7 +386,7 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 	if o.GeneratorVersion == "" {
 		o.GeneratorVersion = "go-macos-pkg"
 	}
-	if o.Compression.Encoding() == PayloadPBZX {
+	if o.Compression.Encoding().IsPBZ() {
 		if o.MinOSVersion == "" {
 			o.MinOSVersion = pbzxMinimumOS
 		} else if versionLess(o.MinOSVersion, pbzxMinimumOS) {
@@ -917,8 +947,8 @@ func writePayloadAndBom(entries []payloadEntry, payloadPath, bomPath string, com
 	}
 	defer pf.Close()
 	var container io.WriteCloser
-	if compression.Encoding() == PayloadPBZX {
-		container, err = pbzx.NewWriter(pf, pbzx.XZ, blockSize)
+	if algo, ok := compression.Algorithm(); ok {
+		container, err = pbzx.NewWriter(pf, algo, blockSize)
 	} else {
 		container, err = gzip.NewWriterLevel(pf, gzip.DefaultCompression)
 	}

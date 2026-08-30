@@ -60,9 +60,18 @@ Linux and Windows behave identically.
 |---|---|---|
 | gzip cpio | `pkgbuild`'s default, and the only container every macOS can install | read + write (the default) |
 | `pbzx` | xz-compressed 16 MiB blocks: smaller, but only macOS 12 and later installs it | read + write (`--compression pbzx`, which `pkgbuild` spells `latest`) |
-| `pbze`, `pbz4`, `pbzz` | the same container with LZFSE, Apple-framed LZ4 or zlib chunks, written by `aa` and libParallelCompression rather than `pkgbuild` | read |
+| `pbze` | the same container with LZFSE chunks. `pkgbuild` never writes it, but macOS reads it | read + write (`--compression lzfse`) |
+| `pbz4`, `pbzz` | the same container with Apple-framed LZ4 or zlib chunks, written by `aa` and libParallelCompression | read; `pkg/pbzx` writes them, but `build` refuses (see below) |
 | `pbzb` | the same container with LZBITMAP, which has no public specification | detected, reported, exit 5 |
 | Apple Archive | a different format entirely; the Installer does not read it either | detected, reported, exit 5 |
+
+`build` will not write `pbz4` or `pbzz`, even though `pkg/pbzx` can and
+Apple's own `aa` reads what it produces. macOS cannot read either as a
+package Payload: `pkgutil --expand-full` fails with `cpio read error: bad
+file format`, so the package would not install. `pbze` is offered because
+the opposite is true, and the acceptance suite pins it: `pkgutil` unpacks
+our `pbze` Payload byte for byte, single-chunk and multi-chunk, and
+`installer` installs it.
 
 `--large-payload` is `pkgbuild`'s flag, not one of ours. It writes an
 ordinary gzip cpio but names the archive entry `LargeSegmentedPayload`,

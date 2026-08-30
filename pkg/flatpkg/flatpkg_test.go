@@ -222,6 +222,10 @@ func TestSniffPayload(t *testing.T) {
 	}{
 		{"\x1f\x8b\x08xxxx", PayloadGzip},
 		{"pbzx\x00\x00", PayloadPBZX},
+		{"pbze\x00\x00", PayloadPBZE},
+		{"pbz4\x00\x00", PayloadPBZ4},
+		{"pbzz\x00\x00", PayloadPBZZ},
+		{"pbzb\x00\x00", PayloadPBZB},
 		{"070707000", PayloadCPIO},
 		{"070701000", PayloadCPIO},
 		{"AA01\x00", PayloadAppleArchive},

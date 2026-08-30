@@ -10,8 +10,10 @@ what is planned or under consideration, roughly in priority order.
   and staple, on all platforms, all checked against Apple's tools on macOS.
 - **Hard links and extended attributes**: carried as `pkgbuild` carries
   them, as `._` AppleDouble sidecars, and reapplied on a repack.
-- **`pbz*` payloads**: the family is read, and pbzx is written
-  (`build --compression pbzx`).
+- **`pbz*` payloads**: the family is read, and pbzx and pbze are written
+  (`build --compression pbzx|lzfse`). pbz4 and pbzz are written by
+  `pkg/pbzx` but refused by `build`, because macOS cannot read either as a
+  package Payload.
 - **Apple's roots embedded**: `verify` chains to G2, G3 and Platform
   without a system trust store.
 
