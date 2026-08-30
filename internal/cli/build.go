@@ -59,7 +59,11 @@ to 12.0 unless a higher one is given.
 
 Extended attributes travel as pkgbuild carries them: as "._" AppleDouble
 sidecar entries beside their owners, read from the tree on macOS (all of
-them) and Linux (user.*), and from a manifest's xattrs on any host. A macOS
+them) and Linux (user.*), and from the "._" files an extraction leaves on
+a host that cannot store them. Whatever the tree carries is packaged
+again by default, so unpacking a package and building it back reproduces
+it. A manifest's file_xattrs overrides that per file, or per folder with
+a trailing "/", and can replace or strip what a path carries. A macOS
 host stamps com.apple.provenance on files it creates; --exclude-xattr
 '^com\.apple\.(provenance|quarantine)$' keeps such host bookkeeping out of
 the package. Hard links are packaged as one inode with the members' link
@@ -203,11 +207,11 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	if len(excludeXattrs) > 0 {
 		o.ExcludeXattr = func(name string) bool { return anyMatch(excludeXattrs, name) }
 	}
-	extra, err := m.extraXattrs()
+	overrides, err := m.xattrOverrides()
 	if err != nil {
 		return usageErrorf("%v", err)
 	}
-	o.ExtraXattrs = extra
+	o.XattrOverrides = overrides
 
 	excludes, err := compilePatterns(append(buildExclude, m.Exclude...))
 	if err != nil {

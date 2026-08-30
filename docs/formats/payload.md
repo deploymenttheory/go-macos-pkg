@@ -135,8 +135,49 @@ attrEnd                         resource fork (com.apple.ResourceFork)
 never in the attribute list. `macospkg build` reads attributes from the
 tree (all of them on macOS, `user.*` on Linux, none on Windows), from a
 manifest's `file_xattrs`, and from `._` files already in the tree (a tree
-exported from macOS), and encodes the same bytes on every host, so a
-Linux build of a manifest reproduces a macOS build. `--exclude-xattr`
-drops names such as `com.apple.provenance`, which macOS stamps on files a
-process creates and which pkgbuild copies into every package built on
-such a host.
+exported from macOS, or one an extraction left behind), and encodes the
+same bytes on every host, so a Linux build of a manifest reproduces a
+macOS build. `--exclude-xattr` drops names such as `com.apple.provenance`,
+which macOS stamps on files a process creates and which pkgbuild copies
+into every package built on such a host.
+
+### Unpacking and packing again
+
+Nothing is dropped on a host that cannot store Apple's attributes.
+`extract` and `expand --full` set each attribute individually; Linux
+takes `user.*` and refuses the rest, so under `--xattrs auto` the refused
+ones are written back out as a `._` sidecar file beside their owner —
+the same name and encoding a build reads. Building that tree again
+restores the whole set, so an unpack/repack round trip on Linux or
+Windows reproduces the package it started from. The count is reported as
+`xattrFiles`; an extraction that keeps attributes this way is complete,
+not partial. An explicit `--xattrs apply` reports the refused names as
+skipped instead, because the caller asked for them to be applied;
+`--xattrs file` writes every sidecar as a file and applies none.
+
+### Overriding attributes on a repack
+
+What a tree carries is packaged again by default. A manifest's
+`file_xattrs` overrides that, in the order the rules are written:
+
+```yaml
+file_xattrs:
+  # One file: com.example.tag is added, or given a new value.
+  - path: usr/local/bin/tool
+    xattrs:
+      com.example.tag: aGVsbG8=          # base64
+  # A folder and everything beneath it; replace makes the listed
+  # attributes the whole set for those paths.
+  - path: usr/local/share/
+    replace: true
+    xattrs:
+      com.example.owner: dGVhbQ==
+  # Replace with nothing strips a path.
+  - path: usr/local/cache/
+    replace: true
+```
+
+A rule's own values are not subject to `--exclude-xattr`: naming a path
+and a value is more specific than filtering a name across the tree. A
+rule that matches no payload entry is an error, so a mistyped path does
+not pass silently.

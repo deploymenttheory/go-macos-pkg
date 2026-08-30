@@ -40,9 +40,12 @@ current macOS — it produces a gzip cpio named `LargeSegmentedPayload`,
 which is fully supported.
 
 ³ Byte-identical to `pkgutil` for every entry. `._` AppleDouble sidecar
-entries are turned back into extended attributes on macOS and Linux
-(`--xattrs apply`, the default there) and written as files elsewhere
-(`--xattrs file`); hard links are recreated as hard links.
+entries are turned back into extended attributes where the host takes
+them and kept as `._` files where it does not (Linux stores `user.*` and
+refuses Apple's names; Windows stores none), so nothing is lost and
+building the unpacked tree again reproduces the package. `--xattrs`
+selects `apply`, `file` or `skip` explicitly. Hard links are recreated as
+hard links.
 
 ⁴ On Windows, permission bits and ownership cannot be applied; symbolic
 links need the symlink privilege, and `--symlinks auto` writes the target

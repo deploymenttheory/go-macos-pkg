@@ -178,8 +178,8 @@ func TestOversizeXattrsAreAnError(t *testing.T) {
 	o := ComponentOptions{
 		Root:   root,
 		Xattrs: XattrsNone,
-		ExtraXattrs: map[string]map[string][]byte{
-			"./f": {"user.big": bytes.Repeat([]byte{1}, appledouble.MaxHeader+1)},
+		XattrOverrides: []XattrOverride{
+			{Path: "./f", Xattrs: map[string][]byte{"user.big": bytes.Repeat([]byte{1}, appledouble.MaxHeader+1)}},
 		},
 	}
 	_, err := collectPayload(o, time.Time{})
@@ -193,10 +193,215 @@ func TestOversizeXattrsAreAnError(t *testing.T) {
 		t.Errorf("error %q does not name the file", err)
 	}
 	// A resource fork lives past the header, so a large one is fine.
-	o.ExtraXattrs = map[string]map[string][]byte{
-		"./f": {appledouble.ResourceForkName: bytes.Repeat([]byte{2}, appledouble.MaxHeader*2)},
+	o.XattrOverrides = []XattrOverride{
+		{Path: "./f", Xattrs: map[string][]byte{appledouble.ResourceForkName: bytes.Repeat([]byte{2}, appledouble.MaxHeader*2)}},
 	}
 	if _, err := collectPayload(o, time.Time{}); err != nil {
 		t.Errorf("large resource fork: %v", err)
+	}
+}
+
+// TestRefusedXattrsSurviveAsSidecarFiles is the round trip that matters
+// on a host without Apple's attributes: unpacking a package built on
+// macOS must not drop com.apple.* names that Linux will not store, and
+// repacking the unpacked tree must put them back.
+func TestRefusedXattrsSurviveAsSidecarFiles(t *testing.T) {
+	if !hostXattrsSupported {
+		t.Skip("no extended attributes on this host")
+	}
+	// Stand in a host that takes user.* and refuses everything else, as
+	// Linux does.
+	real := setXattr
+	setXattr = func(p, name string, value []byte) error {
+		if !strings.HasPrefix(name, "user.") {
+			return errors.New("operation not supported")
+		}
+		return real(p, name, value)
+	}
+	defer func() { setXattr = real }()
+
+	want := map[string][]byte{
+		"user.kept":            []byte("k"),
+		"com.apple.provenance": []byte("host"),
+		"com.example.colour":   []byte("blue"),
+	}
+	var buf bytes.Buffer
+	cw := cpio.NewWriter(&buf)
+	now := time.Unix(1704164645, 0)
+	raw, _ := appledouble.FromXattrs(want).Encode()
+	for _, e := range []struct {
+		name string
+		mode uint32
+		data []byte
+	}{
+		{".", cpio.ModeDir | 0o755, nil},
+		{"./f", cpio.ModeRegular | 0o644, []byte("data\n")},
+		{"./._f", cpio.ModeRegular | 0o644, raw},
+	} {
+		if err := cw.WriteHeader(&cpio.Header{
+			Name: e.name, Inode: 1, Mode: e.mode, NLink: 1,
+			ModTime: now, Size: int64(len(e.data)),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		cw.Write(e.data)
+	}
+	if err := cw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	res, err := ExtractCPIO(cpio.NewReader(bytes.NewReader(buf.Bytes())), dir, ExtractOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Nothing was lost, so the extraction is not partial.
+	if res.Partial() {
+		t.Errorf("partial: skipped %+v, mismatched %v", res.Skipped, res.Mismatched)
+	}
+	if res.Xattrs != 1 || res.XattrFiles != 1 {
+		t.Errorf("xattrs = %d, xattrFiles = %d, want 1 and 1", res.Xattrs, res.XattrFiles)
+	}
+	// The name the host took is on the file.
+	got, err := hostXattrs(filepath.Join(dir, "f"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got["user.kept"]) != "k" {
+		t.Errorf("user.kept was not applied: %v", got)
+	}
+	// The names it refused are beside it, in a sidecar of their own.
+	side, err := os.ReadFile(filepath.Join(dir, "._f"))
+	if err != nil {
+		t.Fatalf("refused attributes were dropped: %v", err)
+	}
+	kept, err := appledouble.Decode(side)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k := kept.Xattrs(); len(k) != 2 ||
+		string(k["com.apple.provenance"]) != "host" ||
+		string(k["com.example.colour"]) != "blue" {
+		t.Errorf("kept sidecar holds %v", kept.Xattrs())
+	}
+
+	// Repacking the unpacked tree restores every attribute.
+	entries, err := collectPayload(ComponentOptions{Root: dir}, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.rel != "./f" {
+			continue
+		}
+		round := e.xattrs.Xattrs()
+		if len(round) != len(want) {
+			t.Fatalf("repacked %d attributes, want %d: %v", len(round), len(want), round)
+		}
+		for name, value := range want {
+			if !bytes.Equal(round[name], value) {
+				t.Errorf("repacked %s = %q, want %q", name, round[name], value)
+			}
+		}
+	}
+}
+
+// TestXattrOverrides covers the repack rules: what the tree carries is
+// reapplied by default, and a rule overrides it for one file or for a
+// folder and everything under it, with new values.
+func TestXattrOverrides(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "root")
+	for _, d := range []string{"keep", "sub/deep"} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(d)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []string{"keep/a", "sub/b", "sub/deep/c"} {
+		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(f)), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The tree already carries attributes, as an unpacked package does.
+	for _, f := range []string{"keep/a", "sub/b", "sub/deep/c"} {
+		raw, _ := appledouble.FromXattrs(map[string][]byte{"com.example.orig": []byte("tree")}).Encode()
+		side := appledouble.SidecarName(filepath.ToSlash(f))
+		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(side)), raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	attrsOf := func(entries []payloadEntry, rel string) map[string][]byte {
+		for _, e := range entries {
+			if e.rel == rel {
+				if e.xattrs == nil {
+					return nil
+				}
+				return e.xattrs.Xattrs()
+			}
+		}
+		t.Fatalf("%s not in the payload", rel)
+		return nil
+	}
+
+	// Default: the tree's attributes are reapplied, untouched.
+	entries, err := collectPayload(ComponentOptions{Root: root, Xattrs: XattrsNone}, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"./keep/a", "./sub/b", "./sub/deep/c"} {
+		if got := attrsOf(entries, rel); string(got["com.example.orig"]) != "tree" {
+			t.Errorf("%s = %v, want the tree's attribute reapplied", rel, got)
+		}
+	}
+
+	// One file gets a new value; a folder rule covers the folder and
+	// everything beneath it and replaces what is there.
+	entries, err = collectPayload(ComponentOptions{
+		Root:   root,
+		Xattrs: XattrsNone,
+		XattrOverrides: []XattrOverride{
+			{Path: "keep/a", Xattrs: map[string][]byte{"com.example.new": []byte("v")}},
+			{Path: "sub/", Xattrs: map[string][]byte{"com.example.folder": []byte("f")}, Replace: true},
+		},
+	}, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Merged: the tree's value survives beside the new one.
+	got := attrsOf(entries, "./keep/a")
+	if len(got) != 2 || string(got["com.example.orig"]) != "tree" || string(got["com.example.new"]) != "v" {
+		t.Errorf("./keep/a = %v, want the tree's attribute plus the new one", got)
+	}
+	// Replaced, throughout the folder — the directory entry included.
+	for _, rel := range []string{"./sub", "./sub/b", "./sub/deep", "./sub/deep/c"} {
+		got := attrsOf(entries, rel)
+		if len(got) != 1 || string(got["com.example.folder"]) != "f" {
+			t.Errorf("%s = %v, want only the folder rule's attribute", rel, got)
+		}
+	}
+
+	// Replace with nothing strips a path.
+	entries, err = collectPayload(ComponentOptions{
+		Root:           root,
+		Xattrs:         XattrsNone,
+		XattrOverrides: []XattrOverride{{Path: "./", Replace: true}},
+	}, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.xattrs != nil || e.sidecar != nil {
+			t.Errorf("%s kept attributes after a whole-tree replace", e.rel)
+		}
+	}
+
+	// A rule that matches nothing is a mistake, not a silent no-op.
+	_, err = collectPayload(ComponentOptions{
+		Root:           root,
+		Xattrs:         XattrsNone,
+		XattrOverrides: []XattrOverride{{Path: "./nope"}},
+	}, time.Time{})
+	if err == nil || !strings.Contains(err.Error(), "./nope") {
+		t.Errorf("unmatched rule error = %v", err)
 	}
 }

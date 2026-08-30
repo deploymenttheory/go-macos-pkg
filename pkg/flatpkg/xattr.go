@@ -28,3 +28,15 @@ func splitNames(b []byte) []string {
 	}
 	return names
 }
+
+// setHostXattrs applies every attribute, stopping at the first the host
+// refuses. Extraction sets them one at a time instead, so that it can
+// keep what a host will not take.
+func setHostXattrs(p string, attrs map[string][]byte) error {
+	for name, value := range attrs {
+		if err := setHostXattr(p, name, value); err != nil {
+			return &xattrError{Name: name, Err: err}
+		}
+	}
+	return nil
+}

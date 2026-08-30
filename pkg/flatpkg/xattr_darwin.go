@@ -60,14 +60,9 @@ func getxattr(p, name string) ([]byte, error) {
 	}
 }
 
-// setHostXattrs applies attributes to a path without following a symlink.
-func setHostXattrs(p string, attrs map[string][]byte) error {
-	for name, value := range attrs {
-		if err := unix.Lsetxattr(p, name, value, 0); err != nil {
-			return &xattrError{Name: name, Err: err}
-		}
-	}
-	return nil
+// setHostXattr applies one attribute to a path without following a symlink.
+func setHostXattr(p, name string, value []byte) error {
+	return unix.Lsetxattr(p, name, value, 0)
 }
 
 const hostXattrsSupported = true

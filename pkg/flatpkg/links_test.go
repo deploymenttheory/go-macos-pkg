@@ -56,9 +56,9 @@ func loadLinksProbe(t *testing.T) linksProbe {
 }
 
 // linksTree recreates the fixture tree scripts/gen-fixtures.sh builds,
-// with the attributes supplied through ExtraXattrs so the test runs on
-// every host; hard links need os.Link.
-func linksTree(t *testing.T) (string, map[string]map[string][]byte) {
+// with the attributes supplied as overrides so the test runs on every
+// host; hard links need os.Link.
+func linksTree(t *testing.T) (string, []XattrOverride) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "root")
 	write := func(rel, content string) {
@@ -91,13 +91,13 @@ func linksTree(t *testing.T) (string, map[string]map[string][]byte) {
 	for i := range big {
 		big[i] = byte(i * 7)
 	}
-	xattrs := map[string]map[string][]byte{
-		"./attrs/x":      {"com.example.one": []byte("hello"), "com.example.big": big},
-		"./attrs/finder": {appledouble.FinderInfoName: bytes.Repeat([]byte{0x41}, 32)},
-		"./attrs/rsrc":   {appledouble.ResourceForkName: []byte("resource fork bytes")},
-		"./attrs/empty":  {"com.example.empty": []byte("v")},
-		"./attrs/link":   {"com.example.onlink": []byte("yes")},
-		"./attrs":        {"com.example.ondir": []byte("dirval")},
+	xattrs := []XattrOverride{
+		{Path: "./attrs/x", Xattrs: map[string][]byte{"com.example.one": []byte("hello"), "com.example.big": big}},
+		{Path: "./attrs/finder", Xattrs: map[string][]byte{appledouble.FinderInfoName: bytes.Repeat([]byte{0x41}, 32)}},
+		{Path: "./attrs/rsrc", Xattrs: map[string][]byte{appledouble.ResourceForkName: []byte("resource fork bytes")}},
+		{Path: "./attrs/empty", Xattrs: map[string][]byte{"com.example.empty": []byte("v")}},
+		{Path: "./attrs/link", Xattrs: map[string][]byte{"com.example.onlink": []byte("yes")}},
+		{Path: "./attrs", Xattrs: map[string][]byte{"com.example.ondir": []byte("dirval")}},
 	}
 	return root, xattrs
 }
@@ -124,8 +124,13 @@ func TestLinksAndXattrsMatchPkgbuild(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			xattrs["./attrs/x"] = f.Xattrs()
-			delete(xattrs["./attrs/x"], "com.apple.provenance")
+			attrs := f.Xattrs()
+			delete(attrs, "com.apple.provenance")
+			for i := range xattrs {
+				if xattrs[i].Path == "./attrs/x" {
+					xattrs[i].Xattrs = attrs
+				}
+			}
 		}
 	}
 	epoch := time.Unix(1704164645, 0).UTC()
@@ -136,7 +141,7 @@ func TestLinksAndXattrsMatchPkgbuild(t *testing.T) {
 	}
 	res, err := BuildComponent(ComponentOptions{
 		Root: root, Identifier: "com.deploymenttheory.fixture.links", Version: "1.0",
-		Epoch: epoch, TempDir: t.TempDir(), ExtraXattrs: xattrs, Xattrs: XattrsNone,
+		Epoch: epoch, TempDir: t.TempDir(), XattrOverrides: xattrs, Xattrs: XattrsNone,
 	}, out)
 	out.Close()
 	if err != nil {

@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/deploymenttheory/go-macos-pkg/pkg/flatpkg"
 	"gopkg.in/yaml.v3"
 	"howett.net/plist"
 )
@@ -46,8 +47,8 @@ type manifestFile struct {
 	// come from hosts without execute bits.
 	Exclude      []string `yaml:"exclude" json:"exclude" plist:"exclude"`
 	ExcludeXattr []string `yaml:"exclude_xattr" json:"exclude_xattr" plist:"exclude_xattr"`
-	// FileXattrs adds extended attributes by payload path; values are
-	// base64 (added).
+	// FileXattrs overrides extended attributes by payload path (a folder
+	// when it ends in "/"); values are base64 (added).
 	FileXattrs         []manifestXattrs `yaml:"file_xattrs" json:"file_xattrs" plist:"file_xattrs"`
 	ExecutablePatterns []string         `yaml:"executable_patterns" json:"executable_patterns" plist:"executable_patterns"`
 	Files              []manifestMode   `yaml:"files" json:"files" plist:"files"`
@@ -60,22 +61,27 @@ type manifestFile struct {
 	dir string
 }
 
-// manifestXattrs is one path's extended attributes.
+// manifestXattrs overrides one path's extended attributes. Path names a
+// file, or a folder when it ends in "/", in which case it covers the
+// folder and everything beneath it. Replace makes the listed attributes
+// the complete set for those paths; without it they are merged over what
+// the tree carries, and a name given here wins.
 type manifestXattrs struct {
-	Path   string            `yaml:"path" json:"path" plist:"path"`
-	Xattrs map[string]string `yaml:"xattrs" json:"xattrs" plist:"xattrs"`
+	Path    string            `yaml:"path" json:"path" plist:"path"`
+	Xattrs  map[string]string `yaml:"xattrs" json:"xattrs" plist:"xattrs"`
+	Replace bool              `yaml:"replace" json:"replace" plist:"replace"`
 }
 
-// extraXattrs decodes the manifest's per-path attributes.
-func (m *manifestFile) extraXattrs() (map[string]map[string][]byte, error) {
+// xattrOverrides decodes the manifest's per-path attribute rules, in the
+// order they are written: a later rule overrides an earlier one.
+func (m *manifestFile) xattrOverrides() ([]flatpkg.XattrOverride, error) {
 	if len(m.FileXattrs) == 0 {
 		return nil, nil
 	}
-	out := map[string]map[string][]byte{}
+	out := make([]flatpkg.XattrOverride, 0, len(m.FileXattrs))
 	for _, fx := range m.FileXattrs {
-		rel := fx.Path
-		if !strings.HasPrefix(rel, "./") {
-			rel = "./" + strings.TrimPrefix(rel, "/")
+		if fx.Path == "" {
+			return nil, fmt.Errorf("file_xattrs: an entry has no path")
 		}
 		attrs := map[string][]byte{}
 		for name, b64 := range fx.Xattrs {
@@ -85,7 +91,7 @@ func (m *manifestFile) extraXattrs() (map[string]map[string][]byte, error) {
 			}
 			attrs[name] = v
 		}
-		out[rel] = attrs
+		out = append(out, flatpkg.XattrOverride{Path: fx.Path, Xattrs: attrs, Replace: fx.Replace})
 	}
 	return out, nil
 }

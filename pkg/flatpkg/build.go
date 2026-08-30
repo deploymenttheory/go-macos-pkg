@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -110,10 +111,10 @@ type XattrSource int
 const (
 	// XattrsFromFS reads the attributes the host file system reports
 	// (all of them on macOS, user.* on Linux, none on Windows), plus
-	// ExtraXattrs and any "._" sidecar files already in the source tree.
+	// XattrOverrides and any "._" sidecars already in the source tree.
 	XattrsFromFS XattrSource = iota
 	// XattrsNone carries no attributes, whatever the host reports;
-	// ExtraXattrs and sidecar files in the tree still apply.
+	// XattrOverrides and sidecar files in the tree still apply.
 	XattrsNone
 )
 
@@ -126,6 +127,29 @@ func ParseXattrSource(s string) (XattrSource, error) {
 		return XattrsNone, nil
 	}
 	return 0, fmt.Errorf("unknown xattrs source %q: want fs or none", s)
+}
+
+// XattrOverride sets extended attributes on the payload paths it names,
+// overriding what the tree and its "._" sidecars carry. Attributes are
+// reapplied by default — unpacking and packing again reproduces the
+// original package — and an override is how a path departs from that.
+//
+// A rule's own values are not subject to ExcludeXattr: naming a path and
+// a value is more specific than filtering a name across the whole tree.
+type XattrOverride struct {
+	// Path is a payload path: "./usr/local/bin/tool", or "usr/local/bin"
+	// and "/usr/local/bin", which mean the same. A path ending in "/"
+	// matches that directory and everything beneath it; "./" is the whole
+	// tree. It is an error for a rule to match nothing, so a typo does
+	// not pass silently.
+	Path string
+	// Xattrs are the values to set, name → value.
+	Xattrs map[string][]byte
+	// Replace makes Xattrs the complete set for the paths matched,
+	// discarding whatever they carried; with no Xattrs it removes them
+	// all. Without it the values are merged over what is there, and a
+	// name given here wins.
+	Replace bool
 }
 
 // HardLinkMode says how hard links are packaged.
@@ -201,10 +225,12 @@ type ComponentOptions struct {
 	// com.apple.provenance or com.apple.quarantine, which describe the
 	// build host rather than the file).
 	ExcludeXattr func(name string) bool
-	// ExtraXattrs adds attributes by "./" path, name → value, on top of
-	// what the host reports; a manifest can give a Linux or Windows build
-	// the attributes a macOS build would read from disk.
-	ExtraXattrs map[string]map[string][]byte
+	// XattrOverrides set attributes on the paths they name, in order,
+	// after the tree and its "._" sidecars have been read. A manifest can
+	// give a Linux or Windows build the attributes a macOS build would
+	// read from disk, or change what an unpacked tree carries before it
+	// is packed again.
+	XattrOverrides []XattrOverride
 	// HardLinks selects how hard links are packaged.
 	HardLinks HardLinkMode
 
@@ -590,12 +616,10 @@ func collectPayload(o ComponentOptions, epoch time.Time) ([]payloadEntry, error)
 	if err != nil {
 		return nil, err
 	}
-	for rel, attrs := range o.ExtraXattrs {
-		i := indexOf(entries, rel)
-		if i < 0 {
-			return nil, fmt.Errorf("flatpkg: xattrs for %s: no such payload entry", rel)
+	for _, ov := range o.XattrOverrides {
+		if err := applyXattrOverride(entries, ov); err != nil {
+			return nil, err
 		}
-		entries[i].xattrs = mergeXattrs(entries[i].xattrs, appledouble.FromXattrs(attrs), o.ExcludeXattr)
 	}
 	for i := range entries {
 		if entries[i].isDir() {
@@ -646,13 +670,47 @@ func (s *linkKeySet) key(dev, ino uint64) uint64 {
 	return k
 }
 
-func indexOf(entries []payloadEntry, rel string) int {
+// overridePath turns a rule's path into a payload path and reports
+// whether it names a folder: "usr/bin", "/usr/bin" and "./usr/bin" all
+// become "./usr/bin", and a trailing slash survives.
+func overridePath(p string) (rel string, folder bool) {
+	folder = strings.HasSuffix(p, "/")
+	rel = "."
+	if clean := path.Clean("/" + strings.TrimSuffix(p, "/")); clean != "/" {
+		rel = "." + clean
+	}
+	return rel, folder
+}
+
+// applyXattrOverride sets one rule's attributes on the entries it names.
+func applyXattrOverride(entries []payloadEntry, ov XattrOverride) error {
+	rel, folder := overridePath(ov.Path)
+	matched := 0
 	for i := range entries {
-		if entries[i].rel == rel {
-			return i
+		e := &entries[i]
+		switch {
+		case folder:
+			if e.rel != rel && !strings.HasPrefix(e.rel, strings.TrimSuffix(rel, "/")+"/") {
+				continue
+			}
+		case e.rel != rel:
+			continue
+		}
+		matched++
+		set := appledouble.FromXattrs(ov.Xattrs)
+		if ov.Replace {
+			e.xattrs = set
+		} else {
+			e.xattrs = mergeXattrs(e.xattrs, set, nil)
+		}
+		if e.xattrs != nil && e.xattrs.Empty() {
+			e.xattrs = nil
 		}
 	}
-	return -1
+	if matched == 0 {
+		return fmt.Errorf("flatpkg: xattrs for %s: no such payload entry", ov.Path)
+	}
+	return nil
 }
 
 // filterXattrs turns host attributes into sidecar content, dropping the

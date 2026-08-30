@@ -53,7 +53,7 @@ func init() {
 	extractCmd.Flags().BoolVar(&extractScripts, "scripts", false, "extract the Scripts archives rather than the payloads")
 	extractCmd.Flags().StringVar(&extractPattern, "pattern", "", "only payload paths matching this regular expression")
 	extractCmd.Flags().StringVar(&extractSymlinks, "symlinks", "auto", "symbolic links: auto, real or file")
-	extractCmd.Flags().StringVar(&extractXattrs, "xattrs", "auto", "\"._\" sidecars: apply (set the attributes on the owner), file (write them as files) or skip; auto applies where the host can")
+	extractCmd.Flags().StringVar(&extractXattrs, "xattrs", "auto", "\"._\" sidecars: apply (set the attributes on the owner), file (write them as files) or skip; auto applies what the host takes and keeps the rest as files")
 	extractCmd.Flags().BoolVar(&extractHardLinks, "hard-links", true, "recreate hard links; --hard-links=false writes copies")
 	extractCmd.Flags().BoolVar(&extractVerify, "verify", false, "verify each file's CRC-32 against the bill of materials")
 }
@@ -75,6 +75,7 @@ type componentReport struct {
 	Symlinks   int      `json:"symlinks"`
 	HardLinks  int      `json:"hardLinks"`
 	Xattrs     int      `json:"xattrs"`
+	XattrFiles int      `json:"xattrFiles"`
 	Renamed    []string `json:"renamed"`
 	Skipped    []string `json:"skipped"`
 	Mismatched []string `json:"mismatched"`
@@ -151,7 +152,8 @@ func runExtract(cmd *cobra.Command, args []string) error {
 		}
 		cr := componentReport{
 			Component: c.Name, Dir: dir, Encoding: string(enc),
-			Files: res.Files, Dirs: res.Dirs, Symlinks: res.Symlinks, HardLinks: res.HardLinks, Xattrs: res.Xattrs,
+			Files: res.Files, Dirs: res.Dirs, Symlinks: res.Symlinks, HardLinks: res.HardLinks,
+			Xattrs: res.Xattrs, XattrFiles: res.XattrFiles,
 			Renamed: []string{}, Skipped: []string{}, Mismatched: res.Mismatched,
 		}
 		if cr.Mismatched == nil {

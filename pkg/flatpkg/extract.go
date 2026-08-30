@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -91,6 +92,10 @@ func (m XattrMode) resolve() XattrMode {
 	return m
 }
 
+// setXattr is the host setter, in a variable so that tests can stand in
+// a host that refuses names this one does not.
+var setXattr = setHostXattr
+
 // maxSidecar bounds a sidecar read into memory: the attribute header is
 // at most 64 KiB, the resource fork after it is not, and 64 MiB covers
 // any resource fork worth carrying.
@@ -125,9 +130,12 @@ type ExtractResult struct {
 	Dirs     int
 	Symlinks int
 	// HardLinks counts the entries recreated as hard links; Xattrs the
-	// sidecars whose attributes were applied to their owners.
-	HardLinks int
-	Xattrs    int
+	// sidecars whose attributes were applied to their owners; XattrFiles
+	// the sidecars kept as files because the host refused some of their
+	// attributes (nothing is lost: a build reads them back).
+	HardLinks  int
+	Xattrs     int
+	XattrFiles int
 	// Renamed lists entries written under a different name because the
 	// host cannot store the original (Windows).
 	Renamed []Skip
@@ -161,6 +169,9 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 	}
 	var dirTimes []dirTime
 	xattrMode := o.Xattrs.resolve()
+	// "auto" may keep what a host refuses; an explicit --xattrs apply
+	// reports it instead.
+	autoXattrs := o.Xattrs == XattrDefault
 	// The first extracted path of each hard-link set, by cpio inode.
 	linked := map[uint64]string{}
 
@@ -187,7 +198,7 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 
 		switch {
 		case h.IsRegular() && appledouble.IsSidecarName(h.Name) && xattrMode != XattrFile:
-			handled, raw, err := applySidecar(cr, h, dir, xattrMode, res)
+			handled, raw, err := applySidecar(cr, h, dir, xattrMode, autoXattrs, res)
 			if err != nil {
 				return res, err
 			}
@@ -288,10 +299,21 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 
 var errSymlinkRefused = errors.New("host refused")
 
-// applySidecar reads a "._" entry and applies (or skips) its attributes.
-// It reports false, and the bytes it read, when the entry is not an
-// AppleDouble file after all and the caller should write it as a file.
-func applySidecar(r io.Reader, h *cpio.Header, dir string, mode XattrMode, res *ExtractResult) (bool, []byte, error) {
+// applySidecar reads a "._" entry and applies its attributes to the
+// entry's owner. It reports false, and the bytes it read, when the entry
+// is not an AppleDouble file after all and the caller should write it as
+// a file.
+//
+// Attributes are set one at a time, because a host may take some and
+// refuse others: Linux accepts only user.*, so a package built on macOS
+// carries com.apple.* names that no Linux file system will store. Under
+// "auto" the refused ones are kept in a sidecar file beside their owner
+// — the same "._" name and bytes a build reads back — so unpacking on a
+// host without Apple's attributes never loses them, and repacking the
+// unpacked tree restores exactly what was there. An explicit
+// --xattrs apply reports them as skipped instead, since the caller asked
+// for them to be applied and they were not.
+func applySidecar(r io.Reader, h *cpio.Header, dir string, mode XattrMode, auto bool, res *ExtractResult) (bool, []byte, error) {
 	if h.Size > maxSidecar {
 		return false, nil, fmt.Errorf("%s: sidecar of %d bytes is larger than %d", h.Name, h.Size, maxSidecar)
 	}
@@ -318,11 +340,45 @@ func applySidecar(r io.Reader, h *cpio.Header, dir string, mode XattrMode, res *
 		res.Skipped = append(res.Skipped, Skip{Path: h.Name, Reason: "owner " + owner + " was not extracted"})
 		return true, nil, nil
 	}
-	if err := setHostXattrs(target, f.Xattrs()); err != nil {
-		res.Skipped = append(res.Skipped, Skip{Path: h.Name, Reason: "attribute not set: " + err.Error()})
+	attrs := f.Xattrs()
+	refused := map[string][]byte{}
+	for name, value := range attrs {
+		if err := setXattr(target, name, value); err != nil {
+			refused[name] = value
+		}
+	}
+	if len(refused) < len(attrs) {
+		res.Xattrs++
+	}
+	if len(refused) == 0 {
 		return true, nil, nil
 	}
-	res.Xattrs++
+	names := make([]string, 0, len(refused))
+	for name := range refused {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if !auto {
+		res.Skipped = append(res.Skipped, Skip{Path: h.Name, Reason: "host refused " + strings.Join(names, ", ")})
+		return true, nil, nil
+	}
+	// Keep them. The file is a sidecar in its own right, so a later
+	// build lifts it back into the owner's attributes.
+	kept, err := appledouble.FromXattrs(refused).Encode()
+	if err != nil {
+		return true, nil, fmt.Errorf("%s: %w", h.Name, err)
+	}
+	sidecar := filepath.Join(dir, filepath.FromSlash(h.Name))
+	if err := os.MkdirAll(filepath.Dir(sidecar), 0o755); err != nil {
+		return true, nil, err
+	}
+	kh := *h
+	kh.Size = int64(len(kept))
+	if _, err := writeFile(sidecar, bytes.NewReader(kept), &kh); err != nil {
+		return true, nil, fmt.Errorf("unable to write %s: %w", h.Name, err)
+	}
+	res.Files++
+	res.XattrFiles++
 	return true, nil, nil
 }
 

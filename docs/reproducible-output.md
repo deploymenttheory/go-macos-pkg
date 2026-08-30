@@ -49,4 +49,5 @@ A build reads the tree's extended attributes, and macOS stamps
 same tree on different Macs can differ by those sidecars. Pass
 `--exclude-xattr '^com\.apple\.(provenance|quarantine)$'` (or put the
 attributes you want in the manifest's `file_xattrs` and build with
-`--xattrs none`) to make the output depend on the tree alone.
+`--xattrs none`) to make the output depend on the tree alone. See
+[`formats/payload.md`](formats/payload.md) for the override rules.

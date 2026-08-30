@@ -52,16 +52,11 @@ func hostXattrs(p string) (map[string][]byte, error) {
 	return out, nil
 }
 
-// setHostXattrs applies attributes to a path without following a symlink.
+// setHostXattr applies one attribute to a path without following a symlink.
 // Linux accepts only the user.* namespace on ordinary files, and none on
-// symlinks; the caller records what could not be set.
-func setHostXattrs(p string, attrs map[string][]byte) error {
-	for name, value := range attrs {
-		if err := unix.Lsetxattr(p, name, value, 0); err != nil {
-			return &xattrError{Name: name, Err: err}
-		}
-	}
-	return nil
+// symlinks; the caller keeps what is refused.
+func setHostXattr(p, name string, value []byte) error {
+	return unix.Lsetxattr(p, name, value, 0)
 }
 
 const hostXattrsSupported = true
