@@ -62,7 +62,7 @@ func TestDeveloperIDSignAndNotarize(t *testing.T) {
 	}
 	attest(t, "notarization %s: %s", rep.SubmissionID, rep.Status)
 
-	mustRunJSON(t, &v, "verify", "--require-stapled", "--online", product)
+	mustRunOnlineJSON(t, &v, "verify", "--require-stapled", "--online", product)
 	if !v.Valid || !v.Stapled {
 		t.Fatalf("verify after stapling: %+v", v)
 	}

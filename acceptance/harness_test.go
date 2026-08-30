@@ -280,6 +280,46 @@ func mustRunJSON(t *testing.T, out any, args ...string) {
 	}
 }
 
+// mustRunOnlineJSON is mustRunJSON for a command that talks to Apple's
+// servers. A failure to reach them skips the test rather than failing it.
+// These oracles check what we send and how we read the answer back, not
+// whether a shared runner can open a TLS connection to
+// api.apple-cloudkit.com; a build that goes red for a handshake timeout
+// only teaches people to press re-run without reading it. A refusal from
+// Apple still fails, because that is the thing being tested.
+func mustRunOnlineJSON(t *testing.T, out any, args ...string) {
+	t.Helper()
+	stdout, stderr, code := run(t, append([]string{"-o", "json"}, args...)...)
+	if code != 0 {
+		if unreachable(stderr) {
+			t.Skipf("Apple's service is unreachable, so there is nothing to compare against: %s", strings.TrimSpace(stderr))
+		}
+		t.Fatalf("%v exited %d\nstderr: %s", args, code, stderr)
+	}
+	decodeJSON(t, stdout, out)
+}
+
+// unreachable reports whether a command failed to get to the server at
+// all, as opposed to getting an answer it did not like.
+func unreachable(stderr string) bool {
+	for _, s := range []string{
+		"TLS handshake timeout",
+		"i/o timeout",
+		"context deadline exceeded",
+		"no such host",
+		"connection refused",
+		"connection reset",
+		"unexpected EOF",
+		"network is unreachable",
+		"server misbehaving",
+	} {
+		if strings.Contains(stderr, s) {
+			return true
+		}
+	}
+	return false
+}
+
 // decodeJSON decodes one JSON document a command printed.
 func decodeJSON(t *testing.T, stdout string, out any) {
 	t.Helper()

@@ -185,7 +185,7 @@ func TestRealPackageStaple(t *testing.T) {
 		t.Skipf("%s is not stapled; nothing to compare (%+v)", filepath.Base(pkg), rep)
 	}
 	var v verifyJSON
-	mustRunJSON(t, &v, "verify", "--online", "--require-stapled", pkg)
+	mustRunOnlineJSON(t, &v, "verify", "--online", "--require-stapled", pkg)
 	if !v.Valid {
 		t.Errorf("verify --online: %+v", v)
 	}
@@ -195,7 +195,7 @@ func TestRealPackageStaple(t *testing.T) {
 		t.Error("unstaple left a ticket")
 	}
 	restapled := filepath.Join(t.TempDir(), "restapled.pkg")
-	mustRunJSON(t, &rep, "staple", plain, restapled)
+	mustRunOnlineJSON(t, &rep, "staple", plain, restapled)
 	if !rep.Stapled || rep.TicketBytes == 0 {
 		t.Errorf("staple from Apple: %+v", rep)
 	}
