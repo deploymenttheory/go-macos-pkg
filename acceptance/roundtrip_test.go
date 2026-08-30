@@ -343,6 +343,8 @@ func containerFlag(encoding string) string {
 		return "pbzx"
 	case "pbze-cpio":
 		return "lzfse"
+	case "pbzb-cpio":
+		return "lzbitmap"
 	}
 	return ""
 }

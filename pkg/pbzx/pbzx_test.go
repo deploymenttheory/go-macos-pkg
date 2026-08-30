@@ -63,8 +63,12 @@ func TestReaderHandMade(t *testing.T) {
 	if _, err := NewReader(bytes.NewReader([]byte("nope"))); err != ErrNotPBZ {
 		t.Errorf("bad magic: %v", err)
 	}
-	if _, err := NewReader(bytes.NewReader(append([]byte("pbzb"), make([]byte, 8)...))); err == nil {
-		t.Error("lzbitmap accepted")
+	// pbzb is read like any other container now; an unknown letter is not.
+	if r, err := NewReader(bytes.NewReader(append([]byte("pbzb"), make([]byte, 8)...))); err != nil || r.Algorithm() != LZBitmap {
+		t.Errorf("pbzb: %v", err)
+	}
+	if _, err := NewReader(bytes.NewReader(append([]byte("pbzq"), make([]byte, 8)...))); err == nil {
+		t.Error("unknown algorithm accepted")
 	}
 	bad := buildPBZX(t, [][]byte{a}, []bool{true})
 	binary.BigEndian.PutUint64(bad[12:20], uint64(len(a)+1))
@@ -92,7 +96,7 @@ func TestWriterRoundTrips(t *testing.T) {
 		"three chunks":   bytes.Repeat([]byte("abc"), 900), // 2700 bytes over 1024-byte blocks
 		"mixed":          append(append([]byte{}, pattern...), random...),
 	}
-	for _, algo := range []Algorithm{XZ, LZFSE, LZ4, Zlib} {
+	for _, algo := range []Algorithm{XZ, LZFSE, LZ4, Zlib, LZBitmap} {
 		for name, in := range inputs {
 			var out bytes.Buffer
 			w, err := NewWriter(&out, algo, 1024)
@@ -135,8 +139,8 @@ func TestWriterRoundTrips(t *testing.T) {
 			}
 		}
 	}
-	if _, err := NewWriter(io.Discard, LZBitmap, 0); err == nil {
-		t.Error("lzbitmap writer created")
+	if _, err := NewWriter(io.Discard, Algorithm('q'), 0); err == nil {
+		t.Error("writer created for an unknown algorithm")
 	}
 }
 

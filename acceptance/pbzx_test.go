@@ -229,7 +229,7 @@ func TestBuildPBZXParityWithPkgbuild(t *testing.T) {
 // TestInstallerInstallsOurPBZXPackage is the end-to-end proof for the
 // pbz containers build can write: Apple's installer installs each one.
 func TestInstallerInstallsOurPBZXPackage(t *testing.T) {
-	for _, compression := range []string{"pbzx", "lzfse"} {
+	for _, compression := range []string{"pbzx", "lzfse", "lzbitmap"} {
 		t.Run(compression, func(t *testing.T) { installerRoundTrip(t, compression) })
 	}
 }
@@ -279,13 +279,20 @@ func installerRoundTrip(t *testing.T, compression string) {
 // round-trips through our reader on every platform, and on macOS Apple's
 // pkgutil unpacks it byte for byte, which is what makes it safe to offer.
 func TestBuildLZFSE(t *testing.T) {
+	for _, c := range []struct{ flag, magic string }{{"lzfse", "pbze"}, {"lzbitmap", "pbzb"}} {
+		t.Run(c.flag, func(t *testing.T) { buildPBZContainer(t, c.flag, c.magic) })
+	}
+}
+
+func buildPBZContainer(t *testing.T, flag, magic string) {
+	t.Helper()
 	root, scripts := sourceTree(t)
 	out := filepath.Join(t.TempDir(), "out.pkg")
-	args := append(buildArgs(root, scripts, out), "--compression", "lzfse")
+	args := append(buildArgs(root, scripts, out), "--compression", flag)
 	var rep buildJSON
 	mustRunJSON(t, &rep, args...)
-	if rep.PayloadEncoding != "pbze-cpio" {
-		t.Errorf("payload encoding = %q, want pbze-cpio", rep.PayloadEncoding)
+	if want := magic + "-cpio"; rep.PayloadEncoding != want {
+		t.Errorf("payload encoding = %q, want %q", rep.PayloadEncoding, want)
 	}
 	// A pbz container needs the same minimum system version as pbzx.
 	if rep.MinimumSystemVersion != "12.0" {
@@ -293,13 +300,13 @@ func TestBuildLZFSE(t *testing.T) {
 	}
 	var info infoJSON
 	mustRunJSON(t, &info, "info", out)
-	if info.Packages[0].Payload.Encoding != "pbze-cpio" {
-		t.Errorf("info encoding = %q", info.Packages[0].Payload.Encoding)
+	if want := magic + "-cpio"; info.Packages[0].Payload.Encoding != want {
+		t.Errorf("info encoding = %q, want %q", info.Packages[0].Payload.Encoding, want)
 	}
-	// The container really is pbze on disk, and Scripts stays gzip.
+	// The container really is what was asked for, and Scripts stays gzip.
 	payload := mustRun(t, "cat", out, "Payload")
-	if !strings.HasPrefix(payload, "pbze") {
-		t.Fatalf("Payload starts %x, want pbze", payload[:4])
+	if !strings.HasPrefix(payload, magic) {
+		t.Fatalf("Payload starts %x, want %s", payload[:4], magic)
 	}
 	if sc := mustRun(t, "cat", out, "Scripts"); !strings.HasPrefix(sc, "\x1f\x8b") {
 		t.Errorf("Scripts starts %x, want gzip", sc[:2])
@@ -318,13 +325,13 @@ func TestBuildLZFSE(t *testing.T) {
 
 	// Reproducible, like the other containers.
 	again := filepath.Join(t.TempDir(), "again.pkg")
-	mustRun(t, append(buildArgs(root, scripts, again), "--compression", "lzfse")...)
+	mustRun(t, append(buildArgs(root, scripts, again), "--compression", flag)...)
 	a, _ := os.ReadFile(out)
 	b, _ := os.ReadFile(again)
 	if !bytes.Equal(a, b) {
-		t.Error("two lzfse builds of the same tree differ")
+		t.Errorf("two %s builds of the same tree differ", flag)
 	}
-	attest(t, "built pbze package: %d files, sha256 %s", rep.NumberOfFiles, rep.SHA256[:12])
+	attest(t, "built %s package: %d files, sha256 %s", magic, rep.NumberOfFiles, rep.SHA256[:12])
 }
 
 // TestUninstallableContainersAreRefused pins the reason pbz4 and pbzz are
@@ -349,10 +356,17 @@ func TestUninstallableContainersAreRefused(t *testing.T) {
 // TestPkgutilReadsOurLZFSEPayload is the oracle behind --compression
 // lzfse: Apple's own reader, not ours, unpacking a pbze Payload.
 func TestPkgutilReadsOurLZFSEPayload(t *testing.T) {
+	for _, flag := range []string{"lzfse", "lzbitmap"} {
+		t.Run(flag, func(t *testing.T) { pkgutilReadsContainer(t, flag) })
+	}
+}
+
+func pkgutilReadsContainer(t *testing.T, flag string) {
+	t.Helper()
 	requireTools(t, "pkgutil")
 	root, scripts := sourceTree(t)
 	out := filepath.Join(t.TempDir(), "out.pkg")
-	mustRun(t, append(buildArgs(root, scripts, out), "--compression", "lzfse")...)
+	mustRun(t, append(buildArgs(root, scripts, out), "--compression", flag)...)
 
 	dir := filepath.Join(t.TempDir(), "expanded")
 	hostTool(t, "pkgutil", "--expand-full", out, dir)
@@ -366,13 +380,13 @@ func TestPkgutilReadsOurLZFSEPayload(t *testing.T) {
 	// Many chunks, not just one: the block size is forced well below the
 	// payload size so the reader has to walk a chain of them.
 	multi := filepath.Join(t.TempDir(), "multi.pkg")
-	mustRun(t, append(buildArgs(root, scripts, multi), "--compression", "lzfse", "--pbzx-block-size", "65536")...)
+	mustRun(t, append(buildArgs(root, scripts, multi), "--compression", flag, "--pbzx-block-size", "65536")...)
 	mdir := filepath.Join(t.TempDir(), "multi")
 	hostTool(t, "pkgutil", "--expand-full", multi, mdir)
 	a, _ := fileSHA256(filepath.Join(root, "usr", "local", "fixture", "big.bin"))
 	b, err := fileSHA256(filepath.Join(mdir, "Payload", "usr", "local", "fixture", "big.bin"))
 	if err != nil || a != b {
-		t.Errorf("multi-chunk pbze: pkgutil extracted %s, source %s (%v)", b, a, err)
+		t.Errorf("multi-chunk %s: pkgutil extracted %s, source %s (%v)", flag, b, a, err)
 	}
-	attest(t, "pkgutil unpacked our pbze payload, single-chunk and multi-chunk")
+	attest(t, "pkgutil unpacked our %s payload, single-chunk and multi-chunk", flag)
 }
