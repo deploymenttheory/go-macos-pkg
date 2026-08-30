@@ -31,3 +31,13 @@ shasum -a 256 a.pkg b.pkg
 
 The acceptance suite does this on Linux, macOS and Windows and compares
 the hashes across a run.
+
+## pbzx payloads
+
+`build --compression pbzx` is as reproducible as the gzip default: each
+16 MiB block is compressed by a pure-Go xz encoder with fixed parameters
+(8 MiB dictionary, no integrity check), so the same input bytes give the
+same container bytes on every platform. The output is not byte-identical
+to pkgbuild's — Apple's liblzma and Go's encoder choose matches
+differently — but it has the same block size, chunk count and stream
+flags, and unpacks to the same files.

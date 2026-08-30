@@ -13,7 +13,8 @@ macOS leg additionally checks the result against Apple's own tools.
 | CLI skeleton, exit codes, release pipeline | ✅ | ✅ | ✅ |
 | Read xar (header, TOC, entries, checksums, signature elements) | ✅ | ✅ | ✅ |
 | Read bill of materials (Bom) | ✅¹ | ✅¹ | ✅¹ |
-| Read cpio payloads: gzip, pbzx, odc, newc | ✅ | ✅ | ✅ |
+| Read cpio payloads: gzip, pbz* (xz, LZFSE, LZ4, zlib), odc, newc | ✅ | ✅ | ✅ |
+| Write pbzx payloads (`build --compression pbzx`) | ✅⁶ | ✅⁶ | ✅⁶ |
 | Read `--large-payload` packages (LargeSegmentedPayload) | ✅ | ✅ | ✅ |
 | Apple Archive payloads | ⬜² | ⬜² | ⬜² |
 | PackageInfo and Distribution models | ✅ | ✅ | ✅ |
@@ -55,9 +56,12 @@ source tree built both ways gives identical `lsbom` output, identical
 `installKBytes`, identical `xar -tf` and `pkgutil --payload-files`, and
 `installer` installs the result. Two deliberate differences: extended
 attributes are not carried (pkgbuild writes them as `._` AppleDouble
-entries), and `--ownership preserve` is refused on Windows. Payloads are
-gzip cpio only; `--compression latest` (pbzx) and `--large-payload`
-output formats are read but not written.
+entries), and `--ownership preserve` is refused on Windows. `--large-payload`
+output is read but not written (its segmentation past 8 GiB is untested).
+pbzx output matches pkgbuild's parameters (16 MiB blocks, one xz stream
+per chunk, no check, 8 MiB dictionary); pkgbuild has written pbzx for
+`--compression latest` on every macOS from 12 to 26, which the fixture
+manifest records.
 
 ⁷ Round-trip checked against Google's Go installer: expanded and rebuilt
 with macospkg, the bill of materials is identical in all 17,356 entries

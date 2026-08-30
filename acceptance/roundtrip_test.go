@@ -42,6 +42,14 @@ func roundTrip(t *testing.T) (expanded, rebuilt string, components, packages []s
 		if c.InstallLocation != "" {
 			args = append(args, "--install-location", c.InstallLocation)
 		}
+		// Keep the original's payload container, so a pbzx package is
+		// rebuilt as pbzx.
+		if c.Payload != nil && c.Payload.Encoding == "pbzx-cpio" {
+			args = append(args, "--compression", "pbzx")
+			if c.MinimumSystemVersion != "" {
+				args = append(args, "--min-os-version", c.MinimumSystemVersion)
+			}
+		}
 		if st, err := os.Stat(filepath.Join(compDir, "Scripts")); err == nil && st.IsDir() {
 			args = append(args, "--scripts", filepath.Join(compDir, "Scripts"))
 		}

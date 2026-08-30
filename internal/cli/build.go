@@ -3,6 +3,7 @@ package cli
 
 import (
 	"crypto"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,6 +31,8 @@ var (
 	buildExclude            []string
 	buildExecutable         []string
 	buildManifest           string
+	buildCompression        string
+	buildBlockSize          uint64
 )
 
 var buildCmd = &cobra.Command{
@@ -45,6 +48,11 @@ given here override it. --manifest names such a file explicitly.
 
 The package is reproducible: with --source-date-epoch (or SOURCE_DATE_EPOCH)
 set, the same input produces byte-identical output on every platform.
+
+--compression pbzx (or latest, what pkgbuild --compression latest means)
+writes the payload as xz chunks instead of gzip: smaller, but only macOS 12
+and later can install it, so the package's minimum system version is set
+to 12.0 unless a higher one is given.
 
 On Windows the file system records no execute bits; --executable names the
 payload paths (regular expressions) that should be 0755. Ownership other
@@ -81,25 +89,29 @@ func init() {
 	f.StringArrayVar(&buildExclude, "exclude", nil, "payload paths to leave out (regular expression on ./path); repeatable")
 	f.StringArrayVar(&buildExecutable, "executable", nil, "payload paths that are executable, for hosts without execute bits (regular expression); repeatable")
 	f.StringVar(&buildManifest, "manifest", "", "build-info.yaml/.json/.plist to read options from")
+	f.StringVar(&buildCompression, "compression", "", "payload container: gzip (default, every macOS) or pbzx/latest (smaller; macOS 12 or later)")
+	f.Uint64Var(&buildBlockSize, "pbzx-block-size", 0, "pbzx block size in bytes (default 16 MiB, as pkgbuild)")
 	addSigningFlags(buildCmd, "sign-")
 	addNotarizeFlags(buildCmd)
 }
 
 // buildReport is the JSON schema for macospkg build.
 type buildReport struct {
-	Output          string   `json:"output"`
-	Kind            string   `json:"kind"`
-	Identifier      string   `json:"identifier"`
-	Version         string   `json:"version"`
-	InstallLocation string   `json:"installLocation"`
-	NumberOfFiles   int      `json:"numberOfFiles"`
-	InstallKBytes   int      `json:"installKBytes"`
-	Scripts         []string `json:"scripts"`
-	Bundles         []string `json:"bundles"`
-	Size            int64    `json:"size"`
-	SHA256          string   `json:"sha256"`
-	Signed          bool     `json:"signed"`
-	Notarized       bool     `json:"notarized"`
+	Output               string   `json:"output"`
+	Kind                 string   `json:"kind"`
+	Identifier           string   `json:"identifier"`
+	Version              string   `json:"version"`
+	InstallLocation      string   `json:"installLocation"`
+	NumberOfFiles        int      `json:"numberOfFiles"`
+	InstallKBytes        int      `json:"installKBytes"`
+	PayloadEncoding      string   `json:"payloadEncoding"`
+	MinimumSystemVersion string   `json:"minimumSystemVersion,omitempty"`
+	Scripts              []string `json:"scripts"`
+	Bundles              []string `json:"bundles"`
+	Size                 int64    `json:"size"`
+	SHA256               string   `json:"sha256"`
+	Signed               bool     `json:"signed"`
+	Notarized            bool     `json:"notarized"`
 }
 
 func runBuild(cmd *cobra.Command, args []string) error {
@@ -154,6 +166,12 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return usageErrorf("%v", err)
 	}
 	o.Ownership = ownership
+	compression, err := flatpkg.ParseCompression(pick(buildCompression, m.Compression))
+	if err != nil {
+		return usageErrorf("%v", err)
+	}
+	o.Compression = compression
+	o.PBZXBlockSize = buildBlockSize
 
 	excludes, err := compilePatterns(append(buildExclude, m.Exclude...))
 	if err != nil {
@@ -190,17 +208,19 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	report := buildReport{
-		Output:          output,
-		Kind:            string(flatpkg.KindComponent),
-		Identifier:      o.Identifier,
-		Version:         o.Version,
-		InstallLocation: res.PackageInfo.InstallLocation,
-		NumberOfFiles:   res.NumberOfFiles,
-		InstallKBytes:   res.InstallKBytes,
-		Scripts:         []string{},
-		Bundles:         []string{},
-		Signed:          signer != nil,
-		Notarized:       buildNotarize,
+		Output:               output,
+		Kind:                 string(flatpkg.KindComponent),
+		Identifier:           o.Identifier,
+		Version:              o.Version,
+		InstallLocation:      res.PackageInfo.InstallLocation,
+		NumberOfFiles:        res.NumberOfFiles,
+		InstallKBytes:        res.InstallKBytes,
+		PayloadEncoding:      string(o.Compression.Encoding()),
+		MinimumSystemVersion: res.PackageInfo.MinimumSystemVersion,
+		Scripts:              []string{},
+		Bundles:              []string{},
+		Signed:               signer != nil,
+		Notarized:            buildNotarize,
 	}
 	if res.Scripts != nil {
 		report.Scripts = res.Scripts
@@ -252,6 +272,8 @@ func buildError(err error) error {
 	switch {
 	case strings.Contains(err.Error(), flatpkg.ErrUnsupportedOnPlatform.Error()):
 		return withCode(ExitUnsupported, err)
+	case errors.Is(err, flatpkg.ErrCompressionNeedsMinOS):
+		return withCode(ExitUsage, err)
 	case os.IsNotExist(err):
 		return withCode(ExitUsage, err)
 	}

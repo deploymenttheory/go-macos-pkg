@@ -4,6 +4,7 @@ package flatpkg
 import (
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -11,11 +12,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/deploymenttheory/go-macos-pkg/pkg/bom"
 	"github.com/deploymenttheory/go-macos-pkg/pkg/cpio"
+	"github.com/deploymenttheory/go-macos-pkg/pkg/pbzx"
 	"github.com/deploymenttheory/go-macos-pkg/pkg/xar"
 )
 
@@ -53,6 +56,62 @@ func ParseOwnership(s string) (Ownership, error) {
 // ErrUnsupportedOnPlatform reports an option the host cannot honour.
 var ErrUnsupportedOnPlatform = fmt.Errorf("flatpkg: not supported on %s", runtime.GOOS)
 
+// Compression selects the payload container, as pkgbuild's --compression
+// does.
+type Compression int
+
+// Payload compressions.
+const (
+	// CompressionGzip is pkgbuild's default: gzip cpio, readable by every
+	// macOS.
+	CompressionGzip Compression = iota
+	// CompressionPBZX is the pbzx container (xz chunks) that pkgbuild
+	// --compression latest has written on every macOS from 12 to 26.
+	// Packages using it need macOS 12 or later.
+	CompressionPBZX
+	// CompressionLatest is whatever pkgbuild --compression latest means
+	// today: pbzx.
+	CompressionLatest
+)
+
+// ParseCompression parses gzip, pbzx or latest.
+func ParseCompression(s string) (Compression, error) {
+	switch strings.ToLower(s) {
+	case "gzip", "legacy", "":
+		return CompressionGzip, nil
+	case "pbzx", "xz":
+		return CompressionPBZX, nil
+	case "latest":
+		return CompressionLatest, nil
+	}
+	return 0, fmt.Errorf("unknown compression %q: want gzip, pbzx or latest", s)
+}
+
+func (c Compression) String() string {
+	switch c {
+	case CompressionPBZX, CompressionLatest:
+		return "pbzx"
+	}
+	return "gzip"
+}
+
+// Encoding is the payload encoding the compression produces.
+func (c Compression) Encoding() PayloadEncoding {
+	if c == CompressionPBZX || c == CompressionLatest {
+		return PayloadPBZX
+	}
+	return PayloadGzip
+}
+
+// pbzxMinimumOS is the oldest macOS that reads a pbzx payload; pkgbuild
+// refuses --compression latest without a --min-os-version of at least
+// this, and so does this builder.
+const pbzxMinimumOS = "12.0"
+
+// ErrCompressionNeedsMinOS reports a pbzx package with too old a minimum
+// system version.
+var ErrCompressionNeedsMinOS = errors.New("flatpkg: pbzx payloads need a minimum system version of 12.0 or later")
+
 // ComponentOptions configures BuildComponent.
 type ComponentOptions struct {
 	// Root is the payload root: the directory whose contents are installed
@@ -84,6 +143,12 @@ type ComponentOptions struct {
 	// attributes are not carried in the payload by this builder, so the
 	// flag only matters to what the Installer expects.
 	PreserveXattr bool
+
+	// Compression selects the payload container. Scripts are always gzip,
+	// as pkgbuild leaves them.
+	Compression Compression
+	// PBZXBlockSize is the pbzx block size; 0 selects pkgbuild's 16 MiB.
+	PBZXBlockSize uint64
 
 	// Epoch, when set, is written as every timestamp (payload, bill of
 	// materials, archive) so the package is reproducible. Zero preserves
@@ -180,6 +245,13 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 	if o.GeneratorVersion == "" {
 		o.GeneratorVersion = "go-macos-pkg"
 	}
+	if o.Compression.Encoding() == PayloadPBZX {
+		if o.MinOSVersion == "" {
+			o.MinOSVersion = pbzxMinimumOS
+		} else if versionLess(o.MinOSVersion, pbzxMinimumOS) {
+			return nil, fmt.Errorf("%w (got %s)", ErrCompressionNeedsMinOS, o.MinOSVersion)
+		}
+	}
 	epoch := o.Epoch
 	archiveTime := time.Now()
 	if !epoch.IsZero() {
@@ -230,7 +302,7 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 		}
 		payloadPath = filepath.Join(tmp, "Payload")
 		bomPath = filepath.Join(tmp, "Bom")
-		if err := writePayloadAndBom(entries, payloadPath, bomPath, o.Progress); err != nil {
+		if err := writePayloadAndBom(entries, payloadPath, bomPath, o.Compression, o.PBZXBlockSize, o.Progress); err != nil {
 			return nil, err
 		}
 		res.NumberOfFiles = len(entries)
@@ -460,19 +532,24 @@ func permBits(fi os.FileInfo, rel string, o ComponentOptions, def uint32) uint32
 	return perm
 }
 
-// writePayloadAndBom streams the entries into a gzip odc cpio and builds
-// the bill of materials alongside.
-func writePayloadAndBom(entries []payloadEntry, payloadPath, bomPath string, progress func(string)) error {
+// writePayloadAndBom streams the entries into an odc cpio inside the
+// chosen container and builds the bill of materials alongside.
+func writePayloadAndBom(entries []payloadEntry, payloadPath, bomPath string, compression Compression, blockSize uint64, progress func(string)) error {
 	pf, err := os.Create(payloadPath)
 	if err != nil {
 		return err
 	}
 	defer pf.Close()
-	gz, err := gzip.NewWriterLevel(pf, gzip.DefaultCompression)
+	var container io.WriteCloser
+	if compression.Encoding() == PayloadPBZX {
+		container, err = pbzx.NewWriter(pf, pbzx.XZ, blockSize)
+	} else {
+		container, err = gzip.NewWriterLevel(pf, gzip.DefaultCompression)
+	}
 	if err != nil {
 		return err
 	}
-	cw := cpio.NewWriter(gz)
+	cw := cpio.NewWriter(container)
 	b := bom.NewBuilder()
 
 	for i, e := range entries {
@@ -539,7 +616,7 @@ func writePayloadAndBom(entries []payloadEntry, payloadPath, bomPath string, pro
 	if err := cw.Close(); err != nil {
 		return err
 	}
-	if err := gz.Close(); err != nil {
+	if err := container.Close(); err != nil {
 		return err
 	}
 	if err := pf.Close(); err != nil {
@@ -554,6 +631,24 @@ func writePayloadAndBom(entries []payloadEntry, payloadPath, bomPath string, pro
 		return err
 	}
 	return bf.Close()
+}
+
+// versionLess reports whether dotted version a is older than b.
+func versionLess(a, b string) bool {
+	pa, pb := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		var x, y int
+		if i < len(pa) {
+			x, _ = strconv.Atoi(pa[i])
+		}
+		if i < len(pb) {
+			y, _ = strconv.Atoi(pb[i])
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return false
 }
 
 // knownScripts are the script names pkgbuild recognises.

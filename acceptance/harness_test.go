@@ -40,6 +40,9 @@ type fixtureManifest struct {
 		// com.apple.provenance to every file, so pkgbuild wrote ._ sidecar
 		// entries into the payloads and bills of materials.
 		AppleDouble bool `json:"appleDouble"`
+		// CompressionLatest records, per --min-os-version tried, what
+		// container pkgbuild --compression latest wrote.
+		CompressionLatest map[string]string `json:"compressionLatest"`
 	} `json:"generator"`
 	Packages map[string]manifestPackage `json:"packages"`
 }
@@ -61,15 +64,20 @@ type manifestPackage struct {
 // manifestComponent is what pkgbuild wrote into one component's
 // PackageInfo, plus what lsbom reported from its Bom.
 type manifestComponent struct {
-	Identifier      string                  `json:"identifier"`
-	Version         string                  `json:"version"`
-	InstallLocation string                  `json:"installLocation"`
-	PayloadEntry    string                  `json:"payloadEntry"`
-	PayloadEncoding string                  `json:"payloadEncoding"`
-	NumberOfFiles   int                     `json:"numberOfFiles"`
-	InstallKBytes   int                     `json:"installKBytes"`
-	Scripts         []string                `json:"scripts"`
-	Files           map[string]manifestFile `json:"files"`
+	Identifier      string `json:"identifier"`
+	Version         string `json:"version"`
+	InstallLocation string `json:"installLocation"`
+	PayloadEntry    string `json:"payloadEntry"`
+	PayloadEncoding string `json:"payloadEncoding"`
+	// PayloadBlockSize and PayloadChunks describe a pbz* payload's
+	// container; ScriptsEncoding is the Scripts archive's container.
+	PayloadBlockSize uint64                  `json:"payloadBlockSize"`
+	PayloadChunks    int                     `json:"payloadChunks"`
+	ScriptsEncoding  string                  `json:"scriptsEncoding"`
+	NumberOfFiles    int                     `json:"numberOfFiles"`
+	InstallKBytes    int                     `json:"installKBytes"`
+	Scripts          []string                `json:"scripts"`
+	Files            map[string]manifestFile `json:"files"`
 }
 
 type manifestFile struct {

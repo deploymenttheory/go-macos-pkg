@@ -48,7 +48,7 @@ jobs:
           # A cheap tripwire: if production code mentions one of these as a
           # string, a dependency on Apple's tools is creeping in.
           if grep -rlnE --include='*.go' --exclude='*_test.go' \
-               '"(xcrun|pkgbuild|productbuild|productsign|pkgutil|stapler|notarytool|/usr/bin/security)"' . \
+               '"(xcrun|pkgbuild|productbuild|productsign|pkgutil|stapler|notarytool|/usr/bin/security|/usr/bin/aa)"' . \
              | grep -v '^./acceptance/' | grep -v '^./scripts/'; then
             echo "::error::production code references an Apple command-line tool"
             exit 1

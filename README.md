@@ -43,7 +43,7 @@ Notarized: yes (ticket on record with Apple)
 | Sign with a Developer ID Installer certificate, with Apple timestamps | ✅ | ✅ | ✅ |
 | Verify signatures against Apple's roots; team, timestamp, staple | ✅ | ✅ | ✅ |
 | Notarize (App Store Connect API key) and staple | ✅ | ✅ | ✅ |
-| Payloads: gzip cpio, pbzx (`--compression latest`), `--large-payload` | read+write / read / read |||
+| Payloads: gzip cpio, pbzx (`--compression latest`), `--large-payload` | read+write / read+write / read |||
 
 See [`TOOLS_STATUS.md`](TOOLS_STATUS.md) for the exact state of each area.
 
