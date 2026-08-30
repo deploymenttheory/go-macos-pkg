@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.0](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.2.0...v0.3.0) (2026-08-30)
+
+
+### Features
+
+* read and write pbzb payloads with a pure-Go LZBITMAP ([519e895](https://github.com/deploymenttheory/go-macos-pkg/commit/519e8953f927f39381d109c76ddaf5a2fd828dc8))
+* read and write pbzb payloads with a pure-Go LZBITMAP ([8b95d9c](https://github.com/deploymenttheory/go-macos-pkg/commit/8b95d9c7fee1659aaffe1c4d910c25dd4d272b2d))
+* write pbze payloads, and refuse the containers macOS cannot read ([a65e879](https://github.com/deploymenttheory/go-macos-pkg/commit/a65e8798edb1ad275bd31528b80ee06a7b550c57))
+* write pbze payloads, and refuse the containers macOS cannot read ([99bd3ce](https://github.com/deploymenttheory/go-macos-pkg/commit/99bd3ce2a3b37343b71ec438b50dc0acf6c9a98c))
+
 ## [0.2.0](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.1.0...v0.2.0) (2026-08-30)
 
 
