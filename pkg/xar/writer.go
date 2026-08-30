@@ -10,6 +10,7 @@
 // signed archive keeps its signatures immediately after that digest. Both
 // are accounted for when the entry offsets are finalised, so a Signer can
 // be attached before Close without the layout changing under it.
+
 package xar
 
 import (

@@ -61,24 +61,26 @@ func init() {
 
 // verifyReport is the JSON schema for macospkg verify.
 type verifyReport struct {
-	Path         string        `json:"path"`
-	Signed       bool          `json:"signed"`
-	Valid        bool          `json:"valid"`
-	Digest       string        `json:"digest,omitempty"`
-	DigestValid  bool          `json:"digestValid"`
-	RSAValid     bool          `json:"rsaValid"`
-	CMSValid     bool          `json:"cmsValid"`
-	Trusted      bool          `json:"trusted"`
-	TrustError   string        `json:"trustError,omitempty"`
-	TeamID       string        `json:"teamId,omitempty"`
-	DeveloperID  bool          `json:"developerId"`
-	SigningTime  string        `json:"signingTime,omitempty"`
-	Timestamped  bool          `json:"timestamped"`
-	Timestamp    string        `json:"timestamp,omitempty"`
-	Certificates []certSummary `json:"certificates"`
-	Stapled      bool          `json:"stapled"`
-	Notarized    *bool         `json:"notarized,omitempty"` // only with --online
-	Errors       []string      `json:"errors"`
+	Path              string        `json:"path"`
+	Signed            bool          `json:"signed"`
+	Valid             bool          `json:"valid"`
+	Digest            string        `json:"digest,omitempty"`
+	DigestValid       bool          `json:"digestValid"`
+	RSAValid          bool          `json:"rsaValid"`
+	CMSValid          bool          `json:"cmsValid"`
+	Trusted           bool          `json:"trusted"`
+	TrustError        string        `json:"trustError,omitempty"`
+	TeamID            string        `json:"teamId,omitempty"`
+	DeveloperID       bool          `json:"developerId"`
+	SigningTime       string        `json:"signingTime,omitempty"`
+	Timestamped       bool          `json:"timestamped"`
+	TimestampVerified bool          `json:"timestampVerified"`
+	Timestamp         string        `json:"timestamp,omitempty"`
+	TimestampError    string        `json:"timestampError,omitempty"`
+	Certificates      []certSummary `json:"certificates"`
+	Stapled           bool          `json:"stapled"`
+	Notarized         *bool         `json:"notarized,omitempty"` // only with --online
+	Errors            []string      `json:"errors"`
 }
 
 func runVerify(cmd *cobra.Command, args []string) error {
@@ -107,6 +109,7 @@ func runVerify(cmd *cobra.Command, args []string) error {
 	report := verifyReport{Path: p.Path, Signed: res.Signed, Digest: res.Digest, DigestValid: res.DigestValid,
 		RSAValid: res.RSAValid, CMSValid: res.CMSValid, Trusted: res.Trusted, TrustError: res.TrustError,
 		TeamID: res.TeamID, DeveloperID: res.DeveloperID, Timestamped: res.Timestamped,
+		TimestampVerified: res.TimestampVerified, TimestampError: res.TimestampError,
 		Certificates: []certSummary{}, Errors: res.Errors}
 	if report.Errors == nil {
 		report.Errors = []string{}
@@ -203,7 +206,11 @@ func printVerify(r *verifyReport) {
 		fmt.Printf("Chain:     UNTRUSTED (%s)\n", r.TrustError)
 	}
 	if r.Timestamped {
-		fmt.Printf("Timestamp: %s\n", r.Timestamp)
+		state := "unverified"
+		if r.TimestampVerified {
+			state = "verified"
+		}
+		fmt.Printf("Timestamp: %s (%s)\n", r.Timestamp, state)
 	} else {
 		fmt.Println("Timestamp: none")
 	}

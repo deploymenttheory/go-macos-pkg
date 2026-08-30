@@ -49,8 +49,14 @@ type Result struct {
 	DeveloperID  bool // leaf has the Developer ID Installer marker
 
 	SigningTime time.Time
-	Timestamped bool
-	Timestamp   time.Time
+	// Timestamped reports that a token is attached. TimestampVerified
+	// reports that it was checked and believed: the authority signed it,
+	// it attests to this signature, and it chains to a trusted root. Only
+	// then is Timestamp used to judge the certificate's validity.
+	Timestamped       bool
+	TimestampVerified bool
+	Timestamp         time.Time
+	TimestampError    string
 
 	Trusted    bool
 	TrustError string
@@ -63,6 +69,39 @@ type Result struct {
 // Valid reports whether the signature is sound and trusted (or trust was
 // waived).
 func (r *Result) Valid() bool { return r.Signed && len(r.Errors) == 0 }
+
+// checkTimestamp decides whether the attached token may be believed. A
+// token that is present but cryptographically wrong is tampering and
+// fails the verification; one that merely cannot be checked is recorded
+// and its time ignored.
+func (r *Result) checkTimestamp(info *CMSInfo, o VerifyOptions) {
+	// The authority is a separate trust question from the package's own
+	// signer. Apple's timestamp server, which productsign and this tool
+	// both use by default, chains to Apple Root CA, so try that first
+	// even when the caller pinned its own anchors for the package. A
+	// caller running a private authority as well gets the second attempt.
+	at, err := VerifyTimestamp(info.TimestampToken, info.SignatureValue, AppleRoots())
+	if err != nil && o.Anchors != nil && !errors.Is(err, ErrTimestampInvalid) {
+		at, err = VerifyTimestamp(info.TimestampToken, info.SignatureValue, o.Anchors)
+	}
+	switch {
+	case err == nil:
+		r.TimestampVerified = true
+		r.Timestamp = at
+	case errors.Is(err, ErrTimestampInvalid):
+		r.TimestampError = err.Error()
+		r.fail("%v", err)
+	default:
+		r.TimestampError = err.Error()
+	}
+	// The claimed time is still worth reporting, clearly marked unverified,
+	// because it is what a reader sees in the package.
+	if !r.TimestampVerified {
+		if claimed, err := TimestampTime(info.TimestampToken); err == nil {
+			r.Timestamp = claimed
+		}
+	}
+}
 
 func (r *Result) fail(format string, args ...any) {
 	r.Errors = append(r.Errors, fmt.Sprintf(format, args...))
@@ -134,7 +173,11 @@ func Verify(x *xar.Reader, o VerifyOptions) (*Result, error) {
 			r.fail("RSA signature: %v", err)
 		} else if pub, ok := r.Signer.PublicKey.(*rsa.PublicKey); !ok {
 			r.fail("RSA signature: the signer's key is not RSA")
-		} else if err := rsa.VerifyPKCS1v15(pub, hash, digest, sig[:min(len(sig), pub.Size())]); err != nil {
+		} else if len(sig) != pub.Size() {
+			// Trimming to the key size would let a signature with trailing
+			// bytes through on the strength of its prefix.
+			r.fail("RSA signature is %d bytes, want %d for this key", len(sig), pub.Size())
+		} else if err := rsa.VerifyPKCS1v15(pub, hash, digest, sig); err != nil {
 			r.fail("RSA signature does not verify")
 		} else {
 			r.RSAValid = true
@@ -153,9 +196,7 @@ func Verify(x *xar.Reader, o VerifyOptions) (*Result, error) {
 				r.SigningTime = info.SigningTime
 				if info.TimestampToken != nil {
 					r.Timestamped = true
-					if t, err := TimestampTime(info.TimestampToken); err == nil {
-						r.Timestamp = t
-					}
+					r.checkTimestamp(info, o)
 				}
 				if info.Signer != nil && !info.Signer.Equal(r.Signer) {
 					r.fail("the CMS signer differs from the certificate in the table of contents")
@@ -195,8 +236,10 @@ func Verify(x *xar.Reader, o VerifyOptions) (*Result, error) {
 	if at.IsZero() {
 		at = time.Now()
 		// A timestamped signature stays valid after its certificate
-		// expires: evaluate at the time the timestamp attests to.
-		if r.Timestamped && !r.Timestamp.IsZero() {
+		// expires, but only on the word of an authority we checked. An
+		// unverified token is ignored, so the certificate is judged now
+		// and an expired one fails on its own merits.
+		if r.TimestampVerified && !r.Timestamp.IsZero() {
 			at = r.Timestamp
 		}
 	}

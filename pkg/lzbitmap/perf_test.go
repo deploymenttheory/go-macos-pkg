@@ -18,6 +18,9 @@ func TestIncompressibleIsNotQuadratic(t *testing.T) {
 	if testing.Short() {
 		t.Skip("timing test")
 	}
+	if raceEnabled {
+		t.Skip("the race detector makes the wall clock meaningless here")
+	}
 	buf := make([]byte, 8<<20)
 	if _, err := rand.Read(buf); err != nil {
 		t.Fatal(err)

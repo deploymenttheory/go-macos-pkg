@@ -161,6 +161,18 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
+	// Every write goes through a root anchored at dir. SafeRelPath rejects
+	// names that climb out lexically, but it cannot know what is already
+	// on disk: a payload can write a symlink and then a path that traverses
+	// it, and plain os.MkdirAll and os.OpenFile would follow the link out
+	// of the destination. A root refuses to traverse a link that leaves it,
+	// while still allowing one to be created, so packages that legitimately
+	// contain absolute symlinks still extract.
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
 	// Directory times are applied after their contents, since writing a
 	// file into a directory updates the directory's mtime.
 	type dirTime struct {
@@ -194,11 +206,11 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 		if renamedFrom != "" {
 			res.Renamed = append(res.Renamed, Skip{Path: renamedFrom, Reason: "renamed to " + rel})
 		}
-		target := filepath.Join(dir, filepath.FromSlash(rel))
+		target := filepath.FromSlash(rel)
 
 		switch {
 		case h.IsRegular() && appledouble.IsSidecarName(h.Name) && xattrMode != XattrFile:
-			handled, raw, err := applySidecar(cr, h, dir, target, xattrMode, autoXattrs, res)
+			handled, raw, err := applySidecar(cr, h, root, dir, target, xattrMode, autoXattrs, res)
 			if err != nil {
 				return res, err
 			}
@@ -207,10 +219,10 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 			}
 			// Not AppleDouble after all: an ordinary file whose name
 			// starts with "._"; it has been buffered, so write it out.
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := root.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return res, err
 			}
-			sum, err := writeFile(target, bytes.NewReader(raw), h)
+			sum, err := writeFile(root, target, bytes.NewReader(raw), h)
 			if err != nil {
 				return res, fmt.Errorf("unable to write %s: %w", rel, err)
 			}
@@ -220,11 +232,11 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 			res.Files++
 		case h.IsRegular() && !o.NoHardLinks && h.NLink > 1 && !appledouble.IsSidecarName(h.Name) && linked[h.Inode] != "":
 			// A later member of a hard-link set: link it to the first.
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := root.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return res, err
 			}
-			_ = os.Remove(target)
-			if err := os.Link(linked[h.Inode], target); err == nil {
+			_ = root.Remove(target)
+			if err := root.Link(linked[h.Inode], target); err == nil {
 				if _, err := io.Copy(io.Discard, cr); err != nil {
 					return res, fmt.Errorf("unable to read %s: %w", rel, err)
 				}
@@ -233,7 +245,7 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 				break
 			}
 			// The host refused the link; write a copy.
-			sum, err := writeFile(target, cr, h)
+			sum, err := writeFile(root, target, cr, h)
 			if err != nil {
 				return res, fmt.Errorf("unable to write %s: %w", rel, err)
 			}
@@ -243,18 +255,18 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 			res.Files++
 		case h.IsDir():
 			if rel != "." {
-				if err := os.MkdirAll(target, 0o755); err != nil {
+				if err := root.MkdirAll(target, 0o755); err != nil {
 					return res, err
 				}
 			}
-			applyMode(target, h.Mode)
+			applyMode(root, target, h.Mode)
 			dirTimes = append(dirTimes, dirTime{target, h.ModTime})
 			res.Dirs++
 		case h.IsRegular():
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := root.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return res, err
 			}
-			sum, err := writeFile(target, cr, h)
+			sum, err := writeFile(root, target, cr, h)
 			if err != nil {
 				return res, fmt.Errorf("unable to write %s: %w", rel, err)
 			}
@@ -270,10 +282,10 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 			if err != nil {
 				return res, fmt.Errorf("unable to read link %s: %w", rel, err)
 			}
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := root.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return res, err
 			}
-			if err := writeSymlink(target, string(linkTarget), o.Symlinks); err != nil {
+			if err := writeSymlink(root, target, string(linkTarget), o.Symlinks); err != nil {
 				if errors.Is(err, errSymlinkRefused) {
 					res.Skipped = append(res.Skipped, Skip{Path: h.Name, Reason: "symlink not created: " + err.Error()})
 					continue
@@ -291,7 +303,7 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 	}
 	for i := len(dirTimes) - 1; i >= 0; i-- {
 		if !dirTimes[i].t.IsZero() {
-			_ = os.Chtimes(dirTimes[i].path, dirTimes[i].t, dirTimes[i].t)
+			_ = root.Chtimes(dirTimes[i].path, dirTimes[i].t, dirTimes[i].t)
 		}
 	}
 	return res, nil
@@ -313,9 +325,11 @@ var errSymlinkRefused = errors.New("host refused")
 // unpacked tree restores exactly what was there. An explicit
 // --xattrs apply reports them as skipped instead, since the caller asked
 // for them to be applied and they were not.
-// target is the sidecar's own path, already checked by SafeRelPath;
-// dir is the extraction root, from which the owner's path is resolved.
-func applySidecar(r io.Reader, h *cpio.Header, dir, target string, mode XattrMode, auto bool, res *ExtractResult) (bool, []byte, error) {
+// target is the sidecar's own path, already checked by SafeRelPath, and
+// relative to root. dir is the same directory as an absolute path, needed
+// because extended attributes are set by name and root has no method for
+// them; the setters do not follow symlinks, so a link cannot redirect one.
+func applySidecar(r io.Reader, h *cpio.Header, root *os.Root, dir, target string, mode XattrMode, auto bool, res *ExtractResult) (bool, []byte, error) {
 	if h.Size > maxSidecar {
 		return false, nil, fmt.Errorf("%s: sidecar of %d bytes is larger than %d", h.Name, h.Size, maxSidecar)
 	}
@@ -337,11 +351,11 @@ func applySidecar(r io.Reader, h *cpio.Header, dir, target string, mode XattrMod
 		res.Skipped = append(res.Skipped, Skip{Path: h.Name, Reason: reason})
 		return true, nil, nil
 	}
-	ownerPath := filepath.Join(dir, filepath.FromSlash(rel))
-	if _, err := os.Lstat(ownerPath); err != nil {
+	if _, err := root.Lstat(filepath.FromSlash(rel)); err != nil {
 		res.Skipped = append(res.Skipped, Skip{Path: h.Name, Reason: "owner " + owner + " was not extracted"})
 		return true, nil, nil
 	}
+	ownerPath := filepath.Join(dir, filepath.FromSlash(rel))
 	attrs := f.Xattrs()
 	refused := map[string][]byte{}
 	for name, value := range attrs {
@@ -370,10 +384,10 @@ func applySidecar(r io.Reader, h *cpio.Header, dir, target string, mode XattrMod
 	if err != nil {
 		return true, nil, fmt.Errorf("%s: %w", h.Name, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	if err := root.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return true, nil, err
 	}
-	if _, err := writeFile(target, bytes.NewReader(kept), h); err != nil {
+	if _, err := writeFile(root, target, bytes.NewReader(kept), h); err != nil {
 		return true, nil, fmt.Errorf("unable to write %s: %w", h.Name, err)
 	}
 	res.Files++
@@ -381,8 +395,13 @@ func applySidecar(r io.Reader, h *cpio.Header, dir, target string, mode XattrMod
 	return true, nil, nil
 }
 
-func writeFile(target string, r io.Reader, h *cpio.Header) (uint32, error) {
-	f, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+func writeFile(root *os.Root, target string, r io.Reader, h *cpio.Header) (uint32, error) {
+	// Remove first: an existing entry here may be a symlink the payload
+	// planted, and truncating one writes through it. The root refuses a
+	// link that leaves the destination, but one pointing inside it would
+	// still be followed.
+	_ = root.Remove(target)
+	f, err := root.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
 		return 0, err
 	}
@@ -394,29 +413,32 @@ func writeFile(target string, r io.Reader, h *cpio.Header) (uint32, error) {
 	if err != nil {
 		return 0, err
 	}
-	applyMode(target, h.Mode)
+	applyMode(root, target, h.Mode)
 	if !h.ModTime.IsZero() {
-		_ = os.Chtimes(target, h.ModTime, h.ModTime)
+		_ = root.Chtimes(target, h.ModTime, h.ModTime)
 	}
 	return crc.Sum32(), nil
 }
 
 // applyMode sets the permission bits. On Windows only the read-only bit
 // exists and os.Chmod handles the mapping.
-func applyMode(target string, mode uint32) {
+func applyMode(root *os.Root, target string, mode uint32) {
 	perm := os.FileMode(mode & 0o777)
 	if runtime.GOOS == "windows" {
 		return
 	}
-	_ = os.Chmod(target, perm)
+	_ = root.Chmod(target, perm)
 }
 
-func writeSymlink(target, linkTarget string, mode SymlinkMode) error {
-	_ = os.Remove(target)
+func writeSymlink(root *os.Root, target, linkTarget string, mode SymlinkMode) error {
+	_ = root.Remove(target)
 	if mode == SymlinkFile {
-		return os.WriteFile(target, []byte(linkTarget), 0o644)
+		return root.WriteFile(target, []byte(linkTarget), 0o644)
 	}
-	err := os.Symlink(linkTarget, target)
+	// Root.Symlink does not resolve the target, so a package may still
+	// carry an absolute or climbing link, as real ones do. What it stops
+	// is a later entry traversing that link out of the destination.
+	err := root.Symlink(linkTarget, target)
 	if err == nil {
 		return nil
 	}
@@ -424,7 +446,7 @@ func writeSymlink(target, linkTarget string, mode SymlinkMode) error {
 		return err
 	}
 	// Auto: fall back to a file holding the target.
-	if werr := os.WriteFile(target, []byte(linkTarget), 0o644); werr != nil {
+	if werr := root.WriteFile(target, []byte(linkTarget), 0o644); werr != nil {
 		return werr
 	}
 	return fmt.Errorf("%w (%v); wrote the target as a file instead", errSymlinkRefused, err)

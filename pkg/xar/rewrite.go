@@ -6,6 +6,7 @@
 // size, so every entry offset shifts by the same amount and the heap can
 // be copied through untouched. That is what lets a multi-gigabyte package
 // be signed without re-encoding anything.
+
 package xar
 
 import (

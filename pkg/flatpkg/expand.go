@@ -58,6 +58,13 @@ func (p *Package) Expand(dir string, o ExpandOptions) (*ExpandResult, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
+	// As in ExtractCPIO: the archive is untrusted, so every write is
+	// anchored to the destination and cannot follow a link out of it.
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
 	res := &ExpandResult{}
 	x := p.XAR
 
@@ -85,14 +92,14 @@ func (p *Package) Expand(dir string, o ExpandOptions) (*ExpandResult, error) {
 		if renamed != "" {
 			res.Skipped = append(res.Skipped, Skip{Path: renamed, Reason: "renamed to " + rel})
 		}
-		target := filepath.Join(dir, filepath.FromSlash(rel))
+		target := filepath.FromSlash(rel)
 		switch {
 		case f.IsDir():
-			if err := os.MkdirAll(target, 0o755); err != nil {
+			if err := root.MkdirAll(target, 0o755); err != nil {
 				return res, err
 			}
 		case f.Type.Value == xar.TypeSymlink:
-			if err := writeSymlink(target, f.SymlinkTarget(), o.Symlinks); err != nil {
+			if err := writeSymlink(root, target, f.SymlinkTarget(), o.Symlinks); err != nil {
 				res.Skipped = append(res.Skipped, Skip{Path: f.Path(), Reason: err.Error()})
 				continue
 			}
@@ -102,10 +109,10 @@ func (p *Package) Expand(dir string, o ExpandOptions) (*ExpandResult, error) {
 					return res, err
 				}
 			}
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := root.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return res, err
 			}
-			if err := copyEntry(x, f, target); err != nil {
+			if err := copyEntry(root, x, f, target); err != nil {
 				return res, err
 			}
 		default:
@@ -119,9 +126,17 @@ func (p *Package) Expand(dir string, o ExpandOptions) (*ExpandResult, error) {
 	}
 
 	for _, c := range p.Components {
-		base := dir
+		// The component's name comes from the archive, so it is checked
+		// like any other entry name before it becomes a directory.
+		base, baseRel := dir, "."
 		if c.Name != "" {
-			base = filepath.Join(dir, filepath.FromSlash(c.Name))
+			rel, _, reason := SafeRelPath(c.Name)
+			if reason != "" {
+				res.Skipped = append(res.Skipped, Skip{Path: c.Name, Reason: reason})
+				continue
+			}
+			baseRel = filepath.FromSlash(rel)
+			base = filepath.Join(dir, baseRel)
 		}
 		if c.HasScripts() {
 			sr, err := c.ExtractScripts(filepath.Join(base, EntryScripts), ExtractOptions{Symlinks: o.Symlinks, Xattrs: o.Xattrs, NoHardLinks: o.NoHardLinks, Progress: o.Progress})
@@ -134,20 +149,21 @@ func (p *Package) Expand(dir string, o ExpandOptions) (*ExpandResult, error) {
 			continue
 		}
 		entry := c.Entry(EntryPayload)
-		target := filepath.Join(base, filepath.FromSlash(entry.Name()))
+		target := filepath.Join(baseRel, filepath.FromSlash(entry.Name()))
 		if !o.Full {
 			if o.Verify {
 				if err := x.Verify(entry); err != nil {
 					return res, err
 				}
 			}
-			if err := copyEntry(x, entry, target); err != nil {
+			if err := copyEntry(root, x, entry, target); err != nil {
 				return res, err
 			}
 			res.Entries++
 			continue
 		}
-		pr, _, err := c.ExtractPayload(target, ExtractOptions{Symlinks: o.Symlinks, Xattrs: o.Xattrs, NoHardLinks: o.NoHardLinks, Progress: o.Progress})
+		// ExtractPayload opens a root of its own, so it wants the real path.
+		pr, _, err := c.ExtractPayload(filepath.Join(dir, target), ExtractOptions{Symlinks: o.Symlinks, Xattrs: o.Xattrs, NoHardLinks: o.NoHardLinks, Progress: o.Progress})
 		if err != nil {
 			return res, fmt.Errorf("%s Payload: %w", componentName(c), err)
 		}
@@ -164,7 +180,7 @@ func componentName(c *Component) string {
 }
 
 // copyEntry writes one archive entry, decoded, to target.
-func copyEntry(x *xar.Reader, f *xar.File, target string) error {
+func copyEntry(root *os.Root, x *xar.Reader, f *xar.File, target string) error {
 	rc, err := x.Open(f)
 	if err != nil {
 		return err
@@ -174,7 +190,8 @@ func copyEntry(x *xar.Reader, f *xar.File, target string) error {
 	if m := f.ModeBits(); m != 0 {
 		mode = os.FileMode(m & 0o777)
 	}
-	out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	_ = root.Remove(target)
+	out, err := root.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
 	if err != nil {
 		return err
 	}
@@ -186,7 +203,7 @@ func copyEntry(x *xar.Reader, f *xar.File, target string) error {
 		return fmt.Errorf("unable to write %s: %w", strings.TrimPrefix(target, "./"), err)
 	}
 	if t := f.ModTime(); !t.IsZero() {
-		_ = os.Chtimes(target, t, t)
+		_ = root.Chtimes(target, t, t)
 	}
 	return nil
 }

@@ -9,8 +9,11 @@ import (
 	"context"
 	"crypto"
 	"crypto/rand"
+	"crypto/subtle"
+	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -134,7 +137,96 @@ type tstInfo struct {
 	GenTime        time.Time `asn1:"generalized"`
 }
 
-// TimestampTime extracts the generation time from a timestamp token.
+// Timestamp verification.
+//
+// A token is an RFC 3161 TimeStampToken: a CMS SignedData whose content is
+// a TSTInfo naming the time and the message it attests to. Reading GenTime
+// out of it proves nothing on its own, because the token travels as an
+// *unsigned* CMS attribute and so is not covered by the signature it
+// accompanies: anyone can replace it without disturbing the package's own
+// signature. Three things have to hold before its time may be believed.
+var (
+	// ErrTimestampInvalid reports a token that is cryptographically wrong:
+	// the timestamp authority's own signature does not verify, or the
+	// token attests to a different signature. Either means tampering.
+	ErrTimestampInvalid = errors.New("pkgsign: timestamp is invalid")
+	// ErrTimestampUnverified reports a token that could not be checked at
+	// all: it does not parse, or its authority chains to no trusted root.
+	// The token may be perfectly good; we simply cannot say so, so its
+	// time must not be used.
+	ErrTimestampUnverified = errors.New("pkgsign: timestamp could not be verified")
+)
+
+// oidTSTInfo is the eContentType of a TimeStampToken's content.
+var oidTSTInfo = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 1, 4}
+
+// VerifyTimestamp checks that a token was issued by a trusted timestamp
+// authority over signature, and returns the time it attests to.
+//
+// The authority's certificate is judged at the time the token claims,
+// not at now. That is not circular: the authority's signature covers
+// GenTime, so a forged time cannot survive the previous step. It is also
+// necessary, because Apple rotates its timestamp signer every few weeks
+// (the one seen while writing this was valid for six), so judging at now
+// would reject every token more than a month old.
+func VerifyTimestamp(token, signature []byte, roots *x509.CertPool) (time.Time, error) {
+	info, sd, err := ParseCMS(token)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%w: %v", ErrTimestampUnverified, err)
+	}
+	if info.Signer == nil {
+		return time.Time{}, fmt.Errorf("%w: the authority's certificate is not in the token", ErrTimestampUnverified)
+	}
+	if !sd.ContentInfo.ContentType.Equal(oidTSTInfo) {
+		return time.Time{}, fmt.Errorf("%w: content type %v is not TSTInfo", ErrTimestampUnverified, sd.ContentInfo.ContentType)
+	}
+	var inner []byte
+	if _, err := asn1.Unmarshal(sd.ContentInfo.Content.Bytes, &inner); err != nil {
+		return time.Time{}, fmt.Errorf("%w: TSTInfo content: %v", ErrTimestampUnverified, err)
+	}
+	var tst tstInfo
+	if _, err := asn1.Unmarshal(inner, &tst); err != nil {
+		return time.Time{}, fmt.Errorf("%w: TSTInfo: %v", ErrTimestampUnverified, err)
+	}
+
+	// The authority signed the TSTInfo, which carries GenTime.
+	if err := verifySignedAttrs(sd.SignerInfos[0], info.Signer, info.Hash, inner, oidTSTInfo); err != nil {
+		return time.Time{}, fmt.Errorf("%w: %v", ErrTimestampInvalid, err)
+	}
+
+	// The TSTInfo is about this signature and no other, so a token cannot
+	// be lifted from one package and dropped onto another.
+	imprintHash, err := hashFromOID(tst.MessageImprint.HashAlgorithm.Algorithm)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%w: message imprint: %v", ErrTimestampUnverified, err)
+	}
+	h := imprintHash.New()
+	h.Write(signature)
+	if subtle.ConstantTimeCompare(h.Sum(nil), tst.MessageImprint.HashedMessage) != 1 {
+		return time.Time{}, fmt.Errorf("%w: it attests to a different signature", ErrTimestampInvalid)
+	}
+
+	// The authority is one we trust, as of the time it claims.
+	intermediates := x509.NewCertPool()
+	for _, c := range info.Certificates {
+		if !c.Equal(info.Signer) {
+			intermediates.AddCert(c)
+		}
+	}
+	if _, err := info.Signer.Verify(x509.VerifyOptions{
+		Roots:         roots,
+		Intermediates: intermediates,
+		CurrentTime:   tst.GenTime,
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageTimeStamping},
+	}); err != nil {
+		return time.Time{}, fmt.Errorf("%w: the authority is not trusted: %v", ErrTimestampUnverified, err)
+	}
+	return tst.GenTime, nil
+}
+
+// TimestampTime extracts the generation time from a timestamp token
+// without checking anything. Callers deciding whether to believe the time
+// want VerifyTimestamp instead.
 func TimestampTime(token []byte) (time.Time, error) {
 	var ci contentInfo
 	if _, err := asn1.Unmarshal(token, &ci); err != nil {

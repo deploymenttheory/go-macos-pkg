@@ -5,6 +5,7 @@
 // they write it, so that marshalling a TOC we built produces the same shape.
 // Reading is more forgiving than writing: Apple's own tools emit duplicate
 // <name> elements and unknown children, and both are tolerated.
+
 package xar
 
 import (

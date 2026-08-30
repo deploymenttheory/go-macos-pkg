@@ -1,5 +1,6 @@
 // Reading xar archives: header, table of contents, heap access and
 // per-entry decoding and verification.
+
 package xar
 
 import (

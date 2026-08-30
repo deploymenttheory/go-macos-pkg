@@ -238,6 +238,21 @@ stamp root-zbm
 aa archive -d root-zbm -o "$ROOT/testdata/aa/aa-lzbitmap.aar" -a lzbitmap -b 1m
 aa archive -d root-zbm -o "$ROOT/testdata/aa/aa-lzbitmap-raw.aar" -a raw -b 1m
 
+log "apple timestamp token"
+# A real RFC 3161 token from Apple's timestamp authority, with the bytes it
+# attests to. pkg/pkgsign verifies the authority's signature, checks that
+# the token covers exactly these bytes, and chains the authority to the
+# embedded Apple Root CA. The signer certificate Apple uses is valid for
+# only about six weeks, which is why verification judges it at the token's
+# own generation time rather than at now; the fixture therefore does not
+# expire. Needs the network but no credentials.
+mkdir -p "$ROOT/testdata/timestamp"
+printf 'a signature value to be timestamped\n' >"$ROOT/testdata/timestamp/apple-token.signed-value"
+openssl ts -query -data "$ROOT/testdata/timestamp/apple-token.signed-value" -sha256 -cert -out tsa.tsq
+curl -fsS -H "Content-Type: application/timestamp-query" --data-binary @tsa.tsq \
+	http://timestamp.apple.com/ts01 -o tsa.tsr
+openssl ts -reply -in tsa.tsr -token_out -out "$ROOT/testdata/timestamp/apple-token.der"
+
 # ---------------------------------------------------------------- signing keys
 
 # A private CA and a leaf shaped like a Developer ID Installer certificate
