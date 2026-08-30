@@ -29,7 +29,7 @@ type PayloadEncoding string
 
 // Payload encodings, as reported by info and list. The pbz* names carry
 // the container's algorithm letter: pbzx is xz, pbze LZFSE, pbz4 LZ4,
-// pbzz zlib, pbzb LZBITMAP (detected, not decodable).
+// pbzz zlib, pbzb LZBITMAP.
 const (
 	PayloadGzip         PayloadEncoding = "gzip-cpio"
 	PayloadPBZX         PayloadEncoding = "pbzx-cpio"
@@ -53,8 +53,8 @@ func pbzEncoding(a pbzx.Algorithm) PayloadEncoding {
 }
 
 // ErrUnsupportedPayload reports a payload container this tool cannot
-// decode: Apple Archive (which the Installer does not read either) and
-// pbzb, whose LZBITMAP compression has no public specification.
+// decode: Apple Archive, which the Installer does not read either, and
+// anything unrecognised. Every pbz* container is decoded.
 var ErrUnsupportedPayload = errors.New("flatpkg: unsupported payload encoding")
 
 var (
