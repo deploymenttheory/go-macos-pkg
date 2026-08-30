@@ -1,5 +1,7 @@
 package lzbitmap
 
+import "math/bits"
+
 // Encoding, translated from libzbitmap's compressor.
 //
 // Each chunk covers at most MaxChunk bytes of input and is built in one
@@ -26,6 +28,27 @@ const (
 	possibleBitmaps = 1 << 10
 	// initialPeriod is where each chunk's period starts.
 	initialPeriod = 8
+	// sampleGroups is how far into a chunk the encoder looks before
+	// deciding the chunk is not going to compress. Searching 64 KiB of
+	// history for every eight bytes costs about 8000 comparisons a byte,
+	// and a chunk that ends up stored spent all of it for nothing, so
+	// the sooner such a chunk is abandoned the better. Incompressible
+	// input ran at 0.2 MB/s before this, against 340 MB/s for text.
+	// giveUpAfter is how many unproductive groups in a row turn the wide
+	// search off. Searching 64 KiB of history for every eight bytes costs
+	// about 8000 comparisons a byte, which is worth it while it is paying
+	// and ruinous when it is not: incompressible input ran at 0.2 MB/s
+	// before this against 340 MB/s for text.
+	giveUpAfter = 64
+	// probeEvery is how often the search runs anyway once it is off, so
+	// that data which starts incompressible and then repeats is picked up
+	// again within half a kilobyte.
+	probeEvery = 64
+	// worthwhile is the number of bytes a group must save, after paying
+	// for any new period, to count as productive. Random bytes score about
+	// one: the search does find two or three bytes in eight by chance,
+	// then spends most of that storing the period it needed.
+	worthwhile = 2
 )
 
 // bmprot indexes the use counter for a descriptor.
@@ -39,6 +62,9 @@ type encoder struct {
 	decmpLen int
 	start    int // pos at the start of the chunk
 	period   int
+	cheap    bool // the wide search is off
+	dry      int  // consecutive unproductive groups
+	probe    int  // groups until the search runs anyway
 	bitmaps  []bmap
 	periods  []int
 	lit      []byte
@@ -105,6 +131,8 @@ func (e *encoder) compressed() []byte {
 	}
 	e.period = initialPeriod
 
+	e.cheap, e.dry, e.probe = false, 0, 0
+
 	for e.pos < e.start+e.decmpLen {
 		e.eightBytes()
 	}
@@ -125,12 +153,37 @@ func (e *encoder) eightBytes() {
 		}
 	}
 	e.appendBitmap(bitmap, e.pos-best)
+	e.judge(n, bitmap)
 	for i := 0; i < 8 && e.pos < e.start+e.decmpLen; i++ {
 		if bitmap&(1<<i) != 0 {
 			e.lit = append(e.lit, e.src[e.pos])
 		}
 		e.pos++
 	}
+}
+
+// judge scores the group just encoded and decides whether the wide search
+// is earning its keep. The score is the bytes the bitmap saved less the
+// bytes its period costs, because a match needing a new two-byte period to
+// save two bytes has gained nothing.
+func (e *encoder) judge(n int, bitmap byte) {
+	saved := n - bits.OnesCount8(bitmap)
+	net := saved - int(e.bitmaps[len(e.bitmaps)-1].periodBytes)
+	if e.cheap {
+		// Only a probe group got a real search; a good one turns it back on.
+		if net >= n/2 {
+			e.cheap, e.dry = false, 0
+		}
+		return
+	}
+	if net < worthwhile {
+		e.dry++
+		if e.dry >= giveUpAfter {
+			e.cheap, e.probe = true, probeEvery
+		}
+		return
+	}
+	e.dry = 0
 }
 
 // load8 reads eight bytes as a little-endian word, zero beyond the input.
@@ -170,7 +223,15 @@ func (e *encoder) findPattern(n int) int {
 	if cost <= 1 {
 		return best
 	}
-
+	// The search is off. One group in probeEvery runs it anyway, so data
+	// that starts repeating is noticed.
+	if e.cheap {
+		if e.probe > 0 {
+			e.probe--
+			return best
+		}
+		e.probe = probeEvery
+	}
 	// One-byte periods: anything within the last 255 bytes.
 	back := 0xff
 	if e.pos < back {
