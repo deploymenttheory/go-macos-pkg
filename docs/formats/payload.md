@@ -41,7 +41,8 @@ The first bytes of a Payload say how it is wrapped:
 |---|---|---|
 | `1f 8b 08` | gzip | `pkgbuild` (default), `macospkg build` |
 | `pbzx` | pbz* with xz chunks | `pkgbuild --compression latest`, `macospkg build --compression pbzx` |
-| `pbze`, `pbz4`, `pbzz` | pbz* with LZFSE, Apple-framed LZ4, zlib chunks | `aa archive`, libParallelCompression; read |
+| `pbze` | pbz* with LZFSE chunks | `aa archive -a lzfse`, `macospkg build --compression lzfse` |
+| `pbz4`, `pbzz` | pbz* with Apple-framed LZ4 or zlib chunks | `aa archive`, libParallelCompression; `pkg/pbzx` writes them, `macospkg build` refuses |
 | `pbzb` | pbz* with LZBITMAP | detected, not decodable (exit 5): no public specification |
 | `070707` / `07070` | bare cpio | unusual |
 | `AA01`, `YAA1`, `AEA1` | Apple Archive | recognised; the Installer does not read it either |
@@ -49,6 +50,31 @@ The first bytes of a Payload say how it is wrapped:
 `pkgbuild --large-payload` writes the gzip cpio under the entry name
 `LargeSegmentedPayload` and sets `large-segmented="true"` on the
 PackageInfo's payload element; it is read like any other payload.
+
+### Which containers a package may use
+
+`pkgbuild` writes only gzip and pbzx, so what macOS accepts for the other
+members of the family is not something Apple documents. Measured on macOS
+26, by building the same tree in each container and handing it to Apple's
+own readers:
+
+| Container | `aa` reads ours | `pkgutil --expand-full` | `macospkg build` |
+|---|---|---|---|
+| `pbzx` | yes | yes | `--compression pbzx` |
+| `pbze` | yes | yes | `--compression lzfse` |
+| `pbz4` | yes | **no**: `cpio read error: bad file format` | refused |
+| `pbzz` | yes | **no**: `cpio read error: bad file format` | refused |
+
+The `aa` column matters because it separates two explanations for the
+`pkgutil` failure. Apple's own `aa list` reads the pbz4 and pbzz streams
+`pkg/pbzx` writes, so those streams are well formed; it is macOS's package
+reader that will not take them. That is why `pkg/pbzx` still writes all
+four while `flatpkg.ParseCompression` accepts only the two macOS can
+install.
+
+`pbze` is the surprise: `pkgbuild` never emits it, but macOS unpacks it
+happily, single-chunk and multi-chunk alike, and `installer` installs the
+result. The acceptance suite pins all of this.
 
 ### The pbz* container
 

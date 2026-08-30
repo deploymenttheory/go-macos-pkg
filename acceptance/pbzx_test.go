@@ -226,17 +226,24 @@ func TestBuildPBZXParityWithPkgbuild(t *testing.T) {
 	attest(t, "pbzx payload: ours %d bytes in %d chunks, pkgbuild %d bytes in %d chunks", len(oursPayload), countPBZChunks(oursPayload), len(theirsPayload), countPBZChunks(theirsPayload))
 }
 
-// TestInstallerInstallsOurPBZXPackage is the end-to-end proof for pbzx:
-// Apple's installer installs it.
+// TestInstallerInstallsOurPBZXPackage is the end-to-end proof for the
+// pbz containers build can write: Apple's installer installs each one.
 func TestInstallerInstallsOurPBZXPackage(t *testing.T) {
+	for _, compression := range []string{"pbzx", "lzfse"} {
+		t.Run(compression, func(t *testing.T) { installerRoundTrip(t, compression) })
+	}
+}
+
+func installerRoundTrip(t *testing.T, compression string) {
+	t.Helper()
 	requireTools(t, "installer", "hdiutil", "sudo", "pkgutil")
 	requireInstallerOptIn(t)
 	root, scripts := sourceTree(t)
 	ours := filepath.Join(t.TempDir(), "ours.pkg")
-	mustRun(t, pbzxArgs(root, scripts, ours)...)
+	mustRun(t, append(buildArgs(root, scripts, ours), "--compression", compression)...)
 
 	dmg := filepath.Join(t.TempDir(), "target.dmg")
-	hostTool(t, "hdiutil", "create", "-quiet", "-size", "64m", "-fs", "HFS+", "-volname", "MacospkgPBZX", dmg)
+	hostTool(t, "hdiutil", "create", "-quiet", "-size", "64m", "-fs", "HFS+", "-volname", "Macospkg"+strings.ToUpper(compression), dmg)
 	attach := hostTool(t, "hdiutil", "attach", "-nobrowse", dmg)
 	mount := ""
 	for _, line := range nonEmptyLines(attach) {
@@ -264,5 +271,108 @@ func TestInstallerInstallsOurPBZXPackage(t *testing.T) {
 	if !strings.Contains(pkgs, "com.deploymenttheory.acceptance") {
 		t.Errorf("receipt not recorded:\n%s", pkgs)
 	}
-	attest(t, "installer installed our pbzx package onto %s", mount)
+	attest(t, "installer installed our %s package onto %s", compression, mount)
+}
+
+// TestBuildLZFSE builds with --compression lzfse, the pbze container.
+// pkgbuild never writes it, so everything here is our own claim: it
+// round-trips through our reader on every platform, and on macOS Apple's
+// pkgutil unpacks it byte for byte, which is what makes it safe to offer.
+func TestBuildLZFSE(t *testing.T) {
+	root, scripts := sourceTree(t)
+	out := filepath.Join(t.TempDir(), "out.pkg")
+	args := append(buildArgs(root, scripts, out), "--compression", "lzfse")
+	var rep buildJSON
+	mustRunJSON(t, &rep, args...)
+	if rep.PayloadEncoding != "pbze-cpio" {
+		t.Errorf("payload encoding = %q, want pbze-cpio", rep.PayloadEncoding)
+	}
+	// A pbz container needs the same minimum system version as pbzx.
+	if rep.MinimumSystemVersion != "12.0" {
+		t.Errorf("minimum system version = %q, want 12.0", rep.MinimumSystemVersion)
+	}
+	var info infoJSON
+	mustRunJSON(t, &info, "info", out)
+	if info.Packages[0].Payload.Encoding != "pbze-cpio" {
+		t.Errorf("info encoding = %q", info.Packages[0].Payload.Encoding)
+	}
+	// The container really is pbze on disk, and Scripts stays gzip.
+	payload := mustRun(t, "cat", out, "Payload")
+	if !strings.HasPrefix(payload, "pbze") {
+		t.Fatalf("Payload starts %x, want pbze", payload[:4])
+	}
+	if sc := mustRun(t, "cat", out, "Scripts"); !strings.HasPrefix(sc, "\x1f\x8b") {
+		t.Errorf("Scripts starts %x, want gzip", sc[:2])
+	}
+
+	// Extracts to the same bytes as the source.
+	dir := filepath.Join(t.TempDir(), "x")
+	mustRun(t, "extract", "--verify", out, dir)
+	for _, rel := range []string{"usr/local/fixture/hello.txt", "usr/local/fixture/big.bin"} {
+		a, _ := fileSHA256(filepath.Join(root, filepath.FromSlash(rel)))
+		b, err := fileSHA256(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil || a != b {
+			t.Errorf("%s: extracted %s, source %s (%v)", rel, b, a, err)
+		}
+	}
+
+	// Reproducible, like the other containers.
+	again := filepath.Join(t.TempDir(), "again.pkg")
+	mustRun(t, append(buildArgs(root, scripts, again), "--compression", "lzfse")...)
+	a, _ := os.ReadFile(out)
+	b, _ := os.ReadFile(again)
+	if !bytes.Equal(a, b) {
+		t.Error("two lzfse builds of the same tree differ")
+	}
+	attest(t, "built pbze package: %d files, sha256 %s", rep.NumberOfFiles, rep.SHA256[:12])
+}
+
+// TestUninstallableContainersAreRefused pins the reason pbz4 and pbzz are
+// not offered. pkg/pbzx writes both, and Apple's own aa reads what it
+// writes, but pkgutil cannot read either as a package Payload: it fails
+// with "cpio read error: bad file format". A package built with one could
+// not be installed, so build refuses them rather than producing it.
+func TestUninstallableContainersAreRefused(t *testing.T) {
+	root, scripts := sourceTree(t)
+	for _, c := range []string{"lz4", "zlib", "pbz4", "pbzz"} {
+		out := filepath.Join(t.TempDir(), "out.pkg")
+		_, stderr, code := run(t, append(buildArgs(root, scripts, out), "--compression", c)...)
+		if code != exitcode.Usage {
+			t.Errorf("--compression %s: exit %d, want %d", c, code, exitcode.Usage)
+		}
+		if !strings.Contains(stderr, "macOS cannot read") {
+			t.Errorf("--compression %s: stderr %q does not say why", c, stderr)
+		}
+	}
+}
+
+// TestPkgutilReadsOurLZFSEPayload is the oracle behind --compression
+// lzfse: Apple's own reader, not ours, unpacking a pbze Payload.
+func TestPkgutilReadsOurLZFSEPayload(t *testing.T) {
+	requireTools(t, "pkgutil")
+	root, scripts := sourceTree(t)
+	out := filepath.Join(t.TempDir(), "out.pkg")
+	mustRun(t, append(buildArgs(root, scripts, out), "--compression", "lzfse")...)
+
+	dir := filepath.Join(t.TempDir(), "expanded")
+	hostTool(t, "pkgutil", "--expand-full", out, dir)
+	for _, rel := range []string{"usr/local/fixture/hello.txt", "usr/local/fixture/big.bin", "usr/local/fixture/sub/nested/deep.txt"} {
+		a, _ := fileSHA256(filepath.Join(root, filepath.FromSlash(rel)))
+		b, err := fileSHA256(filepath.Join(dir, "Payload", filepath.FromSlash(rel)))
+		if err != nil || a != b {
+			t.Errorf("%s: pkgutil extracted %s, source %s (%v)", rel, b, a, err)
+		}
+	}
+	// Many chunks, not just one: the block size is forced well below the
+	// payload size so the reader has to walk a chain of them.
+	multi := filepath.Join(t.TempDir(), "multi.pkg")
+	mustRun(t, append(buildArgs(root, scripts, multi), "--compression", "lzfse", "--pbzx-block-size", "65536")...)
+	mdir := filepath.Join(t.TempDir(), "multi")
+	hostTool(t, "pkgutil", "--expand-full", multi, mdir)
+	a, _ := fileSHA256(filepath.Join(root, "usr", "local", "fixture", "big.bin"))
+	b, err := fileSHA256(filepath.Join(mdir, "Payload", "usr", "local", "fixture", "big.bin"))
+	if err != nil || a != b {
+		t.Errorf("multi-chunk pbze: pkgutil extracted %s, source %s (%v)", b, a, err)
+	}
+	attest(t, "pkgutil unpacked our pbze payload, single-chunk and multi-chunk")
 }

@@ -14,7 +14,7 @@ macOS leg additionally checks the result against Apple's own tools.
 | Read xar (header, TOC, entries, checksums, signature elements) | ✅ | ✅ | ✅ |
 | Read bill of materials (Bom) | ✅¹ | ✅¹ | ✅¹ |
 | Read cpio payloads: gzip, pbz* (xz, LZFSE, LZ4, zlib), odc, newc | ✅ | ✅ | ✅ |
-| Write pbzx payloads (`build --compression pbzx`) | ✅⁶ | ✅⁶ | ✅⁶ |
+| Write pbzx and pbze payloads (`build --compression pbzx\|lzfse`) | ✅⁶ | ✅⁶ | ✅⁶ |
 | Read `--large-payload` packages (LargeSegmentedPayload) | ✅ | ✅ | ✅ |
 | Apple Archive payloads | ⬜² | ⬜² | ⬜² |
 | PackageInfo and Distribution models | ✅ | ✅ | ✅ |
