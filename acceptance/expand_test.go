@@ -21,6 +21,8 @@ type extractJSON struct {
 		Encoding  string   `json:"encoding"`
 		Files     int      `json:"files"`
 		Symlinks  int      `json:"symlinks"`
+		HardLinks int      `json:"hardLinks"`
+		Xattrs    int      `json:"xattrs"`
 		Skipped   []string `json:"skipped"`
 	} `json:"components"`
 }

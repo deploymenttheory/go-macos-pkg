@@ -60,6 +60,7 @@ func TestBuildComponent(t *testing.T) {
 	build := func() ([]byte, *BuildResult) {
 		var out bytes.Buffer
 		res, err := BuildComponent(ComponentOptions{
+			ExcludeXattr:    hostNoise,
 			Root:            root,
 			Scripts:         scripts,
 			Identifier:      "com.example.test",
@@ -321,4 +322,10 @@ func equal(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// hostNoise excludes the attributes a macOS build host attaches to every
+// file it creates, which would otherwise add sidecars to the counts.
+func hostNoise(name string) bool {
+	return name == "com.apple.provenance" || name == "com.apple.quarantine"
 }

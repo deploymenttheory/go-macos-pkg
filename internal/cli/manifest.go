@@ -12,12 +12,15 @@
 package cli
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/deploymenttheory/go-macos-pkg/pkg/flatpkg"
 	"gopkg.in/yaml.v3"
 	"howett.net/plist"
 )
@@ -36,13 +39,19 @@ type manifestFile struct {
 	PreserveXattr            bool   `yaml:"preserve_xattr" json:"preserve_xattr" plist:"preserve_xattr"`
 	NoPayload                bool   `yaml:"nopayload" json:"nopayload" plist:"nopayload"`       // added
 	Compression              string `yaml:"compression" json:"compression" plist:"compression"` // gzip | pbzx | latest (added)
+	Xattrs                   string `yaml:"xattrs" json:"xattrs" plist:"xattrs"`                // fs | none (added)
+	HardLinks                string `yaml:"hard_links" json:"hard_links" plist:"hard_links"`    // auto | copy (added)
 	ProductID                string `yaml:"product_id" json:"product_id" plist:"product_id"`
 
 	// Added by macospkg: payload paths and their modes, for trees that
 	// come from hosts without execute bits.
-	Exclude            []string       `yaml:"exclude" json:"exclude" plist:"exclude"`
-	ExecutablePatterns []string       `yaml:"executable_patterns" json:"executable_patterns" plist:"executable_patterns"`
-	Files              []manifestMode `yaml:"files" json:"files" plist:"files"`
+	Exclude      []string `yaml:"exclude" json:"exclude" plist:"exclude"`
+	ExcludeXattr []string `yaml:"exclude_xattr" json:"exclude_xattr" plist:"exclude_xattr"`
+	// FileXattrs overrides extended attributes by payload path (a folder
+	// when it ends in "/"); values are base64 (added).
+	FileXattrs         []manifestXattrs `yaml:"file_xattrs" json:"file_xattrs" plist:"file_xattrs"`
+	ExecutablePatterns []string         `yaml:"executable_patterns" json:"executable_patterns" plist:"executable_patterns"`
+	Files              []manifestMode   `yaml:"files" json:"files" plist:"files"`
 
 	SigningInfo      *manifestSigning `yaml:"signing_info" json:"signing_info" plist:"signing_info"`
 	NotarizationInfo *manifestNotary  `yaml:"notarization_info" json:"notarization_info" plist:"notarization_info"`
@@ -50,6 +59,41 @@ type manifestFile struct {
 	// dir is where the manifest was found; payload/ and scripts/ are
 	// resolved against it.
 	dir string
+}
+
+// manifestXattrs overrides one path's extended attributes. Path names a
+// file, or a folder when it ends in "/", in which case it covers the
+// folder and everything beneath it. Replace makes the listed attributes
+// the complete set for those paths; without it they are merged over what
+// the tree carries, and a name given here wins.
+type manifestXattrs struct {
+	Path    string            `yaml:"path" json:"path" plist:"path"`
+	Xattrs  map[string]string `yaml:"xattrs" json:"xattrs" plist:"xattrs"`
+	Replace bool              `yaml:"replace" json:"replace" plist:"replace"`
+}
+
+// xattrOverrides decodes the manifest's per-path attribute rules, in the
+// order they are written: a later rule overrides an earlier one.
+func (m *manifestFile) xattrOverrides() ([]flatpkg.XattrOverride, error) {
+	if len(m.FileXattrs) == 0 {
+		return nil, nil
+	}
+	out := make([]flatpkg.XattrOverride, 0, len(m.FileXattrs))
+	for _, fx := range m.FileXattrs {
+		if fx.Path == "" {
+			return nil, fmt.Errorf("file_xattrs: an entry has no path")
+		}
+		attrs := map[string][]byte{}
+		for name, b64 := range fx.Xattrs {
+			v, err := base64.StdEncoding.DecodeString(b64)
+			if err != nil {
+				return nil, fmt.Errorf("file_xattrs %s %s: not base64: %v", fx.Path, name, err)
+			}
+			attrs[name] = v
+		}
+		out = append(out, flatpkg.XattrOverride{Path: fx.Path, Xattrs: attrs, Replace: fx.Replace})
+	}
+	return out, nil
 }
 
 type manifestMode struct {

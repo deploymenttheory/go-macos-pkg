@@ -21,6 +21,9 @@ type ExpandOptions struct {
 	Verify bool
 	// Symlinks selects symbolic link handling for Full extractions.
 	Symlinks SymlinkMode
+	// Xattrs and NoHardLinks are passed to the Full extractions.
+	Xattrs      XattrMode
+	NoHardLinks bool
 	// Progress, when set, is called for every entry written.
 	Progress func(path string)
 }
@@ -121,7 +124,7 @@ func (p *Package) Expand(dir string, o ExpandOptions) (*ExpandResult, error) {
 			base = filepath.Join(dir, filepath.FromSlash(c.Name))
 		}
 		if c.HasScripts() {
-			sr, err := c.ExtractScripts(filepath.Join(base, EntryScripts), ExtractOptions{Symlinks: o.Symlinks, Progress: o.Progress})
+			sr, err := c.ExtractScripts(filepath.Join(base, EntryScripts), ExtractOptions{Symlinks: o.Symlinks, Xattrs: o.Xattrs, NoHardLinks: o.NoHardLinks, Progress: o.Progress})
 			if err != nil {
 				return res, fmt.Errorf("%s Scripts: %w", componentName(c), err)
 			}
@@ -144,7 +147,7 @@ func (p *Package) Expand(dir string, o ExpandOptions) (*ExpandResult, error) {
 			res.Entries++
 			continue
 		}
-		pr, _, err := c.ExtractPayload(target, ExtractOptions{Symlinks: o.Symlinks, Progress: o.Progress})
+		pr, _, err := c.ExtractPayload(target, ExtractOptions{Symlinks: o.Symlinks, Xattrs: o.Xattrs, NoHardLinks: o.NoHardLinks, Progress: o.Progress})
 		if err != nil {
 			return res, fmt.Errorf("%s Payload: %w", componentName(c), err)
 		}

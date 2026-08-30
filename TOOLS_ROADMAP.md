@@ -17,7 +17,6 @@ what is planned or under consideration, roughly in priority order.
 
 - **Apple Archive payloads** — the `--large-payload` / `--compression latest`
   format; detected and reported today.
-- **Hard links in payloads** — written as copies today.
 - **Multipart S3 upload** for packages over 5 GiB.
 - **Receipt inspection** of `/var/db/receipts`.
 

@@ -9,9 +9,11 @@ import (
 )
 
 var (
-	expandFull     bool
-	expandVerify   bool
-	expandSymlinks string
+	expandFull      bool
+	expandVerify    bool
+	expandSymlinks  string
+	expandXattrs    string
+	expandHardLinks bool
 )
 
 var expandCmd = &cobra.Command{
@@ -39,23 +41,32 @@ func init() {
 	expandCmd.Flags().BoolVar(&expandFull, "full", false, "also unpack each Payload into a directory (pkgutil --expand-full)")
 	expandCmd.Flags().BoolVar(&expandVerify, "verify", false, "verify every archive entry's stored checksums")
 	expandCmd.Flags().StringVar(&expandSymlinks, "symlinks", "auto", "symbolic links: auto, real or file")
+	expandCmd.Flags().StringVar(&expandXattrs, "xattrs", "auto", "\"._\" sidecars: apply (set the attributes on the owner), file (write them as files) or skip; auto applies what the host takes and keeps the rest as files")
+	expandCmd.Flags().BoolVar(&expandHardLinks, "hard-links", true, "recreate hard links; --hard-links=false writes copies")
 }
 
 // expandReport is the JSON schema for macospkg expand.
 type expandReport struct {
-	Package  string   `json:"package"`
-	Dir      string   `json:"dir"`
-	Full     bool     `json:"full"`
-	Entries  int      `json:"entries"`
-	Files    int      `json:"files"`
-	Dirs     int      `json:"dirs"`
-	Symlinks int      `json:"symlinks"`
-	Skipped  []string `json:"skipped"`
-	Partial  bool     `json:"partial"`
+	Package    string   `json:"package"`
+	Dir        string   `json:"dir"`
+	Full       bool     `json:"full"`
+	Entries    int      `json:"entries"`
+	Files      int      `json:"files"`
+	Dirs       int      `json:"dirs"`
+	Symlinks   int      `json:"symlinks"`
+	HardLinks  int      `json:"hardLinks"`
+	Xattrs     int      `json:"xattrs"`
+	XattrFiles int      `json:"xattrFiles"`
+	Skipped    []string `json:"skipped"`
+	Partial    bool     `json:"partial"`
 }
 
 func runExpand(cmd *cobra.Command, args []string) error {
 	mode, err := flatpkg.ParseSymlinkMode(expandSymlinks)
+	if err != nil {
+		return usageErrorf("%v", err)
+	}
+	xattrMode, err := flatpkg.ParseXattrMode(expandXattrs)
 	if err != nil {
 		return usageErrorf("%v", err)
 	}
@@ -66,10 +77,12 @@ func runExpand(cmd *cobra.Command, args []string) error {
 	defer p.Close()
 
 	res, err := p.Expand(args[1], flatpkg.ExpandOptions{
-		Full:     expandFull,
-		Verify:   expandVerify,
-		Symlinks: mode,
-		Progress: func(path string) { verbosef("wrote %s", path) },
+		Full:        expandFull,
+		Verify:      expandVerify,
+		Symlinks:    mode,
+		Xattrs:      xattrMode,
+		NoHardLinks: !expandHardLinks,
+		Progress:    func(path string) { verbosef("wrote %s", path) },
 	})
 	if err != nil {
 		return payloadOpenError(err)
@@ -79,6 +92,9 @@ func runExpand(cmd *cobra.Command, args []string) error {
 		report.Files += pr.Files
 		report.Dirs += pr.Dirs
 		report.Symlinks += pr.Symlinks
+		report.HardLinks += pr.HardLinks
+		report.Xattrs += pr.Xattrs
+		report.XattrFiles += pr.XattrFiles
 		for _, s := range pr.Skipped {
 			report.Skipped = append(report.Skipped, s.Path+": "+s.Reason)
 		}

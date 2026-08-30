@@ -9,13 +9,14 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/deploymenttheory/go-macos-pkg/pkg/appledouble"
 	"github.com/deploymenttheory/go-macos-pkg/pkg/bom"
 	"github.com/deploymenttheory/go-macos-pkg/pkg/cpio"
 	"github.com/deploymenttheory/go-macos-pkg/pkg/pbzx"
@@ -103,6 +104,79 @@ func (c Compression) Encoding() PayloadEncoding {
 	return PayloadGzip
 }
 
+// XattrSource says where a build takes extended attributes from.
+type XattrSource int
+
+// Attribute sources.
+const (
+	// XattrsFromFS reads the attributes the host file system reports
+	// (all of them on macOS, user.* on Linux, none on Windows), plus
+	// XattrOverrides and any "._" sidecars already in the source tree.
+	XattrsFromFS XattrSource = iota
+	// XattrsNone carries no attributes, whatever the host reports;
+	// XattrOverrides and sidecar files in the tree still apply.
+	XattrsNone
+)
+
+// ParseXattrSource parses fs or none.
+func ParseXattrSource(s string) (XattrSource, error) {
+	switch strings.ToLower(s) {
+	case "fs", "":
+		return XattrsFromFS, nil
+	case "none":
+		return XattrsNone, nil
+	}
+	return 0, fmt.Errorf("unknown xattrs source %q: want fs or none", s)
+}
+
+// XattrOverride sets extended attributes on the payload paths it names,
+// overriding what the tree and its "._" sidecars carry. Attributes are
+// reapplied by default — unpacking and packing again reproduces the
+// original package — and an override is how a path departs from that.
+//
+// A rule's own values are not subject to ExcludeXattr: naming a path and
+// a value is more specific than filtering a name across the whole tree.
+type XattrOverride struct {
+	// Path is a payload path: "./usr/local/bin/tool", or "usr/local/bin"
+	// and "/usr/local/bin", which mean the same. A path ending in "/"
+	// matches that directory and everything beneath it; "./" is the whole
+	// tree. It is an error for a rule to match nothing, so a typo does
+	// not pass silently.
+	Path string
+	// Xattrs are the values to set, name → value.
+	Xattrs map[string][]byte
+	// Replace makes Xattrs the complete set for the paths matched,
+	// discarding whatever they carried; with no Xattrs it removes them
+	// all. Without it the values are merged over what is there, and a
+	// name given here wins.
+	Replace bool
+}
+
+// HardLinkMode says how hard links are packaged.
+type HardLinkMode int
+
+// Hard-link modes.
+const (
+	// HardLinksAuto packages files that share an inode as one hard-link
+	// set, as pkgbuild does: the same cpio inode and link count on every
+	// member, each carrying the data, one bill-of-materials index entry.
+	// Hosts that expose no inode (Windows) fall back to copies.
+	HardLinksAuto HardLinkMode = iota
+	// HardLinksCopy packages every path as a separate file.
+	HardLinksCopy
+)
+
+// ParseHardLinkMode parses auto or copy.
+func ParseHardLinkMode(s string) (HardLinkMode, error) {
+	switch strings.ToLower(s) {
+	case "auto", "":
+		return HardLinksAuto, nil
+	case "copy":
+		return HardLinksCopy, nil
+	}
+	return 0, fmt.Errorf("unknown hard-links mode %q: want auto or copy", s)
+}
+
 // pbzxMinimumOS is the oldest macOS that reads a pbzx payload; pkgbuild
 // refuses --compression latest without a --min-os-version of at least
 // this, and so does this builder.
@@ -139,10 +213,26 @@ type ComponentOptions struct {
 	// NoBundleRelocation omits the <relocate> references so bundles are
 	// always installed at their packaged path.
 	NoBundleRelocation bool
-	// PreserveXattr sets preserve-xattr on the PackageInfo. Extended
-	// attributes are not carried in the payload by this builder, so the
-	// flag only matters to what the Installer expects.
+	// PreserveXattr sets preserve-xattr on the PackageInfo, as pkgbuild
+	// --preserve-xattr does.
 	PreserveXattr bool
+
+	// Xattrs selects where extended attributes come from. They are
+	// carried the way pkgbuild carries them: as AppleDouble "._" sidecar
+	// entries beside their owners, in the payload and in Scripts.
+	Xattrs XattrSource
+	// ExcludeXattr, when set, drops attributes by name (for example
+	// com.apple.provenance or com.apple.quarantine, which describe the
+	// build host rather than the file).
+	ExcludeXattr func(name string) bool
+	// XattrOverrides set attributes on the paths they name, in order,
+	// after the tree and its "._" sidecars have been read. A manifest can
+	// give a Linux or Windows build the attributes a macOS build would
+	// read from disk, or change what an unpacked tree carries before it
+	// is packed again.
+	XattrOverrides []XattrOverride
+	// HardLinks selects how hard links are packaged.
+	HardLinks HardLinkMode
 
 	// Compression selects the payload container. Scripts are always gzip,
 	// as pkgbuild leaves them.
@@ -193,9 +283,18 @@ type BuildResult struct {
 // wrote, then checked against every fixture.
 func installKBytes(entries []payloadEntry) int {
 	var blocks int64
+	seen := map[uint64]bool{}
 	for _, e := range entries {
-		if e.rel == "." {
+		if e.rel == "." || e.sidecar != nil {
 			continue
+		}
+		// A hard-link set occupies its blocks once (pkgbuild's
+		// installKBytes for the links fixture counts each inode once).
+		if e.linkKey != 0 {
+			if seen[e.linkKey] {
+				continue
+			}
+			seen[e.linkKey] = true
 		}
 		blocks += (e.size + 511) / 512
 	}
@@ -212,7 +311,19 @@ type payloadEntry struct {
 	size     int64
 	link     string
 	children int
+	// linkKey groups the members of a hard-link set (0: not linked);
+	// nlink is the host's link count.
+	linkKey uint64
+	nlink   uint32
+	// xattrs is what the entry's sidecar will carry, if anything.
+	xattrs *appledouble.File
+	// sidecar is set on the synthesised "._" entries: the encoded
+	// AppleDouble bytes; owner is the index of the entry they belong to.
+	sidecar []byte
+	owner   int
 }
+
+func (e *payloadEntry) isDir() bool { return e.mode&cpio.ModeTypeMask == cpio.ModeDir }
 
 // BuildComponent writes a component package to out.
 func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
@@ -338,7 +449,7 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 			return nil, fmt.Errorf("flatpkg: %s contains no install scripts (preinstall, postinstall, ...)", o.Scripts)
 		}
 		scriptsPath = filepath.Join(tmp, "Scripts")
-		if err := writeScripts(o.Scripts, scriptsPath, epoch); err != nil {
+		if err := writeScripts(o.Scripts, scriptsPath, o, epoch); err != nil {
 			return nil, err
 		}
 		info.Scripts = &Scripts{}
@@ -423,6 +534,7 @@ func collectPayload(o ComponentOptions, epoch time.Time) ([]payloadEntry, error)
 	}
 	var entries []payloadEntry
 	childCount := map[string]int{}
+	linkKeys := &linkKeySet{}
 	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -476,6 +588,19 @@ func collectPayload(o ComponentOptions, epoch time.Time) ([]payloadEntry, error)
 			e.mode = e.mode&cpio.ModeTypeMask | m&0o7777
 		}
 		e.uid, e.gid = owners(fi, o.Ownership)
+		if dev, ino, nlink, ok := fileIdentity(fi); ok {
+			e.nlink = nlink
+			if o.HardLinks == HardLinksAuto && !fi.IsDir() && nlink > 1 {
+				e.linkKey = linkKeys.key(dev, ino)
+			}
+		}
+		if o.Xattrs == XattrsFromFS {
+			attrs, err := hostXattrs(p)
+			if err != nil {
+				return fmt.Errorf("%s: reading extended attributes: %w", relSlash, err)
+			}
+			e.xattrs = filterXattrs(attrs, o.ExcludeXattr)
+		}
 		if relSlash != "." {
 			// Not path.Dir: it cleans "./a" to ".", and "./a/b" to "a",
 			// which would never match the "./"-prefixed entry names.
@@ -487,15 +612,266 @@ func collectPayload(o ComponentOptions, epoch time.Time) ([]payloadEntry, error)
 	if err != nil {
 		return nil, fmt.Errorf("flatpkg: walking payload root: %w", err)
 	}
-	for i := range entries {
-		if entries[i].mode&cpio.ModeTypeMask == cpio.ModeDir {
-			entries[i].children = childCount[entries[i].rel]
-			// Apple's Bom records the directory's size as APFS reports it:
-			// 32 bytes per entry plus two.
-			entries[i].size = int64(32 * (entries[i].children + 2))
+	entries, err = liftSidecarFiles(entries, childCount, o.ExcludeXattr)
+	if err != nil {
+		return nil, err
+	}
+	for _, ov := range o.XattrOverrides {
+		if err := applyXattrOverride(entries, ov); err != nil {
+			return nil, err
 		}
 	}
-	return entries, nil
+	for i := range entries {
+		if entries[i].isDir() {
+			entries[i].children = childCount[entries[i].rel]
+			// Apple's Bom records the directory's size as APFS reports it:
+			// 32 bytes per entry plus two. Sidecars are not counted.
+			entries[i].size = int64(32 * (entries[i].children + 2))
+		}
+		if entries[i].xattrs != nil && entries[i].xattrs.Empty() {
+			entries[i].xattrs = nil
+		}
+	}
+	// Hard-link sets: the link count written is the number of members
+	// packaged, so a reader waiting for the last link is never left
+	// waiting for one outside the tree.
+	members := map[uint64]uint32{}
+	for _, e := range entries {
+		if e.linkKey != 0 {
+			members[e.linkKey]++
+		}
+	}
+	for i := range entries {
+		if k := entries[i].linkKey; k != 0 {
+			if members[k] < 2 {
+				entries[i].linkKey = 0
+			} else {
+				entries[i].nlink = members[k]
+			}
+		}
+	}
+	return withSidecars(entries)
+}
+
+// linkKeySet maps host (device, inode) pairs to small dense keys. One
+// set belongs to one build: the keys are indexes into that build's
+// entries, and sharing a set between builds would race.
+type linkKeySet struct{ m map[[2]uint64]uint64 }
+
+func (s *linkKeySet) key(dev, ino uint64) uint64 {
+	if s.m == nil {
+		s.m = map[[2]uint64]uint64{}
+	}
+	k, ok := s.m[[2]uint64{dev, ino}]
+	if !ok {
+		k = uint64(len(s.m) + 1)
+		s.m[[2]uint64{dev, ino}] = k
+	}
+	return k
+}
+
+// overridePath turns a rule's path into a payload path and reports
+// whether it names a folder: "usr/bin", "/usr/bin" and "./usr/bin" all
+// become "./usr/bin", and a trailing slash survives.
+func overridePath(p string) (rel string, folder bool) {
+	folder = strings.HasSuffix(p, "/")
+	rel = "."
+	if clean := path.Clean("/" + strings.TrimSuffix(p, "/")); clean != "/" {
+		rel = "." + clean
+	}
+	return rel, folder
+}
+
+// applyXattrOverride sets one rule's attributes on the entries it names.
+func applyXattrOverride(entries []payloadEntry, ov XattrOverride) error {
+	rel, folder := overridePath(ov.Path)
+	matched := 0
+	for i := range entries {
+		e := &entries[i]
+		switch {
+		case folder:
+			if e.rel != rel && !strings.HasPrefix(e.rel, strings.TrimSuffix(rel, "/")+"/") {
+				continue
+			}
+		case e.rel != rel:
+			continue
+		}
+		matched++
+		set := appledouble.FromXattrs(ov.Xattrs)
+		if ov.Replace {
+			e.xattrs = set
+		} else {
+			e.xattrs = mergeXattrs(e.xattrs, set, nil)
+		}
+		if e.xattrs != nil && e.xattrs.Empty() {
+			e.xattrs = nil
+		}
+	}
+	if matched == 0 {
+		return fmt.Errorf("flatpkg: xattrs for %s: no such payload entry", ov.Path)
+	}
+	return nil
+}
+
+// filterXattrs turns host attributes into sidecar content, dropping the
+// excluded names; nil when nothing remains.
+func filterXattrs(attrs map[string][]byte, exclude func(string) bool) *appledouble.File {
+	if len(attrs) == 0 {
+		return nil
+	}
+	kept := make(map[string][]byte, len(attrs))
+	for name, value := range attrs {
+		if exclude != nil && exclude(name) {
+			continue
+		}
+		kept[name] = value
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	return appledouble.FromXattrs(kept)
+}
+
+// mergeXattrs overlays extra on base; extra wins on a name clash.
+func mergeXattrs(base, extra *appledouble.File, exclude func(string) bool) *appledouble.File {
+	merged := map[string][]byte{}
+	if base != nil {
+		for k, v := range base.Xattrs() {
+			merged[k] = v
+		}
+	}
+	if extra != nil {
+		for k, v := range extra.Xattrs() {
+			merged[k] = v
+		}
+	}
+	return filterXattrs(merged, exclude)
+}
+
+// liftSidecarFiles takes "._name" files that sit beside their owner and
+// decode as AppleDouble out of the tree and into the owner's attributes,
+// so a tree exported from macOS to a host without extended attributes
+// packages the same way. A "._" file with no owner, or that is not
+// AppleDouble, stays an ordinary file. exclude prunes the lifted names
+// as it prunes the ones read from the host, so the two hosts agree.
+func liftSidecarFiles(entries []payloadEntry, childCount map[string]int, exclude func(string) bool) ([]payloadEntry, error) {
+	index := map[string]int{}
+	for i, e := range entries {
+		index[e.rel] = i
+	}
+	drop := map[int]bool{}
+	for i, e := range entries {
+		if e.mode&cpio.ModeTypeMask != cpio.ModeRegular || !appledouble.IsSidecarName(e.rel) {
+			continue
+		}
+		owner, _ := appledouble.OwnerName(e.rel)
+		oi, ok := index[owner]
+		if !ok || e.size > appledouble.MaxHeader*16 {
+			continue
+		}
+		raw, err := os.ReadFile(e.src)
+		if err != nil {
+			return nil, err
+		}
+		f, err := appledouble.Decode(raw)
+		if err != nil {
+			continue
+		}
+		entries[oi].xattrs = mergeXattrs(entries[oi].xattrs, f, exclude)
+		drop[i] = true
+		childCount[parentPath(e.rel)]--
+	}
+	if len(drop) == 0 {
+		return entries, nil
+	}
+	kept := entries[:0]
+	for i, e := range entries {
+		if !drop[i] {
+			kept = append(kept, e)
+		}
+	}
+	return kept, nil
+}
+
+// withSidecars inserts the "._" entries where pkgbuild puts them: a
+// file's right after the file, a directory's after its whole subtree,
+// none for the root.
+func withSidecars(entries []payloadEntry) ([]payloadEntry, error) {
+	any := false
+	for _, e := range entries {
+		if e.xattrs != nil && e.rel != "." {
+			any = true
+			break
+		}
+	}
+	if !any {
+		return entries, nil
+	}
+	out := make([]payloadEntry, 0, len(entries)*2)
+	// Directories with a sidecar pending, outermost first, as indexes
+	// into out (owner indexes refer to the expanded list).
+	var open []int
+	flush := func(upTo string) error {
+		for len(open) > 0 {
+			at := open[len(open)-1]
+			d := out[at]
+			if upTo != "" && strings.HasPrefix(upTo, d.rel+"/") {
+				return nil
+			}
+			se, err := sidecarEntry(d, at)
+			if err != nil {
+				return err
+			}
+			out = append(out, se)
+			open = open[:len(open)-1]
+		}
+		return nil
+	}
+	for _, e := range entries {
+		if err := flush(e.rel); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+		if e.xattrs == nil || e.rel == "." {
+			continue
+		}
+		at := len(out) - 1
+		if e.isDir() {
+			open = append(open, at)
+			continue
+		}
+		se, err := sidecarEntry(e, at)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, se)
+	}
+	if err := flush(""); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// sidecarEntry synthesises the "._" entry for an owner, with pkgbuild's
+// header: mode 100644, the owner's owner, time and link count. Encode
+// fails when the attributes do not fit AppleDouble's 64 KiB header,
+// which a tree on disk or a manifest can both ask for.
+func sidecarEntry(owner payloadEntry, index int) (payloadEntry, error) {
+	raw, err := owner.xattrs.Encode()
+	if err != nil {
+		return payloadEntry{}, fmt.Errorf("flatpkg: %s: %w", owner.rel, err)
+	}
+	return payloadEntry{
+		rel:     appledouble.SidecarName(owner.rel),
+		mode:    cpio.ModeRegular | 0o644,
+		uid:     owner.uid,
+		gid:     owner.gid,
+		mtime:   owner.mtime,
+		size:    int64(len(raw)),
+		nlink:   owner.nlink,
+		sidecar: raw,
+		owner:   index,
+	}, nil
 }
 
 // parentPath returns the parent of a "./a/b" payload path, "." for a
@@ -551,11 +927,59 @@ func writePayloadAndBom(entries []payloadEntry, payloadPath, bomPath string, com
 	}
 	cw := cpio.NewWriter(container)
 	b := bom.NewBuilder()
+	if err := writeEntries(cw, b, entries, progress); err != nil {
+		return err
+	}
+	if err := cw.Close(); err != nil {
+		return err
+	}
+	if err := container.Close(); err != nil {
+		return err
+	}
+	if err := pf.Close(); err != nil {
+		return err
+	}
+	bf, err := os.Create(bomPath)
+	if err != nil {
+		return err
+	}
+	defer bf.Close()
+	if err := b.Build(bf); err != nil {
+		return err
+	}
+	return bf.Close()
+}
 
+// writeEntries streams entries into a cpio and, when b is set, records
+// them in the bill of materials. Inode numbers are assigned in order;
+// the members of a hard-link set share one, and so does the sidecar of a
+// hard-linked file (pkgbuild's layout).
+func writeEntries(cw *cpio.Writer, b *bom.Builder, entries []payloadEntry, progress func(string)) error {
+	nextIno := uint64(1)
+	setIno := map[uint64]uint64{}
+	inos := make([]uint64, len(entries))
+	for i, e := range entries {
+		switch {
+		case e.sidecar != nil:
+			owner := entries[e.owner]
+			if owner.linkKey != 0 {
+				inos[i] = inos[e.owner]
+				continue
+			}
+		case e.linkKey != 0:
+			if ino, ok := setIno[e.linkKey]; ok {
+				inos[i] = ino
+				continue
+			}
+			setIno[e.linkKey] = nextIno
+		}
+		inos[i] = nextIno
+		nextIno++
+	}
 	for i, e := range entries {
 		hdr := &cpio.Header{
 			Name:    e.rel,
-			Inode:   uint64(i + 1),
+			Inode:   inos[i],
 			Mode:    e.mode,
 			UID:     e.uid,
 			GID:     e.gid,
@@ -563,12 +987,45 @@ func writePayloadAndBom(entries []payloadEntry, payloadPath, bomPath string, com
 			ModTime: e.mtime,
 			Size:    e.size,
 		}
-		if e.mode&cpio.ModeTypeMask == cpio.ModeDir {
+		switch {
+		case e.isDir():
 			hdr.Size = 0
 			hdr.NLink = uint32(e.children + 2)
+		case e.sidecar != nil:
+			owner := entries[e.owner]
+			if owner.isDir() {
+				hdr.NLink = uint32(owner.children + 2)
+			} else if owner.linkKey != 0 {
+				hdr.NLink = owner.nlink
+			}
+		case e.linkKey != 0:
+			hdr.NLink = e.nlink
 		}
 		if err := cw.WriteHeader(hdr); err != nil {
 			return err
+		}
+		if e.sidecar != nil {
+			if _, err := cw.Write(e.sidecar); err != nil {
+				return err
+			}
+			if b != nil {
+				owner := entries[e.owner]
+				be := bom.Entry{
+					Path:         e.rel,
+					Type:         bom.TypeFile,
+					Sidecar:      true,
+					Architecture: 1,
+					Mode:         uint16(owner.mode),
+					HardLinkKey:  owner.linkKey,
+				}
+				if err := b.Add(be); err != nil {
+					return err
+				}
+			}
+			if progress != nil {
+				progress(e.rel)
+			}
+			continue
 		}
 		be := bom.Entry{
 			Path:         e.rel,
@@ -578,6 +1035,7 @@ func writePayloadAndBom(entries []payloadEntry, payloadPath, bomPath string, com
 			GID:          e.gid,
 			ModTime:      e.mtime,
 			Size:         e.size,
+			HardLinkKey:  e.linkKey,
 		}
 		switch e.mode & cpio.ModeTypeMask {
 		case cpio.ModeDir:
@@ -606,31 +1064,16 @@ func writePayloadAndBom(entries []payloadEntry, payloadPath, bomPath string, com
 			}
 			be.Checksum = ck.Sum32()
 		}
-		if err := b.Add(be); err != nil {
-			return err
+		if b != nil {
+			if err := b.Add(be); err != nil {
+				return err
+			}
 		}
 		if progress != nil {
 			progress(e.rel)
 		}
 	}
-	if err := cw.Close(); err != nil {
-		return err
-	}
-	if err := container.Close(); err != nil {
-		return err
-	}
-	if err := pf.Close(); err != nil {
-		return err
-	}
-	bf, err := os.Create(bomPath)
-	if err != nil {
-		return err
-	}
-	defer bf.Close()
-	if err := b.Build(bf); err != nil {
-		return err
-	}
-	return bf.Close()
+	return nil
 }
 
 // versionLess reports whether dotted version a is older than b.
@@ -675,7 +1118,33 @@ func scriptNames(dir string) ([]string, error) {
 
 // writeScripts packs the scripts directory as a gzip odc cpio, forcing
 // the execute bits on so a script committed from Windows still runs.
-func writeScripts(dir, dst string, epoch time.Time) error {
+// Extended attributes travel as sidecars, as in the payload.
+func writeScripts(dir, dst string, o ComponentOptions, epoch time.Time) error {
+	so := ComponentOptions{
+		Root:         dir,
+		Ownership:    OwnershipRecommended,
+		Xattrs:       o.Xattrs,
+		ExcludeXattr: o.ExcludeXattr,
+		HardLinks:    HardLinksCopy,
+		FileModes:    map[string]uint32{},
+	}
+	entries, err := collectPayload(so, epoch)
+	if err != nil {
+		return fmt.Errorf("flatpkg: scripts: %w", err)
+	}
+	for i := range entries {
+		e := &entries[i]
+		switch {
+		case e.sidecar != nil:
+		case e.isDir():
+			e.mode = cpio.ModeDir | 0o755
+		case e.mode&cpio.ModeTypeMask == cpio.ModeRegular:
+			e.mode = cpio.ModeRegular | 0o755
+		default:
+			return fmt.Errorf("flatpkg: scripts: %s is not a regular file", e.rel)
+		}
+		e.uid, e.gid = 0, 0
+	}
 	f, err := os.Create(dst)
 	if err != nil {
 		return err
@@ -683,57 +1152,8 @@ func writeScripts(dir, dst string, epoch time.Time) error {
 	defer f.Close()
 	gz := gzip.NewWriter(f)
 	cw := cpio.NewWriter(gz)
-	var paths []string
-	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		paths = append(paths, p)
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("flatpkg: walking scripts: %w", err)
-	}
-	sort.Strings(paths)
-	for i, p := range paths {
-		rel, _ := filepath.Rel(dir, p)
-		name := "."
-		if rel != "." {
-			name = "./" + filepath.ToSlash(rel)
-		}
-		fi, err := os.Lstat(p)
-		if err != nil {
-			return err
-		}
-		mtime := fi.ModTime().UTC().Truncate(time.Second)
-		if !epoch.IsZero() {
-			mtime = epoch
-		}
-		hdr := &cpio.Header{Name: name, Inode: uint64(i + 1), NLink: 1, ModTime: mtime}
-		switch {
-		case fi.IsDir():
-			hdr.Mode = cpio.ModeDir | 0o755
-			if err := cw.WriteHeader(hdr); err != nil {
-				return err
-			}
-		case fi.Mode().IsRegular():
-			hdr.Mode = cpio.ModeRegular | 0o755
-			hdr.Size = fi.Size()
-			if err := cw.WriteHeader(hdr); err != nil {
-				return err
-			}
-			src, err := os.Open(p)
-			if err != nil {
-				return err
-			}
-			_, err = io.Copy(cw, src)
-			src.Close()
-			if err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("flatpkg: scripts: %s is not a regular file", name)
-		}
+	if err := writeEntries(cw, nil, entries, nil); err != nil {
+		return err
 	}
 	if err := cw.Close(); err != nil {
 		return err

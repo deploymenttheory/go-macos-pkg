@@ -33,6 +33,9 @@ var (
 	buildManifest           string
 	buildCompression        string
 	buildBlockSize          uint64
+	buildXattrs             string
+	buildExcludeXattr       []string
+	buildHardLinks          string
 )
 
 var buildCmd = &cobra.Command{
@@ -53,6 +56,18 @@ set, the same input produces byte-identical output on every platform.
 writes the payload as xz chunks instead of gzip: smaller, but only macOS 12
 and later can install it, so the package's minimum system version is set
 to 12.0 unless a higher one is given.
+
+Extended attributes travel as pkgbuild carries them: as "._" AppleDouble
+sidecar entries beside their owners, read from the tree on macOS (all of
+them) and Linux (user.*), and from the "._" files an extraction leaves on
+a host that cannot store them. Whatever the tree carries is packaged
+again by default, so unpacking a package and building it back reproduces
+it. A manifest's file_xattrs overrides that per file, or per folder with
+a trailing "/", and can replace or strip what a path carries. A macOS
+host stamps com.apple.provenance on files it creates; --exclude-xattr
+'^com\.apple\.(provenance|quarantine)$' keeps such host bookkeeping out of
+the package. Hard links are packaged as one inode with the members' link
+count, as pkgbuild does; Windows exposes no inode, so links become copies.
 
 On Windows the file system records no execute bits; --executable names the
 payload paths (regular expressions) that should be 0755. Ownership other
@@ -91,6 +106,9 @@ func init() {
 	f.StringVar(&buildManifest, "manifest", "", "build-info.yaml/.json/.plist to read options from")
 	f.StringVar(&buildCompression, "compression", "", "payload container: gzip (default, every macOS) or pbzx/latest (smaller; macOS 12 or later)")
 	f.Uint64Var(&buildBlockSize, "pbzx-block-size", 0, "pbzx block size in bytes (default 16 MiB, as pkgbuild)")
+	f.StringVar(&buildXattrs, "xattrs", "", "extended attributes: fs (read from the tree, as pkgbuild does; default) or none")
+	f.StringArrayVar(&buildExcludeXattr, "exclude-xattr", nil, "extended attribute names to leave out (regular expression); repeatable")
+	f.StringVar(&buildHardLinks, "hard-links", "", "hard links: auto (package as links, as pkgbuild does; default) or copy")
 	addSigningFlags(buildCmd, "sign-")
 	addNotarizeFlags(buildCmd)
 }
@@ -172,6 +190,28 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 	o.Compression = compression
 	o.PBZXBlockSize = buildBlockSize
+	xattrs, err := flatpkg.ParseXattrSource(pick(buildXattrs, m.Xattrs))
+	if err != nil {
+		return usageErrorf("%v", err)
+	}
+	o.Xattrs = xattrs
+	hardLinks, err := flatpkg.ParseHardLinkMode(pick(buildHardLinks, m.HardLinks))
+	if err != nil {
+		return usageErrorf("%v", err)
+	}
+	o.HardLinks = hardLinks
+	excludeXattrs, err := compilePatterns(append(buildExcludeXattr, m.ExcludeXattr...))
+	if err != nil {
+		return usageErrorf("%v", err)
+	}
+	if len(excludeXattrs) > 0 {
+		o.ExcludeXattr = func(name string) bool { return anyMatch(excludeXattrs, name) }
+	}
+	overrides, err := m.xattrOverrides()
+	if err != nil {
+		return usageErrorf("%v", err)
+	}
+	o.XattrOverrides = overrides
 
 	excludes, err := compilePatterns(append(buildExclude, m.Exclude...))
 	if err != nil {

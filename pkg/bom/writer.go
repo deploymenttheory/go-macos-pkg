@@ -2,8 +2,10 @@
 //
 // The layout follows what pkgbuild's mkbom writes, as decoded from its
 // output (see the block dump in the tests): a null block 0; BomInfo; the
-// Paths tree and its leaves; the HLIndex tree with one entry per path,
-// each pointing at an empty 64-byte tree of its own; the VIndex record and
+// Paths tree and its leaves; the HLIndex tree with one entry per inode
+// (every path, except that a hard-link set contributes only its last
+// member in path order), each pointing at an empty 64-byte tree of its
+// own; the VIndex record and
 // its empty tree; the Size64 tree; then, per path, its record, name and
 // index blocks. Only the block *contents* are copied from Apple; the
 // placement of blocks in the file is ours, since nothing reads a Bom by
@@ -252,10 +254,23 @@ func (b *Builder) Build(w io.Writer) error {
 	}
 	pathsTree := buildTree(bw, leaves, pathsBlockSize, uint32(len(b.entries)))
 
-	// HLIndex: one entry per path, keyed by its record block, each valued
-	// with an empty 64-byte tree of its own — the shape mkbom writes.
+	// HLIndex: one entry per inode, keyed by its record block, each
+	// valued with an empty 64-byte tree of its own — the shape mkbom
+	// writes. A hard-link set is one inode, and mkbom keeps the last
+	// member in path order (see the links probe: a.txt, b.txt, d/c.txt
+	// share an inode and only d/c.txt is indexed; sidecars are always
+	// indexed).
+	lastOfSet := map[uint64]int{}
+	for _, i := range order {
+		if k := b.entries[i].HardLinkKey; k != 0 && !b.entries[i].Sidecar {
+			lastOfSet[k] = i
+		}
+	}
 	hl := make([]pathsEntry, 0, len(order))
 	for _, i := range order {
+		if k := b.entries[i].HardLinkKey; k != 0 && !b.entries[i].Sidecar && lastOfSet[k] != i {
+			continue
+		}
 		sub := buildTree(bw, nil, 64, 0)
 		val := make([]byte, 4)
 		binary.BigEndian.PutUint32(val, sub)
@@ -263,7 +278,7 @@ func (b *Builder) Build(w io.Writer) error {
 		binary.BigEndian.PutUint32(key, place[i].record)
 		hl = append(hl, pathsEntry{Index0: bw.add(val), Index1: bw.add(key)})
 	}
-	hlTree := buildTree(bw, hl, pathsBlockSize, uint32(len(b.entries)))
+	hlTree := buildTree(bw, hl, pathsBlockSize, uint32(len(hl)))
 
 	// VIndex: a record pointing at an empty 128-byte tree.
 	vTree := buildTree(bw, nil, 128, 0)
@@ -363,6 +378,11 @@ func encodeRecord(e Entry) []byte {
 		binary.Write(&b, binary.BigEndian, e.DevType)
 	default:
 		binary.Write(&b, binary.BigEndian, e.Checksum)
+	}
+	if e.Sidecar {
+		// 31 bytes: the directory shape, whatever the owner's type.
+		binary.Write(&b, binary.BigEndian, uint32(0))
+		return b.Bytes()
 	}
 	switch e.Type {
 	case TypeLink:

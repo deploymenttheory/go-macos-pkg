@@ -152,19 +152,6 @@ func TestPBZXFixturesMatchPkgbuild(t *testing.T) {
 	}
 }
 
-// filterSidecars drops the ._ AppleDouble lines a provenance-tracking host
-// makes pkgbuild add.
-func filterSidecars(s string) string {
-	var keep []string
-	for _, l := range nonEmptyLines(s) {
-		if isAppleDouble(l) {
-			continue
-		}
-		keep = append(keep, l)
-	}
-	return strings.Join(keep, "\n")
-}
-
 func sortedLines(s string) string {
 	lines := nonEmptyLines(s)
 	sort.Strings(lines)
@@ -194,7 +181,7 @@ func TestBuildPBZXParityWithPkgbuild(t *testing.T) {
 
 	ours := filepath.Join(t.TempDir(), "ours.pkg")
 	theirs := filepath.Join(t.TempDir(), "theirs.pkg")
-	mustRun(t, pbzxArgs(root, scripts, ours)...)
+	mustRun(t, append(parityBuildArgs(root, scripts, ours), "--compression", "pbzx")...)
 	hostTool(t, "pkgbuild", "--quiet", "--root", root, "--identifier", "com.deploymenttheory.acceptance", "--version", "1.0.0", "--scripts", scripts, "--ownership", "recommended", "--compression", "latest", "--min-os-version", "12.0", theirs)
 
 	oursPayload := []byte(mustRun(t, "cat", ours, "Payload"))
@@ -217,8 +204,8 @@ func TestBuildPBZXParityWithPkgbuild(t *testing.T) {
 	theirsDir := filepath.Join(t.TempDir(), "theirs")
 	hostTool(t, "pkgutil", "--expand-full", ours, oursDir)
 	hostTool(t, "pkgutil", "--expand-full", theirs, theirsDir)
-	oursList := filterSidecars(hostTool(t, "sh", "-c", `cd "$1" && find Payload | LC_ALL=C sort`, "sh", oursDir))
-	theirsList := filterSidecars(hostTool(t, "sh", "-c", `cd "$1" && find Payload | LC_ALL=C sort`, "sh", theirsDir))
+	oursList := hostTool(t, "sh", "-c", `cd "$1" && find Payload | LC_ALL=C sort`, "sh", oursDir)
+	theirsList := hostTool(t, "sh", "-c", `cd "$1" && find Payload | LC_ALL=C sort`, "sh", theirsDir)
 	if oursList != theirsList {
 		t.Errorf("pkgutil --expand-full trees differ:\nours:\n%s\ntheirs:\n%s", oursList, theirsList)
 	}
@@ -231,8 +218,8 @@ func TestBuildPBZXParityWithPkgbuild(t *testing.T) {
 	}
 	// pkgbuild writes the cpio in readdir order and we sort, so compare
 	// the sets.
-	oursFiles := sortedLines(filterSidecars(hostTool(t, "pkgutil", "--payload-files", ours)))
-	theirsFiles := sortedLines(filterSidecars(hostTool(t, "pkgutil", "--payload-files", theirs)))
+	oursFiles := sortedLines(hostTool(t, "pkgutil", "--payload-files", ours))
+	theirsFiles := sortedLines(hostTool(t, "pkgutil", "--payload-files", theirs))
 	if oursFiles != theirsFiles {
 		t.Errorf("pkgutil --payload-files differ:\nours:\n%s\ntheirs:\n%s", oursFiles, theirsFiles)
 	}

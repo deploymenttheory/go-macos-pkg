@@ -39,10 +39,13 @@ Note that `pkgbuild --large-payload` does not produce Apple Archive on
 current macOS — it produces a gzip cpio named `LargeSegmentedPayload`,
 which is fully supported.
 
-³ Byte-identical to `pkgutil` for every entry, with one deliberate
-difference: `pkgutil` turns `._` AppleDouble sidecar entries back into
-extended attributes, while `macospkg` writes them as files, on every
-platform, because only macOS has the attributes to restore.
+³ Byte-identical to `pkgutil` for every entry. `._` AppleDouble sidecar
+entries are turned back into extended attributes where the host takes
+them and kept as `._` files where it does not (Linux stores `user.*` and
+refuses Apple's names; Windows stores none), so nothing is lost and
+building the unpacked tree again reproduces the package. `--xattrs`
+selects `apply`, `file` or `skip` explicitly. Hard links are recreated as
+hard links.
 
 ⁴ On Windows, permission bits and ownership cannot be applied; symbolic
 links need the symlink privilege, and `--symlinks auto` writes the target
@@ -54,9 +57,13 @@ as a file where they cannot be created (reported, exit 6 if you asked for
 ⁶ Parity with `pkgbuild` is checked by the macOS acceptance leg: the same
 source tree built both ways gives identical `lsbom` output, identical
 `installKBytes`, identical `xar -tf` and `pkgutil --payload-files`, and
-`installer` installs the result. Two deliberate differences: extended
-attributes are not carried (pkgbuild writes them as `._` AppleDouble
-entries), and `--ownership preserve` is refused on Windows. `--large-payload`
+`installer` installs the result, sidecars included: extended attributes
+are carried exactly as pkgbuild carries them (`._` AppleDouble entries with
+pkgbuild's headers and bill-of-materials records; `--exclude-xattr` prunes
+host bookkeeping such as `com.apple.provenance`), and hard links are
+packaged as one inode. One deliberate difference: `--ownership preserve`
+is refused on Windows, and Windows exposes no inode, so hard links become
+copies there. `--large-payload`
 output is read but not written (its segmentation past 8 GiB is untested).
 pbzx output matches pkgbuild's parameters (16 MiB blocks, one xz stream
 per chunk, no check, 8 MiB dictionary); pkgbuild has written pbzx for
@@ -67,8 +74,9 @@ manifest records.
 with macospkg, the bill of materials is identical in all 17,356 entries
 and `installKBytes` matches exactly. Byte layout differs from `mkbom`'s
 (block placement is ours), block contents follow it: the POSIX `cksum` checksum, APFS directory sizes,
-`(parent, name)`-ordered leaves, per-path `HLIndex` entries. Hard links
-are recorded as separate files.
+`(parent, name)`-ordered leaves, one `HLIndex` entry per inode (a
+hard-link set is indexed once, by its last member in path order, as
+`mkbom` does).
 
 ⁸ Checked against Apple's tools on macOS: `pkgutil --check-signature`
 parses our signature and its timestamp, `openssl cms -verify` accepts the

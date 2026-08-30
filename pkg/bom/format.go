@@ -119,6 +119,15 @@ type Entry struct {
 	DevType uint32
 	// LinkTarget is a symlink's target.
 	LinkTarget string
+
+	// Sidecar marks an AppleDouble "._" entry, which pkgbuild records
+	// with a short file record: the owner's mode, architecture 1, and
+	// zero owner, time, size and checksum.
+	Sidecar bool
+	// HardLinkKey groups the members of a hard-link set; 0 for entries
+	// that are not hard links. Only one member of a set (the last in
+	// path order) gets an HLIndex leaf, as mkbom writes it.
+	HardLinkKey uint64
 }
 
 // FileMode converts the recorded mode to an fs.FileMode.
