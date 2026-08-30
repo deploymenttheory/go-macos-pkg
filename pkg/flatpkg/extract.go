@@ -198,7 +198,7 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 
 		switch {
 		case h.IsRegular() && appledouble.IsSidecarName(h.Name) && xattrMode != XattrFile:
-			handled, raw, err := applySidecar(cr, h, dir, xattrMode, autoXattrs, res)
+			handled, raw, err := applySidecar(cr, h, dir, target, xattrMode, autoXattrs, res)
 			if err != nil {
 				return res, err
 			}
@@ -313,7 +313,9 @@ var errSymlinkRefused = errors.New("host refused")
 // unpacked tree restores exactly what was there. An explicit
 // --xattrs apply reports them as skipped instead, since the caller asked
 // for them to be applied and they were not.
-func applySidecar(r io.Reader, h *cpio.Header, dir string, mode XattrMode, auto bool, res *ExtractResult) (bool, []byte, error) {
+// target is the sidecar's own path, already checked by SafeRelPath;
+// dir is the extraction root, from which the owner's path is resolved.
+func applySidecar(r io.Reader, h *cpio.Header, dir, target string, mode XattrMode, auto bool, res *ExtractResult) (bool, []byte, error) {
 	if h.Size > maxSidecar {
 		return false, nil, fmt.Errorf("%s: sidecar of %d bytes is larger than %d", h.Name, h.Size, maxSidecar)
 	}
@@ -335,15 +337,15 @@ func applySidecar(r io.Reader, h *cpio.Header, dir string, mode XattrMode, auto 
 		res.Skipped = append(res.Skipped, Skip{Path: h.Name, Reason: reason})
 		return true, nil, nil
 	}
-	target := filepath.Join(dir, filepath.FromSlash(rel))
-	if _, err := os.Lstat(target); err != nil {
+	ownerPath := filepath.Join(dir, filepath.FromSlash(rel))
+	if _, err := os.Lstat(ownerPath); err != nil {
 		res.Skipped = append(res.Skipped, Skip{Path: h.Name, Reason: "owner " + owner + " was not extracted"})
 		return true, nil, nil
 	}
 	attrs := f.Xattrs()
 	refused := map[string][]byte{}
 	for name, value := range attrs {
-		if err := setXattr(target, name, value); err != nil {
+		if err := setXattr(ownerPath, name, value); err != nil {
 			refused[name] = value
 		}
 	}
@@ -368,13 +370,10 @@ func applySidecar(r io.Reader, h *cpio.Header, dir string, mode XattrMode, auto 
 	if err != nil {
 		return true, nil, fmt.Errorf("%s: %w", h.Name, err)
 	}
-	sidecar := filepath.Join(dir, filepath.FromSlash(h.Name))
-	if err := os.MkdirAll(filepath.Dir(sidecar), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return true, nil, err
 	}
-	kh := *h
-	kh.Size = int64(len(kept))
-	if _, err := writeFile(sidecar, bytes.NewReader(kept), &kh); err != nil {
+	if _, err := writeFile(target, bytes.NewReader(kept), h); err != nil {
 		return true, nil, fmt.Errorf("unable to write %s: %w", h.Name, err)
 	}
 	res.Files++
