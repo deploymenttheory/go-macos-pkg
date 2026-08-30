@@ -13,8 +13,8 @@ macOS leg additionally checks the result against Apple's own tools.
 | CLI skeleton, exit codes, release pipeline | ✅ | ✅ | ✅ |
 | Read xar (header, TOC, entries, checksums, signature elements) | ✅ | ✅ | ✅ |
 | Read bill of materials (Bom) | ✅¹ | ✅¹ | ✅¹ |
-| Read cpio payloads: gzip, pbz* (xz, LZFSE, LZ4, zlib), odc, newc | ✅ | ✅ | ✅ |
-| Write pbzx and pbze payloads (`build --compression pbzx\|lzfse`) | ✅⁶ | ✅⁶ | ✅⁶ |
+| Read cpio payloads: gzip, pbz* (xz, LZFSE, LZ4, zlib, LZBITMAP), odc, newc | ✅ | ✅ | ✅ |
+| Write pbzx, pbze and pbzb payloads (`build --compression pbzx\|lzfse\|lzbitmap`) | ✅⁶ | ✅⁶ | ✅⁶ |
 | Read `--large-payload` packages (LargeSegmentedPayload) | ✅ | ✅ | ✅ |
 | Apple Archive payloads | ⬜² | ⬜² | ⬜² |
 | PackageInfo and Distribution models | ✅ | ✅ | ✅ |

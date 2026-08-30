@@ -25,7 +25,11 @@ changelog and the next version, so the prefix matters.
 - Every command must work end to end on Linux and Windows. A feature that
   only works on macOS is a bug.
 - The xar, bom and cpio code is our own. Reference implementations are read
-  and credited in `NOTICE`; they are not imported.
+  and credited in `NOTICE`; they are not imported. The one exception is
+  `pkg/lzbitmap`, a translation of Corellium's MIT-licensed libzbitmap:
+  Apple publishes no LZBITMAP specification and that is the only
+  implementation, so there is nothing to write our own version from. It
+  carries its copyright in `NOTICE`.
 
 ## Proving a refactor changed nothing
 

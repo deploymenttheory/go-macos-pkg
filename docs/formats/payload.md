@@ -42,8 +42,9 @@ The first bytes of a Payload say how it is wrapped:
 | `1f 8b 08` | gzip | `pkgbuild` (default), `macospkg build` |
 | `pbzx` | pbz* with xz chunks | `pkgbuild --compression latest`, `macospkg build --compression pbzx` |
 | `pbze` | pbz* with LZFSE chunks | `aa archive -a lzfse`, `macospkg build --compression lzfse` |
+| `pbzb` | pbz* with LZBITMAP chunks | `aa archive -a lzbitmap`, `macospkg build --compression lzbitmap` |
 | `pbz4`, `pbzz` | pbz* with Apple-framed LZ4 or zlib chunks | `aa archive`, libParallelCompression; `pkg/pbzx` writes them, `macospkg build` refuses |
-| `pbzb` | pbz* with LZBITMAP | detected, not decodable (exit 5): no public specification |
+| `pbzb` | pbz* with LZBITMAP | decoded and encoded by `pkg/lzbitmap` |
 | `070707` / `07070` | bare cpio | unusual |
 | `AA01`, `YAA1`, `AEA1` | Apple Archive | recognised; the Installer does not read it either |
 
@@ -62,6 +63,7 @@ own readers:
 |---|---|---|---|
 | `pbzx` | yes | yes | `--compression pbzx` |
 | `pbze` | yes | yes | `--compression lzfse` |
+| `pbzb` | yes | yes | `--compression lzbitmap` |
 | `pbz4` | yes | **no**: `cpio read error: bad file format` | refused |
 | `pbzz` | yes | **no**: `cpio read error: bad file format` | refused |
 
@@ -72,9 +74,22 @@ reader that will not take them. That is why `pkg/pbzx` still writes all
 four while `flatpkg.ParseCompression` accepts only the two macOS can
 install.
 
-`pbze` is the surprise: `pkgbuild` never emits it, but macOS unpacks it
-happily, single-chunk and multi-chunk alike, and `installer` installs the
-result. The acceptance suite pins all of this.
+`pbze` and `pbzb` are the surprise: `pkgbuild` emits neither, but macOS
+unpacks both happily, single-chunk and multi-chunk alike, and `installer`
+installs the result. The acceptance suite pins all of this. The split does
+not follow how exotic the codec is, since LZBITMAP is the least documented
+of the five and is read, while zlib is the most ordinary and is not.
+
+## LZBITMAP
+
+Apple publishes no specification, and `pkg/lzbitmap` is a Go translation
+of Corellium's MIT-licensed libzbitmap, which reverse-engineered it by
+black box testing; `NOTICE` carries the copyright. The format is described
+in that package's doc comment. Both directions are judged against Apple's
+own `aa`: `testdata/aa/aa-lzbitmap.aar` and its uncompressed twin are one
+tree archived both ways, our decoder turns the first into the second, and
+`aa` extracts an identical tree from what our encoder writes. Sizes track
+Apple's closely, within a fraction of a percent on the fixture.
 
 ### The pbz* container
 

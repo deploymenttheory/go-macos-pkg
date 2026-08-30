@@ -104,7 +104,7 @@ func init() {
 	f.StringArrayVar(&buildExclude, "exclude", nil, "payload paths to leave out (regular expression on ./path); repeatable")
 	f.StringArrayVar(&buildExecutable, "executable", nil, "payload paths that are executable, for hosts without execute bits (regular expression); repeatable")
 	f.StringVar(&buildManifest, "manifest", "", "build-info.yaml/.json/.plist to read options from")
-	f.StringVar(&buildCompression, "compression", "", "payload container: gzip (default, every macOS), pbzx/latest (smaller; macOS 12 or later) or lzfse (pbze; macOS reads it, pkgbuild does not write it)")
+	f.StringVar(&buildCompression, "compression", "", "payload container: gzip (default, every macOS), pbzx/latest (smaller; macOS 12 or later) or lzfse/lzbitmap (pbze/pbzb; macOS reads them, pkgbuild writes neither)")
 	f.Uint64Var(&buildBlockSize, "pbzx-block-size", 0, "block size in bytes for any pbz* container (default 16 MiB, as pkgbuild)")
 	f.StringVar(&buildXattrs, "xattrs", "", "extended attributes: fs (read from the tree, as pkgbuild does; default) or none")
 	f.StringArrayVar(&buildExcludeXattr, "exclude-xattr", nil, "extended attribute names to leave out (regular expression); repeatable")

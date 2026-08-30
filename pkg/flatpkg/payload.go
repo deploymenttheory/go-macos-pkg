@@ -6,7 +6,8 @@
 // which has meant pbzx (xz chunks) on every macOS from 12 to 26).
 // --large-payload keeps gzip but names the entry LargeSegmentedPayload.
 // Apple Archive is recognised so that an .aar handed to the tool is named
-// correctly; the Installer itself never reads it. The first bytes tell
+// correctly; the Installer itself never reads it. Every pbz* container is
+// decoded, LZBITMAP included (see pkg/lzbitmap). The first bytes tell
 // them apart.
 package flatpkg
 
@@ -139,14 +140,12 @@ func OpenCPIO(r io.Reader) (*cpio.Reader, PayloadEncoding, error) {
 			enc = innerEnc
 		}
 		return inner, enc, nil
-	case PayloadPBZX, PayloadPBZE, PayloadPBZ4, PayloadPBZZ:
+	case PayloadPBZX, PayloadPBZE, PayloadPBZ4, PayloadPBZZ, PayloadPBZB:
 		pr, err := pbzx.NewReader(br)
 		if err != nil {
 			return nil, enc, err
 		}
 		return cpio.NewReader(pr), enc, nil
-	case PayloadPBZB:
-		return nil, enc, fmt.Errorf("%w: pbzb (LZBITMAP has no public specification)", ErrUnsupportedPayload)
 	case PayloadCPIO:
 		return cpio.NewReader(br), enc, nil
 	case PayloadAppleArchive:

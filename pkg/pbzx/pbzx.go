@@ -13,8 +13,8 @@
 //	           chunk did not shrink (deflated == inflated)
 //
 // There is no trailer. Algorithms: 'x' xz (LZMA2), 'e' LZFSE, '4' LZ4 in
-// Apple's bv4* framing, 'z' zlib, 'b' LZBITMAP (no public specification;
-// refused). What pkgbuild writes, from its own output: 16 MiB blocks, one
+// Apple's bv4* framing, 'z' zlib, 'b' LZBITMAP (see pkg/lzbitmap).
+// What pkgbuild writes, from its own output: 16 MiB blocks, one
 // xz stream per chunk with no integrity check and an 8 MiB dictionary.
 // The same rules hold for every variant; pkgbuild has used only pbzx for
 // --compression latest on every --min-os-version from 12.0 to 26.0.
@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/deploymenttheory/go-macos-pkg/pkg/lzbitmap"
 	"github.com/go-compressions/lzfse"
 	"github.com/ulikunitz/xz"
 )
@@ -118,9 +119,6 @@ func NewReader(r io.Reader) (*Reader, error) {
 	algo, ok := Sniff(hdr[:4])
 	if !ok {
 		return nil, ErrNotPBZ
-	}
-	if algo == LZBitmap {
-		return nil, fmt.Errorf("%w: %s (no public specification)", ErrUnsupportedAlgorithm, algo)
 	}
 	if _, err := io.ReadFull(r, hdr[4:]); err != nil {
 		return nil, fmt.Errorf("pbzx: unable to read header: %w", err)
@@ -217,7 +215,7 @@ func (pr *Reader) nextChunk() error {
 			return fmt.Errorf("pbzx: bad zlib chunk: %w", err)
 		}
 		pr.chunk = io.LimitReader(zr, int64(inflated))
-	case LZFSE, LZ4:
+	case LZFSE, LZ4, LZBitmap:
 		if inflated > maxBufferedChunk {
 			return fmt.Errorf("pbzx: %s chunk of %d bytes exceeds the %d-byte limit", pr.algo, inflated, maxBufferedChunk)
 		}
@@ -226,9 +224,12 @@ func (pr *Reader) nextChunk() error {
 			return fmt.Errorf("pbzx: unable to read chunk: %w", err)
 		}
 		var out []byte
-		if pr.algo == LZFSE {
+		switch pr.algo {
+		case LZFSE:
 			out, err = lzfse.Decompress(data)
-		} else {
+		case LZBitmap:
+			out, err = lzbitmap.Decompress(data)
+		default:
 			out, err = decodeLZ4Frames(data, int(inflated))
 		}
 		if err != nil {
@@ -284,9 +285,7 @@ type Writer struct {
 // given block size (0 selects pkgbuild's 16 MiB).
 func NewWriter(w io.Writer, algo Algorithm, blockSize uint64) (*Writer, error) {
 	switch algo {
-	case XZ, LZFSE, LZ4, Zlib:
-	case LZBitmap:
-		return nil, fmt.Errorf("%w: %s cannot be written", ErrUnsupportedAlgorithm, algo)
+	case XZ, LZFSE, LZ4, Zlib, LZBitmap:
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnsupportedAlgorithm, byte(algo))
 	}
@@ -410,6 +409,8 @@ func compressChunk(algo Algorithm, block []byte) ([]byte, error) {
 		return data, nil
 	case LZ4:
 		return encodeLZ4Frames(block), nil
+	case LZBitmap:
+		return lzbitmap.Compress(block)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedAlgorithm, algo)
 	}

@@ -9,7 +9,8 @@ are Apple's, and understanding them required reading other people's
 implementations. This file records what was read and what was taken from it,
 so the provenance of every package is stated rather than guessed. Nothing
 below is imported or vendored; each entry is a reference that informed a
-design, and none of its expression was copied.
+design, and none of its expression was copied, with one stated exception:
+entry 16, whose C is translated into Go and whose licence travels with it.
 
 1. xar (Apple): https://github.com/apple-oss-distributions/xar
    Copyright (c) 2005-2007 Rob Braun; BSD-3-Clause.
@@ -92,3 +93,13 @@ were exported from macOS's system root store and are Apple's.
    osfmk/vm/lz4.h documents Apple's LZ4 frame tags (bv41, bv4-, bv4$) and
    bsd/vfs/vfs_xattr.c the AppleDouble ATTR layout. Read for the formats;
    no code taken.
+
+16. libzbitmap: https://github.com/eafer/libzbitmap
+    Copyright (c) 2022 Corellium LLC; author Ernesto A. Fernandez; MIT.
+    Apple publishes no specification for LZBITMAP, and this is the only
+    implementation of it: the format was reverse-engineered there by black
+    box testing. pkg/lzbitmap is a translation of that C into Go, not a
+    reference that informed our own design, so the MIT licence above
+    applies to it and this notice carries the copyright. The two are kept
+    honest by Apple's own aa: pkg/lzbitmap decodes what aa writes, and aa
+    extracts what pkg/lzbitmap writes.

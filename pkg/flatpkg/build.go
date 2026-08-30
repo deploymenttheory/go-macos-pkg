@@ -73,15 +73,16 @@ const (
 	// CompressionLatest is whatever pkgbuild --compression latest means
 	// today: pbzx.
 	CompressionLatest
-	// CompressionLZFSE is the pbze container. pkgbuild never writes it,
-	// but macOS reads it: pkgutil --expand-full unpacks such a payload
-	// byte for byte, single-chunk and multi-chunk alike (pinned by the
-	// acceptance suite). It is the one sibling of pbzx a package can
-	// safely use.
+	// CompressionLZFSE and CompressionLZBitmap are the pbze and pbzb
+	// containers. pkgbuild writes neither, but macOS reads both:
+	// pkgutil --expand-full unpacks such a payload byte for byte,
+	// single-chunk and multi-chunk alike, and installer installs it.
+	// The acceptance suite pins that.
 	CompressionLZFSE
+	CompressionLZBitmap
 )
 
-// ParseCompression parses gzip, pbzx, latest or lzfse.
+// ParseCompression parses gzip, pbzx, latest, lzfse or lzbitmap.
 //
 // The pbz* family also has pbz4 (Apple-framed LZ4) and pbzz (zlib), and
 // pkg/pbzx writes both: Apple's own aa reads what we produce. They are
@@ -98,10 +99,12 @@ func ParseCompression(s string) (Compression, error) {
 		return CompressionLatest, nil
 	case "lzfse", "pbze":
 		return CompressionLZFSE, nil
+	case "lzbitmap", "pbzb":
+		return CompressionLZBitmap, nil
 	case "lz4", "pbz4", "zlib", "pbzz":
 		return 0, fmt.Errorf("compression %q writes a payload macOS cannot read: pkgutil refuses a pbz4 or pbzz Payload, so the package would not install (pkg/pbzx writes the container itself, if you need one outside a package)", s)
 	}
-	return 0, fmt.Errorf("unknown compression %q: want gzip, pbzx, latest or lzfse", s)
+	return 0, fmt.Errorf("unknown compression %q: want gzip, pbzx, latest, lzfse or lzbitmap", s)
 }
 
 func (c Compression) String() string {
@@ -110,6 +113,8 @@ func (c Compression) String() string {
 		return "pbzx"
 	case CompressionLZFSE:
 		return "lzfse"
+	case CompressionLZBitmap:
+		return "lzbitmap"
 	}
 	return "gzip"
 }
@@ -122,6 +127,8 @@ func (c Compression) Algorithm() (pbzx.Algorithm, bool) {
 		return pbzx.XZ, true
 	case CompressionLZFSE:
 		return pbzx.LZFSE, true
+	case CompressionLZBitmap:
+		return pbzx.LZBitmap, true
 	}
 	return 0, false
 }

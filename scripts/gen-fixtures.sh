@@ -224,6 +224,20 @@ for a in raw lzfse lzma zlib lz4; do
 done
 aa list -v -i "$ROOT/testdata/aa/aa-raw.aar" >"$ROOT/testdata/aa/aa-raw.list.txt"
 
+log "lzbitmap samples"
+# aa supports -a lzbitmap even though the man page does not list it. These
+# are their own pair rather than joining the loop above, because
+# pkg/lzbitmap is tested by decoding one into the other, and root-links
+# carries extended attributes that a machine cannot always reproduce.
+mkdir -p root-zbm/sub
+printf 'lzbitmap fixture\n' >root-zbm/hello.txt
+deterministic_bytes 200000 >root-zbm/random.bin
+python3 -c "print('the quick brown fox '*5000,end='')" >root-zbm/repetitive.txt
+printf 'nested\n' >root-zbm/sub/nested.txt
+stamp root-zbm
+aa archive -d root-zbm -o "$ROOT/testdata/aa/aa-lzbitmap.aar" -a lzbitmap -b 1m
+aa archive -d root-zbm -o "$ROOT/testdata/aa/aa-lzbitmap-raw.aar" -a raw -b 1m
+
 # ---------------------------------------------------------------- signing keys
 
 # A private CA and a leaf shaped like a Developer ID Installer certificate

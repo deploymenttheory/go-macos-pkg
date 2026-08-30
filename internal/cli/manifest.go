@@ -38,7 +38,7 @@ type manifestFile struct {
 	MinimumOSVersion         string `yaml:"minimum_os_version" json:"minimum_os_version" plist:"minimum_os_version"`
 	PreserveXattr            bool   `yaml:"preserve_xattr" json:"preserve_xattr" plist:"preserve_xattr"`
 	NoPayload                bool   `yaml:"nopayload" json:"nopayload" plist:"nopayload"`       // added
-	Compression              string `yaml:"compression" json:"compression" plist:"compression"` // gzip | pbzx | latest | lzfse (added)
+	Compression              string `yaml:"compression" json:"compression" plist:"compression"` // gzip | pbzx | latest | lzfse | lzbitmap (added)
 	Xattrs                   string `yaml:"xattrs" json:"xattrs" plist:"xattrs"`                // fs | none (added)
 	HardLinks                string `yaml:"hard_links" json:"hard_links" plist:"hard_links"`    // auto | copy (added)
 	ProductID                string `yaml:"product_id" json:"product_id" plist:"product_id"`
