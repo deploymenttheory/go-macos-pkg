@@ -55,6 +55,14 @@ checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
   algorithm: sha256
 
+# One SBOM per archive, in SPDX, listing the module's dependencies. It ships
+# beside the archive it describes and is covered by the signed checksum file,
+# so it cannot be swapped without the signature failing.
+sboms:
+  - artifacts: archive
+    documents:
+      - "${artifact}.sbom.spdx.json"
+
 # Sign the checksum file rather than each archive: verifying the checksums
 # verifies every archive through it, and one signature is one thing to check.
 # Keyless signing binds the signature to this workflow's identity, so there is

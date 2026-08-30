@@ -23,11 +23,18 @@ import (
 // testIdentity makes a CA and a Developer-ID-shaped leaf in memory.
 func testIdentity(t *testing.T) (*Identity, *x509.Certificate) {
 	t.Helper()
+	return identityValid(t, time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour))
+}
+
+// identityValid builds a Developer ID style chain whose leaf lives for the
+// given window, so a test can have one that has already expired.
+func identityValid(t *testing.T, notBefore, notAfter time.Time) (*Identity, *x509.Certificate) {
+	t.Helper()
 	caKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 	caTmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject:      pkix.Name{CommonName: "Test Developer ID Certification Authority", OrganizationalUnit: []string{"Test CA"}},
-		NotBefore:    time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour),
+		NotBefore:    notBefore.Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour),
 		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
 		ExtraExtensions: []pkix.Extension{{Id: OIDDeveloperIDCA, Value: []byte{5, 0}}},
 	}
@@ -38,7 +45,7 @@ func testIdentity(t *testing.T) (*Identity, *x509.Certificate) {
 	leafTmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(2),
 		Subject:      pkix.Name{CommonName: "Developer ID Installer: Test (TEAM123456)", OrganizationalUnit: []string{"TEAM123456"}},
-		NotBefore:    time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour),
+		NotBefore:    notBefore, NotAfter: notAfter,
 		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
 		ExtraExtensions: []pkix.Extension{{Id: OIDDeveloperIDInstaller, Value: []byte{5, 0}}},
 	}

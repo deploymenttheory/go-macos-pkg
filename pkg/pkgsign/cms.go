@@ -16,6 +16,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -266,6 +267,9 @@ type CMSInfo struct {
 	SigningTime  time.Time
 	// TimestampToken is the raw RFC 3161 token, if one is attached.
 	TimestampToken []byte
+	// SignatureValue is the SignerInfo's signature. An RFC 3161 token
+	// attests to these bytes, so verifying one needs them.
+	SignatureValue []byte
 }
 
 // ErrCMS reports a malformed or failed CMS signature.
@@ -312,6 +316,7 @@ func ParseCMS(raw []byte) (*CMSInfo, *signedData, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	info.SignatureValue = si.Signature
 	for _, c := range info.Certificates {
 		if c.SerialNumber.Cmp(si.IssuerAndSerial.SerialNumber) == 0 && bytes.Equal(c.RawIssuer, si.IssuerAndSerial.Issuer.FullBytes) {
 			info.Signer = c
@@ -368,38 +373,74 @@ func VerifyCMS(der, content []byte) (*CMSInfo, error) {
 		return info, fmt.Errorf("%w: signer certificate is not embedded", ErrCMS)
 	}
 	si := sd.SignerInfos[0]
+	if err := verifySignedAttrs(si, info.Signer, info.Hash, content, sd.ContentInfo.ContentType); err != nil {
+		return info, err
+	}
+	return info, nil
+}
+
+// verifySignedAttrs is the RFC 5652 check a SignerInfo has to pass: the
+// signed attributes carry a messageDigest matching the content and a
+// contentType matching the eContentType, and the signature verifies over
+// those attributes. Both our own SignedData and the one inside an RFC
+// 3161 timestamp token are checked here, so the two cannot drift apart.
+func verifySignedAttrs(si signerInfo, signer *x509.Certificate, hash crypto.Hash, content []byte, eContentType asn1.ObjectIdentifier) error {
 	if len(si.SignedAttrs.FullBytes) == 0 {
-		return info, fmt.Errorf("%w: no signed attributes", ErrCMS)
+		return fmt.Errorf("%w: no signed attributes", ErrCMS)
 	}
 	attrs, err := parseAttrs(si.SignedAttrs)
 	if err != nil {
-		return info, err
+		return err
 	}
 	var messageDigest []byte
+	var contentType asn1.ObjectIdentifier
+	var sawDigest, sawType bool
 	for _, a := range attrs {
-		if a.Type.Equal(oidAttrMessageDgst) {
+		switch {
+		case a.Type.Equal(oidAttrMessageDgst):
 			if _, err := asn1.Unmarshal(a.Values.Bytes, &messageDigest); err != nil {
-				return info, fmt.Errorf("%w: malformed messageDigest", ErrCMS)
+				return fmt.Errorf("%w: malformed messageDigest", ErrCMS)
 			}
+			sawDigest = true
+		case a.Type.Equal(oidAttrContentType):
+			if _, err := asn1.Unmarshal(a.Values.Bytes, &contentType); err != nil {
+				return fmt.Errorf("%w: malformed contentType", ErrCMS)
+			}
+			sawType = true
 		}
 	}
-	h := info.Hash.New()
-	h.Write(content)
-	if !bytes.Equal(h.Sum(nil), messageDigest) {
-		return info, fmt.Errorf("%w: messageDigest does not match the content", ErrCMS)
+	// RFC 5652 4.5.1: when signed attributes are present both of these are
+	// mandatory. An absent messageDigest would otherwise compare equal to
+	// a nil digest, and an absent contentType would let a signature made
+	// over one content type be replayed as another.
+	if !sawDigest {
+		return fmt.Errorf("%w: no messageDigest attribute", ErrCMS)
 	}
+	if !sawType {
+		return fmt.Errorf("%w: no contentType attribute", ErrCMS)
+	}
+	if !contentType.Equal(eContentType) {
+		return fmt.Errorf("%w: signed contentType %v is not the content's %v", ErrCMS, contentType, eContentType)
+	}
+	h := hash.New()
+	h.Write(content)
+	if subtle.ConstantTimeCompare(h.Sum(nil), messageDigest) != 1 {
+		return fmt.Errorf("%w: messageDigest does not match the content", ErrCMS)
+	}
+	// The attributes are signed as a SET OF, not as the [0] IMPLICIT they
+	// are stored in, so the leading tag becomes 0x31 before hashing.
 	set := append([]byte(nil), si.SignedAttrs.FullBytes...)
 	set[0] = 0x31
-	h = info.Hash.New()
+	h = hash.New()
 	h.Write(set)
-	pub, ok := info.Signer.PublicKey.(*rsa.PublicKey)
+	pub, ok := signer.PublicKey.(*rsa.PublicKey)
 	if !ok {
-		return info, fmt.Errorf("%w: signer key is not RSA", ErrCMS)
+		return fmt.Errorf("%w: signer key is not RSA", ErrCMS)
 	}
-	if err := rsa.VerifyPKCS1v15(pub, info.Hash, h.Sum(nil), si.Signature); err != nil {
-		return info, fmt.Errorf("%w: signature does not verify: %v", ErrCMS, err)
+	if err := rsa.VerifyPKCS1v15(pub, hash, h.Sum(nil), si.Signature); err != nil {
+		return fmt.Errorf("%w: signature does not verify: %v", ErrCMS, err)
 	}
-	return info, nil
+	return nil
 }
 
 // unused guards for algorithm OIDs kept for completeness.

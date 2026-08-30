@@ -15,6 +15,7 @@
 // The upstream (mackyle) fork instead uses 3 to mean "other" and appends the
 // algorithm's name to a header longer than 28 bytes; ReadHeader honours the
 // size field so both are read correctly, but only Apple's form is written.
+
 package xar
 
 import (
