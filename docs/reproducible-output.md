@@ -8,8 +8,10 @@ input, on every platform, when the build timestamp is pinned.
 Every timestamp a package carries — cpio and bill-of-materials
 modification times, the xar creation time and entry times, the CMS
 signing time — is taken from the epoch instead of the clock. Directory
-walks are sorted. Inodes are sequential. gzip streams carry no name or
-time. The RSA signature (PKCS#1 v1.5) is deterministic, so a signed build
+walks are sorted. Inode numbers are handed out in payload order, and the
+members of a hard-link set share the one their first member was given, so
+they depend on the tree rather than on the host's own inodes. gzip streams
+carry no name or time. The RSA signature (PKCS#1 v1.5) is deterministic, so a signed build
 reproduces too, unless it is timestamped: a timestamp token is issued by
 Apple's server at signing time and differs every time.
 
