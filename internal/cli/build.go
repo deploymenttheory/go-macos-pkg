@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 
 	"github.com/deploymenttheory/go-macos-pkg/internal/tools"
 	"github.com/deploymenttheory/go-macos-pkg/pkg/flatpkg"
@@ -310,7 +309,7 @@ func writePackage(path string, build func(*os.File) (*flatpkg.BuildResult, error
 // buildError maps builder failures onto the exit-code contract.
 func buildError(err error) error {
 	switch {
-	case strings.Contains(err.Error(), flatpkg.ErrUnsupportedOnPlatform.Error()):
+	case errors.Is(err, flatpkg.ErrUnsupportedOnPlatform):
 		return withCode(ExitUnsupported, err)
 	case errors.Is(err, flatpkg.ErrCompressionNeedsMinOS):
 		return withCode(ExitUsage, err)

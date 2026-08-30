@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -139,7 +140,7 @@ func normalisePayloadPath(s string) string {
 
 // payloadOpenError maps an unsupported payload container to exit 5.
 func payloadOpenError(err error) error {
-	if strings.Contains(err.Error(), flatpkg.ErrUnsupportedPayload.Error()) {
+	if errors.Is(err, flatpkg.ErrUnsupportedPayload) {
 		return withCode(ExitUnsupported, err)
 	}
 	return err
