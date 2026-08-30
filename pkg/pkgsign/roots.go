@@ -1,12 +1,12 @@
 // Apple's root certificates, embedded so verify can build a chain without
 // a keychain or a system trust store.
 //
-// The PEM files were exported from macOS's SystemRootCertificates keychain:
-//
-//	security find-certificate -a -p /System/Library/Keychains/SystemRootCertificates.keychain
-//
-// Developer ID certificates chain to the 2006 "Apple Root CA"; the G2 and
-// G3 roots are included for completeness. They expire in 2035 and 2039.
+// The PEM files are exported from macOS's system root store by
+// scripts/export-roots.sh, which pins each root's SHA-256 fingerprint so
+// the set cannot drift silently. Developer ID certificates chain to the
+// 2006 "Apple Root CA" (expires 2035); the G2 and G3 roots (2039) and the
+// Apple Platform Developer and Multipurpose roots (2049) are embedded for
+// chains that move to them. TestAppleRoots pins the same fingerprints.
 package pkgsign
 
 import (

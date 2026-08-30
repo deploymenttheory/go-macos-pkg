@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"encoding/hex"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -283,18 +284,40 @@ func TestIdentityLoading(t *testing.T) {
 	}
 }
 
+// TestAppleRoots pins the embedded roots by common name and SHA-256
+// fingerprint: the same values scripts/export-roots.sh insists on.
 func TestAppleRoots(t *testing.T) {
-	roots := AppleRootCertificates()
-	if len(roots) == 0 {
-		t.Fatal("no Apple roots embedded")
+	want := map[string]string{
+		"Apple Root CA":                                "b0b1730ecbc7ff4505142c49f1295e6eda6bcaed7e2c68c5be91b5a11001f024",
+		"Apple Root CA - G2":                           "c2b9b042dd57830e7d117dac55ac8ae19407d38e41d88f3215bc3a890444a050",
+		"Apple Root CA - G3":                           "63343abfb89a6a03ebb57e9b3f5fa7be7c4f5c756f3017b3a8c488c3653e9179",
+		"Apple Platform Developer RSA Root CA - G1":    "8174fdd9db62e04dd18f17d1224406c7a2cc8d5db5816f3dc7f5e900047e7fb7",
+		"Apple Platform Developer ECC Root CA - G1":    "99dad8412ff1155b12759717aef5a31e6e089e357539faca3d57e138018493b3",
+		"Apple Platform Multipurpose RSA Root CA - G1": "fa760b953dfd935ca420ba9baa5f07067fad4449b5554b9418cbdd12e0a56eda",
 	}
-	found := false
+	roots := AppleRootCertificates()
+	got := map[string]string{}
 	for _, r := range roots {
-		if r.Subject.CommonName == "Apple Root CA" {
-			found = true
+		sum := sha256.Sum256(r.Raw)
+		got[r.Subject.CommonName] = hex.EncodeToString(sum[:])
+		// Anchors are trusted as-is; their self-signatures are never
+		// checked (the 2006 root's is SHA-1, which Go refuses to verify).
+		if !r.IsCA || r.Subject.String() != r.Issuer.String() {
+			t.Errorf("%s is not a self-signed CA", r.Subject.CommonName)
+		}
+		if time.Now().After(r.NotAfter) {
+			t.Errorf("%s has expired (%s)", r.Subject.CommonName, r.NotAfter)
 		}
 	}
-	if !found {
-		t.Error("the 2006 Apple Root CA, which Developer ID chains to, is missing")
+	for cn, fp := range want {
+		if got[cn] != fp {
+			t.Errorf("%s: fingerprint %q, want %q", cn, got[cn], fp)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("embedded %d roots, want %d: %v", len(got), len(want), got)
+	}
+	if AppleRoots() == nil {
+		t.Error("AppleRoots() returned nil")
 	}
 }

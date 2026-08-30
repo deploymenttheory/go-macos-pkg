@@ -11,8 +11,6 @@ what is planned or under consideration, roughly in priority order.
 
 ## Near term
 
-- **Apple root G2/G3** — only the 2006 Apple Root CA (which Developer ID
-  chains to) is embedded today.
 - **`--component-plist`** — per-bundle relocation and version rules.
 
 ## Under consideration
