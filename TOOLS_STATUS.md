@@ -25,6 +25,7 @@ macOS leg additionally checks the result against Apple's own tools.
 | `product` (product archive) | ✅ | ✅ | ✅ |
 | Reproducible output (`SOURCE_DATE_EPOCH`) | ✅ | ✅ | ✅ |
 | Bill of materials writer | ✅⁷ | ✅⁷ | ✅⁷ |
+| Hard links and extended attributes (`._` AppleDouble sidecars) | ✅⁶ | ✅⁶ | 🟡⁴ |
 | `sign` (RSA + CMS, Apple timestamp) | ✅⁸ | ✅⁸ | ✅⁸ |
 | `verify` (digest, signatures, chain to Apple's roots, timestamp, staple) | ✅⁹ | ✅⁹ | ✅⁹ |
 | `notarize` (submit, upload, wait, log) | ✅¹⁰ | ✅¹⁰ | ✅¹⁰ |
@@ -47,10 +48,13 @@ building the unpacked tree again reproduces the package. `--xattrs`
 selects `apply`, `file` or `skip` explicitly. Hard links are recreated as
 hard links.
 
-⁴ On Windows, permission bits and ownership cannot be applied; symbolic
+⁴ On Windows, permission bits and ownership cannot be applied. Symbolic
 links need the symlink privilege, and `--symlinks auto` writes the target
 as a file where they cannot be created (reported, exit 6 if you asked for
 `--symlinks real`). Names Windows cannot store are sanitised and reported.
+Windows exposes no inode, so hard links are packaged and extracted as
+copies; extended attributes travel as `._` files rather than as host
+attributes, which loses nothing, since a build reads them back.
 
 ⁵ (superseded by ⁸–¹⁰ below)
 

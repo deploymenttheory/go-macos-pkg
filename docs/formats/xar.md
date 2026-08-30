@@ -84,4 +84,7 @@ order, `Bom` and `PackageInfo` gzip-encoded, `Payload` and `Scripts`
 stored (they are already gzip cpio), real inode/uid/user metadata, a
 `FinderCreateTime` element, and `<ea>` entries for extended attributes.
 `macospkg build` writes a SHA-256 digest, the same entry order and
-encodings, `root`/`wheel` ownership and no extended attributes.
+encodings, `root`/`wheel` ownership and no `<ea>` elements. Those describe
+the archive entries themselves; a payload file's own extended attributes
+travel inside the payload, as `._` AppleDouble entries — see
+[`payload.md`](payload.md).

@@ -21,6 +21,9 @@ vocabulary.
 | Developer ID Installer certificate | signing cert, installer cert | Apple's certificate name |
 | notarize, notarization ticket, staple | notarise, notary ticket, attach | Apple's spelling and verbs, even in British prose |
 | PackageInfo, Distribution, Payload, Scripts | lower-case forms | they are entry names |
+| extended attributes, xattr | metadata, attributes | `xattr(1)`; the flags are `--xattrs`, `--exclude-xattr` |
+| AppleDouble sidecar, `._` entry | resource file, dot-underscore file | the format's own name; the payload entry is `._name` |
+| hard-link set | hard-linked files, alias | the members share one inode; `pkgbuild` packages them as one |
 
 ## Identifiers
 
@@ -32,6 +35,9 @@ vocabulary.
 | PackageInfo, Distribution | `flatpkg.PackageInfo`, `flatpkg.Distribution` (fields named after the XML) |
 | bill of materials | `bom.BOM`, `bom.Entry`, `bom.Builder` |
 | cpio payload | `cpio.Reader`, `cpio.Writer`, `cpio.Header` |
+| a `._` sidecar's content | `appledouble.File`, `appledouble.Attr` |
+| where a build takes attributes from | `flatpkg.XattrSource`, `flatpkg.XattrOverride` |
+| what an extraction does with sidecars | `flatpkg.XattrMode` |
 | signing | `pkgsign.Identity`, `pkgsign.Signer`, `pkgsign.Verify` |
 | notary service | `notary.Service`, `notary.Submission`, `notary.Status` |
 | ticket, trailer | `staple.Ticket`, `staple.Trailer` |
