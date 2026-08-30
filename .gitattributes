@@ -15,3 +15,8 @@
 *.cpio binary
 *.p12 binary
 *.bom binary
+*.der binary
+# The timestamp fixture holds a DER token and the exact bytes it attests
+# to. The second is plain ASCII, so text=auto would give it CRLF on a
+# Windows checkout and the message imprint would stop matching.
+testdata/timestamp/** binary

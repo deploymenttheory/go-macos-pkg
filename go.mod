@@ -1,6 +1,6 @@
 module github.com/deploymenttheory/go-macos-pkg
 
-go 1.26.5
+go 1.26.6
 
 require (
 	github.com/deploymenttheory/go-sdk-appleservices v0.8.1
