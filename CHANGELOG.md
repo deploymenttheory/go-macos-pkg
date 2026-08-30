@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.2](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.3.1...v0.3.2) (2026-08-30)
+
+
+### Bug Fixes
+
+* bump Go to 1.26.6 and keep the timestamp fixture out of EOL conversion ([f68caf7](https://github.com/deploymenttheory/go-macos-pkg/commit/f68caf732de27f44a71ad64e609270a1da0b8cbd))
+* **security:** verify timestamp tokens, and stop extraction following links ([d97a6e8](https://github.com/deploymenttheory/go-macos-pkg/commit/d97a6e86a983bd63648691501e312e16ea4e26e2))
+* **security:** verify timestamp tokens, and stop extraction following links ([55cac30](https://github.com/deploymenttheory/go-macos-pkg/commit/55cac302914429c7c9b6c153b745cd5ab9366db9))
+
 ## [0.3.1](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.3.0...v0.3.1) (2026-08-30)
 
 
