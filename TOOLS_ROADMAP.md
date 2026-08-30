@@ -8,6 +8,12 @@ what is planned or under consideration, roughly in priority order.
 
 - Read, expand and extract; build and product; sign and verify; notarize
   and staple — all platforms, all checked against Apple's tools on macOS.
+- **Hard links and extended attributes** — carried as `pkgbuild` carries
+  them, as `._` AppleDouble sidecars, and reapplied on a repack.
+- **`pbz*` payloads** — the family is read, and pbzx is written
+  (`build --compression pbzx`).
+- **Apple's roots embedded** — `verify` chains to G2, G3 and Platform
+  without a system trust store.
 
 ## Near term
 

@@ -82,18 +82,19 @@ payload size and scripts, the Distribution's title, choices, architectures
 and resources, the signature's certificate chain and team, and whether a
 notarization ticket is stapled.
 
-### `list PKG [--archive] [--component NAME] [-l] [--scripts]`
+### `list PKG [--archive] [--component NAME] [-l|--long] [--scripts]`
 
 The files the package installs, from the bill of materials — what `lsbom`
 prints for an expanded package, without expanding. `-l` adds mode, owner,
 size and time; `--archive` lists the xar entries; `--scripts` the Scripts
 archives.
 
-### `cat PKG ENTRY` / `cat PKG --payload PATH`
+### `cat PKG ENTRY [--raw]` / `cat PKG --payload PATH`
 
 One archive entry (`PackageInfo`, `Distribution`, `foo.pkg/Bom`,
 `Resources/en.lproj/welcome.html`) decoded to stdout, or one file out of
-the payload (`--payload ./usr/local/bin/tool`).
+the payload (`--payload ./usr/local/bin/tool`). `--raw` writes the entry's
+stored bytes without decoding its encoding.
 
 ### `inspect PKG header|toc|packageinfo|distribution|bom|signature|cms|rsa|digest|ticket`
 
@@ -102,27 +103,47 @@ stored, the bill of materials in `lsbom` columns, the signature elements
 and PEM chain, the raw CMS or RSA signature bytes, the digest they cover,
 the stapled ticket.
 
-### `expand PKG DIR [--full] [--verify]`
+### `expand PKG DIR [--full] [--verify] [--xattrs MODE] [--hard-links=false]`
 
 `pkgutil --expand`: every entry decoded into a new directory, Scripts
 unpacked, Payload left as its gzip cpio. `--full` unpacks the payloads
-too (`--expand-full`). Byte-identical to `pkgutil`'s output.
+too (`--expand-full`). Byte-identical to `pkgutil`'s output. `--xattrs`
+and `--hard-links` are passed to the payload extractions, and mean what
+they mean for `extract`.
 
-### `extract PKG DIR [--component NAME] [--scripts] [--pattern RE] [--symlinks auto|real|file] [--verify]`
+### `extract PKG DIR [--component NAME] [--scripts] [--pattern RE] [--symlinks auto|real|file] [--xattrs auto|apply|file|skip] [--hard-links=false] [--verify]`
 
 The payload files, as they would land under the install location, with
 modes and times. `--verify` checks every file against the bill of
 materials' checksum. Exit 6 if anything was skipped (device nodes, paths
 that would escape `DIR`, links the host refused).
 
+`._` AppleDouble sidecars become extended attributes on their owners
+where the host stores them and stay `._` files where it does not, so
+nothing is lost on Linux or Windows and building the extracted tree again
+restores the package (`--xattrs auto`, the default; `apply`, `file` and
+`skip` choose explicitly). Hard links are recreated as hard links;
+`--hard-links=false` writes copies.
+
 ### `build SRC [OUT.pkg] --identifier ID --version V [options]`
 
 A component package — `pkgbuild` — from a directory. Options:
 `--install-location`, `--scripts DIR`, `--ownership recommended|preserve|preserve-other`,
 `--min-os-version`, `--postinstall-action`, `--nopayload`,
-`--no-bundle-relocation`, `--exclude RE`, `--executable RE` (for hosts
-without execute bits), `--manifest build-info.yaml`, and `--sign-*` /
-`--notarize` to finish the job in one run.
+`--no-bundle-relocation`, `--relocatable`, `--preserve-xattr`,
+`--auth root|none` (whether the Installer needs authorisation),
+`--exclude RE`, `--executable RE` (for hosts without execute bits),
+`--manifest build-info.yaml`, and `--sign-*` / `--notarize` to finish the
+job in one run.
+
+`--compression gzip|pbzx|latest` selects the payload container (`--pbzx-block-size`
+tunes pbzx; the default matches `pkgbuild`'s 16 MiB). Extended attributes
+and hard links are carried as `pkgbuild` carries them: `--xattrs fs|none`
+says whether to read attributes from the tree, `--exclude-xattr RE`
+(repeatable) drops names such as `com.apple.provenance`, and
+`--hard-links auto|copy` says whether files sharing an inode are packaged
+as one. A manifest's `file_xattrs` overrides attributes per file, or per
+folder with a trailing `/` — see [`docs/formats/payload.md`](docs/formats/payload.md).
 
 `SRC` may be a munkipkg-style project directory holding
 `build-info.yaml|json|plist`, `payload/` and `scripts/`; flags override
@@ -137,7 +158,9 @@ rules.
 ### `product OUT.pkg --package X.pkg… [--distribution D.xml] [--resources DIR] [--title T] [--min-os-version] [--host-architectures]`
 
 A product archive — `productbuild` — from component packages, with a
-synthesised Distribution or one you supply.
+synthesised Distribution or one you supply. `--product-id` and
+`--product-version` set the synthesised Distribution's identity; `--sign-*`
+and `--notarize` finish the job in one run, as for `build`.
 
 ### `sign PKG OUT.pkg (--p12 F | --cert PEM --key PEM [--chain PEM]) [--no-timestamp] [--timestamp URL] [--digest sha256|sha1]`
 
@@ -161,7 +184,9 @@ polls for the verdict (exit 0 Accepted, 8 Invalid/Rejected with the log's
 issues printed, 9 timed out); `--staple` then attaches the ticket.
 Credentials: `--key-id`, `--issuer-id`, `--private-key AuthKey.p8`, or
 `APPLE_KEY_ID`, `APPLE_ISSUER_ID`, `APPLE_PRIVATE_KEY_PEM` /
-`APPLE_PRIVATE_KEY_PATH`. Subcommands `status`, `log`, `wait`, `list`.
+`APPLE_PRIVATE_KEY_PATH`. `--name` sets the submission name shown in App
+Store Connect (default: the file name), and `--force` submits a package
+that is not signed. Subcommands `status`, `log`, `wait`, `list`.
 
 ### `staple PKG [OUT.pkg] [--check] [--ticket FILE]` / `unstaple PKG [OUT.pkg]`
 
@@ -234,8 +259,9 @@ for _, c := range p.Components {
 ```
 
 Key packages: `pkg/xar` (container), `pkg/bom` (bill of materials),
-`pkg/cpio` and `pkg/pbzx` (payloads), `pkg/flatpkg` (packages, build,
-expand, extract), `pkg/pkgsign` (sign, verify), `pkg/notary`, `pkg/staple`.
+`pkg/cpio` and `pkg/pbzx` (payloads), `pkg/appledouble` (the `._` sidecars
+that carry extended attributes), `pkg/flatpkg` (packages, build, expand,
+extract), `pkg/pkgsign` (sign, verify), `pkg/notary`, `pkg/staple`.
 The format details are written down in [`docs/formats/`](docs/formats/).
 
 ## How it is tested
@@ -252,14 +278,17 @@ package with `installer`, checks our signature with `pkgutil
 validate` and `spctl`. A gated job signs and notarizes with a real
 Developer ID against Apple's services.
 
-Google's Go installer (`go1.27.0.darwin-arm64.pkg`) is the real-world
-oracle on every platform: its signature is verified against Apple's roots
-and its ticket against Apple's database, then it is expanded with
+Two real-world packages are the oracles on every platform: Google's Go
+installer (`go1.27.0.darwin-arm64.pkg`, stapled, no bundles) and
+PowerShell (`powershell-7.6.1-osx-arm64.pkg`, an app bundle with a symlink
+and a postinstall script). Each has its signature verified against Apple's
+roots and its ticket against Apple's database, then is expanded with
 `macospkg` and rebuilt with `macospkg`, and the rebuilt package is compared
-with the original entry for entry — PackageInfo numbers, all 17,356
-bill-of-materials entries, every payload file's bytes, the Distribution
-and resources. On macOS, `pkgutil`, `lsbom` and `xar` compare the two as
-well, and `installer` installs the rebuilt package.
+with the original entry for entry — PackageInfo numbers, every
+bill-of-materials entry (17,356 of them for Go), every payload file's
+bytes, the Distribution and resources. On macOS, `pkgutil`, `lsbom` and
+`xar` compare the two as well, and `installer` installs the rebuilt
+package.
 
 ## Development
 
