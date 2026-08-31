@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -88,18 +89,23 @@ func BuildProduct(o ProductOptions, out io.Writer) (*ProductResult, error) {
 	}
 
 	res := &ProductResult{}
+	var refs []synthRef
+	for _, c := range components {
+		info := c.pkg.Components[0].Info
+		r := synthRef{ID: info.Identifier, Version: info.Version, Path: c.name}
+		if info.Payload != nil {
+			r.InstallKBytes = info.Payload.InstallKBytes
+		}
+		refs = append(refs, r)
+	}
 	dist := o.Distribution
 	if dist == nil {
-		var refs []synthRef
-		for _, c := range components {
-			info := c.pkg.Components[0].Info
-			r := synthRef{ID: info.Identifier, Version: info.Version, Path: c.name}
-			if info.Payload != nil {
-				r.InstallKBytes = info.Payload.InstallKBytes
-			}
-			refs = append(refs, r)
-		}
-		dist = synthesiseDistribution(o, refs)
+		dist = synthesiseDistribution(o, refs, true)
+	} else {
+		// A distribution written for productbuild names its packages as
+		// files beside it; embedding rewrites those references to name
+		// entries inside the archive.
+		dist = embedDistribution(dist, refs)
 	}
 	res.Distribution = dist
 
@@ -244,11 +250,15 @@ type synthRef struct {
 // Two attributes are deliberately absent because productbuild does not write
 // them either: auth, which every component's PackageInfo carries but which
 // never reaches the Distribution, and a trailing newline.
-func synthesiseDistribution(o ProductOptions, refs []synthRef) []byte {
+func synthesiseDistribution(o ProductOptions, refs []synthRef, embedded bool) []byte {
 	var b strings.Builder
 	attr := func(v string) string { return `"` + xmlEscape(v) + `"` }
 
-	b.WriteString(`<?xml version="1.0" encoding="utf-8" standalone="yes"?>` + "\n")
+	if embedded {
+		b.WriteString(`<?xml version="1.0" encoding="utf-8" standalone="yes"?>` + "\n")
+	} else {
+		b.WriteString(`<?xml version="1.0" encoding="utf-8"?>` + "\n")
+	}
 	b.WriteString(`<installer-gui-script minSpecVersion="1">` + "\n")
 	if o.Title != "" {
 		fmt.Fprintf(&b, "    <title>%s</title>\n", xmlEscape(o.Title))
@@ -262,8 +272,13 @@ func synthesiseDistribution(o ProductOptions, refs []synthRef) []byte {
 	}
 
 	// The stubs productbuild writes ahead of <options>, one per package.
+	// Embedding fills each one in with a bundle-version element.
 	for _, r := range refs {
-		fmt.Fprintf(&b, "    <pkg-ref id=%s>\n        <bundle-version/>\n    </pkg-ref>\n", attr(r.ID))
+		if embedded {
+			fmt.Fprintf(&b, "    <pkg-ref id=%s>\n        <bundle-version/>\n    </pkg-ref>\n", attr(r.ID))
+		} else {
+			fmt.Fprintf(&b, "    <pkg-ref id=%s/>\n", attr(r.ID))
+		}
 	}
 
 	archs := o.HostArchitectures
@@ -286,11 +301,18 @@ func synthesiseDistribution(o ProductOptions, refs []synthRef) []byte {
 	b.WriteString("        </line>\n    </choices-outline>\n")
 	b.WriteString("    <choice id=\"default\"/>\n")
 
-	// Each choice is followed by its own pkg-ref, interleaved.
+	// Each choice is followed by its own pkg-ref, interleaved. Only an
+	// embedded document carries the sizes and the "#" that names an entry
+	// inside the archive; a synthesised file names the package itself.
 	for _, r := range refs {
 		fmt.Fprintf(&b, "    <choice id=%s visible=\"false\">\n        <pkg-ref id=%s/>\n    </choice>\n", attr(r.ID), attr(r.ID))
-		fmt.Fprintf(&b, "    <pkg-ref id=%s version=%s onConclusion=\"none\" installKBytes=%s updateKBytes=\"0\">#%s</pkg-ref>\n",
-			attr(r.ID), attr(r.Version), attr(strconv.Itoa(r.InstallKBytes)), xmlEscape(r.Path))
+		fmt.Fprintf(&b, "    <pkg-ref id=%s version=%s onConclusion=\"none\"", attr(r.ID), attr(r.Version))
+		if embedded {
+			fmt.Fprintf(&b, " installKBytes=%s updateKBytes=\"0\"", attr(strconv.Itoa(r.InstallKBytes)))
+			fmt.Fprintf(&b, ">#%s</pkg-ref>\n", xmlEscape(r.Path))
+		} else {
+			fmt.Fprintf(&b, ">%s</pkg-ref>\n", xmlEscape(r.Path))
+		}
 	}
 
 	b.WriteString("</installer-gui-script>")
@@ -314,4 +336,326 @@ func xmlEscape(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// SynthesizeDistribution writes the Distribution that productbuild
+// --synthesize writes to a file, for the packages named in o.Packages.
+//
+// It is not the document a product archive carries. productbuild rewrites a
+// distribution when it embeds one: the embedded form declares standalone,
+// fills the leading pkg-ref stubs in with a bundle-version element, names
+// each package as an entry inside the archive with a leading "#", and adds
+// installKBytes and updateKBytes. The file form does none of that, and
+// names each package by its base name however the path was spelled.
+func SynthesizeDistribution(o ProductOptions) ([]byte, error) {
+	if len(o.Packages) == 0 {
+		return nil, fmt.Errorf("flatpkg: at least one component package is required")
+	}
+	refs, err := synthRefsFor(o.Packages)
+	if err != nil {
+		return nil, err
+	}
+	return synthesiseDistribution(o, refs, false), nil
+}
+
+// synthRefsFor reads the identity of each component package.
+func synthRefsFor(paths []string) ([]synthRef, error) {
+	refs := make([]synthRef, 0, len(paths))
+	seen := map[string]bool{}
+	for _, path := range paths {
+		p, err := Open(path)
+		if err != nil {
+			return nil, fmt.Errorf("flatpkg: %s: %w", path, err)
+		}
+		if p.Kind != KindComponent {
+			p.Close()
+			return nil, fmt.Errorf("flatpkg: %s is a product archive; only component packages can be embedded", path)
+		}
+		name := filepath.Base(path)
+		if seen[name] {
+			p.Close()
+			return nil, fmt.Errorf("flatpkg: two packages are both named %s", name)
+		}
+		seen[name] = true
+		info := p.Components[0].Info
+		r := synthRef{ID: info.Identifier, Version: info.Version, Path: name}
+		if info.Payload != nil {
+			r.InstallKBytes = info.Payload.InstallKBytes
+		}
+		p.Close()
+		refs = append(refs, r)
+	}
+	return refs, nil
+}
+
+// ResolvePackagePaths finds the component packages a Distribution names.
+//
+// A distribution refers to its packages by file name, as "#Foo.pkg", and
+// productbuild looks for each in the directories given with --package-path
+// and in the working directory. This does the same, in that order, and says
+// which name it could not find rather than failing later on a missing entry.
+func ResolvePackagePaths(dist []byte, searchPaths []string) ([]string, error) {
+	d, err := ParseDistribution(dist)
+	if err != nil {
+		return nil, err
+	}
+	dirs := append(append([]string{}, searchPaths...), ".")
+	var out []string
+	for _, name := range d.PackagePaths() {
+		found := ""
+		for _, dir := range dirs {
+			candidate := filepath.Join(dir, name)
+			if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
+				found = candidate
+				break
+			}
+		}
+		if found == "" {
+			return nil, fmt.Errorf("flatpkg: the distribution names %s, which is not in %s", name, strings.Join(dirs, ", "))
+		}
+		out = append(out, found)
+	}
+	return out, nil
+}
+
+// xmlDeclLine matches the declaration a Distribution starts with.
+var xmlDeclLine = regexp.MustCompile(`^<\?xml[^>]*\?>`)
+
+// choiceElement matches a <choice> and everything in it. The pkg-ref
+// elements inside a choice refer to a package; the ones outside declare it.
+// Only the declarations are rewritten.
+var choiceElement = regexp.MustCompile(`(?s)<choice\b[^>]*>.*?</choice>`)
+
+// namingPkgRef matches a pkg-ref that carries a package's path as its text.
+var namingPkgRef = regexp.MustCompile(`(?s)<pkg-ref\s+id="([^"]*)"([^>]*)>([^<]*)</pkg-ref>`)
+
+// emptyPkgRef matches the bare stub a synthesised distribution declares each
+// package with, before productbuild fills it in.
+var emptyPkgRef = regexp.MustCompile(`<pkg-ref\s+id="([^"]*)"\s*/>`)
+
+// embedDistribution turns a Distribution written for productbuild into the
+// one a product archive carries, which is not the same document.
+//
+// productbuild rewrites a distribution as it embeds it, and the rewrite is
+// small and mechanical:
+//
+//   - the XML declaration gains standalone="yes";
+//   - every pkg-ref that names a package gains installKBytes and
+//     updateKBytes, and its path gains a leading "#", which is what turns
+//     "component-basic.pkg" from a file beside the distribution into an
+//     entry inside the archive;
+//   - every package ends up declared by a stub carrying a bundle-version.
+//     A synthesised document already has a bare <pkg-ref id="X"/> for each,
+//     which is filled in where it stands; a hand-written one usually has
+//     none, and the stubs are appended at the end.
+//
+// The pkg-ref elements inside a choice are left alone: those refer to a
+// package the document declares elsewhere, and filling them in would change
+// what the choice installs.
+//
+// Two more things follow from productbuild re-serialising the document
+// rather than editing it, and both are reproduced so the result compares
+// equal: a bare ">" in character data comes back escaped, and the trailing
+// newline goes. Neither changes what the Installer reads. Everything else
+// is left exactly as the author wrote it.
+func embedDistribution(dist []byte, refs []synthRef) []byte {
+	// Keyed by the package's file name, not by the pkg-ref's id. The two
+	// need not agree: Google's Go installer declares
+	// id="org.golang.go.pkg" for a package whose identifier is
+	// org.golang.go, and gives the identifier separately as
+	// packageIdentifier. The name in the element's text is what actually
+	// ties a reference to a package.
+	byPath := make(map[string]synthRef, len(refs))
+	for _, r := range refs {
+		byPath[r.Path] = r
+	}
+	// A document that already names archive entries is one this tool wrote
+	// or read out of a package, not one written for productbuild. Rewriting
+	// it again would change it: Apple's own distributions do not all carry
+	// updateKBytes, and adding one would break the round trip of an
+	// existing package. Leave it exactly as it is.
+	if alreadyEmbedded(string(dist), byPath) {
+		return dist
+	}
+
+	out := string(dist)
+	if loc := xmlDeclLine.FindStringIndex(out); loc != nil {
+		out = `<?xml version="1.0" encoding="utf-8" standalone="yes"?>` + out[loc[1]:]
+	}
+
+	// The ids the document uses to declare its packages, in document
+	// order. A stub is written for each, using the id the document chose
+	// rather than the package's own identifier. Gathering them first is
+	// what lets the rewrite tell a declaration's own stub from a bare
+	// reference inside a choice that happens to share the id.
+	declared := declaredIDs(out, byPath)
+	stubbed := map[string]bool{}
+	rewrite := func(segment string) string {
+		segment = namingPkgRef.ReplaceAllStringFunc(segment, func(m string) string {
+			sub := namingPkgRef.FindStringSubmatch(m)
+			id, attrs, body := sub[1], sub[2], sub[3]
+			path := strings.TrimSpace(body)
+			r, ok := byPath[strings.TrimPrefix(path, "#")]
+			if !ok || path == "" {
+				return m
+			}
+			if strings.HasPrefix(path, "#") {
+				// Already an archive entry, so already rewritten.
+				return m
+			}
+			path = "#" + path
+			if !strings.Contains(attrs, "installKBytes=") {
+				attrs += ` installKBytes="` + strconv.Itoa(r.InstallKBytes) + `"`
+			}
+			if !strings.Contains(attrs, "updateKBytes=") {
+				attrs += ` updateKBytes="0"`
+			}
+			return `<pkg-ref id="` + id + `"` + attrs + `>` + path + `</pkg-ref>`
+		})
+		return emptyPkgRef.ReplaceAllStringFunc(segment, func(m string) string {
+			id := emptyPkgRef.FindStringSubmatch(m)[1]
+			if !declaredID(declared, id) {
+				return m
+			}
+			stubbed[id] = true
+			return `<pkg-ref id="` + id + `">` + "\n        <bundle-version/>\n    </pkg-ref>"
+		})
+	}
+
+	out = outsideChoices(out, rewrite)
+
+	// A stub already written as <pkg-ref id="X"><bundle-version/></pkg-ref>
+	// counts too, so a document embedded twice does not grow.
+	for _, id := range declared {
+		if stubbed[id] {
+			continue
+		}
+		existing := regexp.MustCompile(`(?s)<pkg-ref\s+id="` + regexp.QuoteMeta(id) + `"\s*>\s*<bundle-version\s*/>`)
+		if existing.MatchString(out) {
+			stubbed[id] = true
+		}
+	}
+	var b strings.Builder
+	for _, id := range declared {
+		if stubbed[id] {
+			continue
+		}
+		fmt.Fprintf(&b, "    <pkg-ref id=%q>\n        <bundle-version/>\n    </pkg-ref>\n", id)
+	}
+	if b.Len() > 0 {
+		const closing = "</installer-gui-script>"
+		if i := strings.LastIndex(out, closing); i >= 0 {
+			out = out[:i] + b.String() + out[i:]
+		}
+	}
+	return []byte(strings.TrimRight(escapeTextGT(out), "\n"))
+}
+
+// escapeTextGT escapes a bare ">" wherever it appears in character data.
+//
+// It is legal unescaped, and a hand-written distribution often has one in a
+// JavaScript comparison, but Apple's serialiser always writes "&gt;" and
+// these documents are compared with its output. Tags, comments and CDATA
+// sections are copied through untouched: inside them a ">" is structure or
+// is already exempt.
+func escapeTextGT(doc string) string {
+	var b strings.Builder
+	b.Grow(len(doc))
+	for i := 0; i < len(doc); {
+		switch {
+		case strings.HasPrefix(doc[i:], "<!--"):
+			i += copyUntil(&b, doc[i:], "-->")
+		case strings.HasPrefix(doc[i:], "<![CDATA["):
+			i += copyUntil(&b, doc[i:], "]]>")
+		case doc[i] == '<':
+			i += copyUntil(&b, doc[i:], ">")
+		case doc[i] == '>':
+			b.WriteString("&gt;")
+			i++
+		default:
+			b.WriteByte(doc[i])
+			i++
+		}
+	}
+	return b.String()
+}
+
+// copyUntil writes s up to and including the first end marker, or all of s
+// when there is none, and reports how much it wrote.
+func copyUntil(b *strings.Builder, s, end string) int {
+	n := strings.Index(s, end)
+	if n < 0 {
+		b.WriteString(s)
+		return len(s)
+	}
+	n += len(end)
+	b.WriteString(s[:n])
+	return n
+}
+
+// outsideChoices applies transform to the parts of a document that are not
+// inside a <choice> element, and leaves the choices untouched.
+func outsideChoices(doc string, transform func(string) string) string {
+	spans := choiceElement.FindAllStringIndex(doc, -1)
+	var b strings.Builder
+	prev := 0
+	for _, span := range spans {
+		b.WriteString(transform(doc[prev:span[0]]))
+		b.WriteString(doc[span[0]:span[1]])
+		prev = span[1]
+	}
+	b.WriteString(transform(doc[prev:]))
+	return b.String()
+}
+
+// alreadyEmbedded reports whether a Distribution already names its packages
+// as entries inside an archive, which is what embedding produces.
+//
+// It is true only when every package the archive carries is declared that
+// way, so a document part-way between the two forms is still rewritten.
+func alreadyEmbedded(doc string, byPath map[string]synthRef) bool {
+	found := map[string]bool{}
+	for _, m := range namingPkgRef.FindAllStringSubmatch(doc, -1) {
+		body := strings.TrimSpace(m[3])
+		name := strings.TrimPrefix(body, "#")
+		if _, ok := byPath[name]; !ok || body == "" {
+			continue
+		}
+		if !strings.HasPrefix(body, "#") {
+			return false
+		}
+		found[name] = true
+	}
+	return len(found) == len(byPath)
+}
+
+// declaredIDs returns the ids the document declares its packages with, in
+// document order and without repeats. A pkg-ref declares a package when its
+// text names one; the same id appearing inside a choice only refers to it.
+func declaredIDs(doc string, byPath map[string]synthRef) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, m := range namingPkgRef.FindAllStringSubmatch(doc, -1) {
+		id, path := m[1], strings.TrimSpace(m[3])
+		if path == "" || seen[id] {
+			continue
+		}
+		if _, ok := byPath[strings.TrimPrefix(path, "#")]; !ok {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+// declaredID reports whether id is one the document uses to declare a
+// package, rather than one that only appears inside a choice.
+func declaredID(declared []string, id string) bool {
+	for _, d := range declared {
+		if d == id {
+			return true
+		}
+	}
+	return false
 }

@@ -321,7 +321,9 @@ This is the form to distribute and the form notarization expects.
 | Flag | What it does |
 |---|---|
 | `--package PKG` | A component package to embed. Repeatable. Required. |
-| `--distribution FILE` | Use this Distribution instead of synthesising one. It must refer to the packages by file name, as `#Foo.pkg`. |
+| `--distribution FILE` | Use this Distribution instead of synthesising one, naming its packages by file name. |
+| `--package-path DIR` | Where to look for the packages a `--distribution` names. Repeatable; the working directory is searched too. |
+| `--synthesize` | Write the synthesised Distribution to the output path instead of building an archive. |
 | `--resources DIR` | Embed a directory as `Resources/`, for the welcome, licence and background files the Distribution names. |
 | `--title T` | Title for the synthesised Distribution. |
 | `--product-id ID`, `--product-version V` | Identity for the synthesised Distribution. |
@@ -332,6 +334,25 @@ This is the form to distribute and the form notarization expects.
 Without `--distribution` the synthesised document installs every package
 with no customisation, byte for byte as productbuild writes it. Supply
 your own when you need choices, localisation or scripts.
+
+**Two shapes of Distribution.** The document `--synthesize` writes is not
+the one a package carries, and productbuild rewrites one into the other as
+it embeds it. `product` does the same, so a distribution you hand it can
+name its packages as plain file names:
+
+| | written by `--synthesize` | carried in a package |
+|---|---|---|
+| declaration | `<?xml … ?>` | `<?xml … standalone="yes"?>` |
+| package reference | `Foo.pkg` | `#Foo.pkg` |
+| sizes | none | `installKBytes`, `updateKBytes` |
+| per-package stub | `<pkg-ref id="X"/>` | `<pkg-ref id="X"><bundle-version/></pkg-ref>` |
+
+A document that already names archive entries is left exactly as it is, so
+expanding a package and building it again gives back the same bytes.
+
+The usual route is `product --synthesize dist.xml --package A.pkg`, edit
+`dist.xml` to add choices or a licence, then
+`product Out.pkg --distribution dist.xml --package-path .`.
 
 ## Signing
 

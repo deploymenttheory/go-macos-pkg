@@ -799,3 +799,136 @@ func TestLargePayloadNeedsMinOSVersion(t *testing.T) {
 		assert.Contains(t, stderr, "--min-os-version 12.0 or later")
 	}
 }
+
+// TestSynthesizeMatchesProductbuild pins the document productbuild
+// --synthesize writes to a file, which is not the one it embeds.
+func TestSynthesizeMatchesProductbuild(t *testing.T) {
+	requireTools(t, "pkgbuild", "productbuild")
+	first, second, work := twoComponents(t)
+
+	ours := filepath.Join(work, "ours.xml")
+	theirs := filepath.Join(work, "theirs.xml")
+	mustRun(t, "product", ours, "--package", first, "--package", second, "--synthesize")
+	hostTool(t, "productbuild", "--quiet", "--synthesize", "--package", first, "--package", second, theirs)
+
+	apple, err := os.ReadFile(theirs)
+	require.NoError(t, err)
+	mine, err := os.ReadFile(ours)
+	require.NoError(t, err)
+	require.Equal(t, string(apple), string(mine), "synthesised Distribution differs")
+
+	// The file form is the one without standalone, without the sizes, and
+	// naming each package as a file rather than an archive entry.
+	assert.NotContains(t, string(mine), `standalone="yes"`)
+	assert.NotContains(t, string(mine), "installKBytes=")
+	assert.NotContains(t, string(mine), ">#")
+	attest(t, "productbuild --synthesize output is byte-identical (%d bytes)", len(apple))
+}
+
+// TestSuppliedDistributionIsRewritten pins what productbuild does to a
+// distribution as it embeds one: the references stop naming files beside the
+// document and start naming entries inside the archive.
+func TestSuppliedDistributionIsRewritten(t *testing.T) {
+	requireTools(t, "pkgbuild", "productbuild", "xar")
+	first, second, work := twoComponents(t)
+
+	// A hand-written distribution, with choices the user can see and a
+	// script carrying a bare ">" in a comparison. Neither the choices nor
+	// the script should come back changed in meaning.
+	dist := filepath.Join(work, "dist.xml")
+	writeFile(t, dist, `<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>Fixture Custom</title>
+    <options customize="allow" require-scripts="false" hostArchitectures="arm64,x86_64"/>
+    <installation-check script="checkRAM()"/>
+    <script>
+    function checkRAM() {
+        return system.sysctl('hw.memsize') > 1024;
+    }
+    </script>
+    <choices-outline>
+        <line choice="basic"/>
+        <line choice="extra"/>
+    </choices-outline>
+    <choice id="basic" title="Basic" visible="true" start_selected="true">
+        <pkg-ref id="com.deploymenttheory.acceptance.first"/>
+    </choice>
+    <choice id="extra" title="Extra" visible="true" start_selected="false">
+        <pkg-ref id="com.deploymenttheory.acceptance.second"/>
+    </choice>
+    <pkg-ref id="com.deploymenttheory.acceptance.first" version="1.0.0" onConclusion="none">`+filepath.Base(first)+`</pkg-ref>
+    <pkg-ref id="com.deploymenttheory.acceptance.second" version="2.1" onConclusion="none">`+filepath.Base(second)+`</pkg-ref>
+</installer-gui-script>
+`, 0o644)
+
+	ours := filepath.Join(work, "ours.pkg")
+	theirs := filepath.Join(work, "theirs.pkg")
+	mustRun(t, "product", ours, "--distribution", dist, "--package-path", work, "--source-date-epoch", epoch)
+	runIn(t, work, "productbuild", "--quiet", "--distribution", dist, "--package-path", work, theirs)
+
+	mine := xarEntry(t, ours, "Distribution")
+	requireSameBytes(t, "Distribution (supplied, rewritten)", xarEntry(t, theirs, "Distribution"), mine)
+
+	got := string(mine)
+	// The declarations now name archive entries and carry the sizes.
+	assert.Contains(t, got, `standalone="yes"`)
+	assert.Contains(t, got, ">#"+filepath.Base(first)+"</pkg-ref>")
+	assert.Contains(t, got, `updateKBytes="0"`)
+	// A stub per package, appended because the document declared none.
+	assert.Contains(t, got, "<bundle-version/>")
+	// The references inside a choice are untouched, since those point at a
+	// package rather than declaring it.
+	assert.Contains(t, got, `<choice id="basic" title="Basic" visible="true" start_selected="true">`)
+	// The author's own content survives, escaping aside.
+	assert.Contains(t, got, "system.sysctl('hw.memsize') &gt; 1024")
+}
+
+// TestPackagePathResolvesFromDistribution pins --package-path: the packages
+// come from the names the distribution uses, found in the given directories.
+func TestPackagePathResolvesFromDistribution(t *testing.T) {
+	requireTools(t, "pkgbuild", "productbuild", "xar")
+	first, second, work := twoComponents(t)
+
+	synth := filepath.Join(work, "synth.xml")
+	hostTool(t, "productbuild", "--quiet", "--synthesize", "--package", first, "--package", second, synth)
+
+	// Move the packages somewhere the working directory does not reach, so
+	// the search path is doing the work.
+	elsewhere := t.TempDir()
+	for _, p := range []string{first, second} {
+		body, err := os.ReadFile(p)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(elsewhere, filepath.Base(p)), body, 0o644))
+	}
+
+	ours := filepath.Join(work, "ours.pkg")
+	mustRun(t, "product", ours, "--distribution", synth, "--package-path", elsewhere, "--source-date-epoch", epoch)
+	entries := nonEmptyLines(hostTool(t, "xar", "-tf", ours))
+	assert.Contains(t, entries, filepath.Base(first))
+	assert.Contains(t, entries, filepath.Base(second))
+
+	// A name that is nowhere on the search path is an error naming it,
+	// rather than a package with a missing entry.
+	_, stderr, code := run(t, "product", filepath.Join(work, "no.pkg"),
+		"--distribution", synth, "--package-path", t.TempDir())
+	assert.NotEqual(t, 0, code)
+	assert.Contains(t, stderr, filepath.Base(first))
+}
+
+// twoComponents builds two component packages with pkgbuild and returns them
+// with the directory holding them.
+func twoComponents(t *testing.T) (first, second, dir string) {
+	t.Helper()
+	root, scripts := sourceTree(t)
+	stampTree(t, root, scripts)
+	dir = t.TempDir()
+	first = filepath.Join(dir, "first.pkg")
+	second = filepath.Join(dir, "second.pkg")
+	hostTool(t, "pkgbuild", "--quiet", "--root", root,
+		"--identifier", "com.deploymenttheory.acceptance.first", "--version", "1.0.0",
+		"--scripts", scripts, "--ownership", "recommended", first)
+	hostTool(t, "pkgbuild", "--quiet", "--root", root,
+		"--identifier", "com.deploymenttheory.acceptance.second", "--version", "2.1",
+		"--install-location", "/opt/fixture", "--ownership", "recommended", second)
+	return first, second, dir
+}

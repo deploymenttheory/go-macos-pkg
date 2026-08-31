@@ -19,6 +19,8 @@ var (
 	productArchs        string
 	productID           string
 	productVersion      string
+	productSynthesize   bool
+	productPackagePaths []string
 )
 
 var productCmd = &cobra.Command{
@@ -48,6 +50,8 @@ func init() {
 	f := productCmd.Flags()
 	f.StringArrayVar(&productPackages, "package", nil, "component package to embed; repeatable (required)")
 	f.StringVar(&productDistribution, "distribution", "", "Distribution XML to use instead of synthesising one")
+	f.StringArrayVar(&productPackagePaths, "package-path", nil, "directory to search for the packages a --distribution names; repeatable, and the working directory is searched too")
+	f.BoolVar(&productSynthesize, "synthesize", false, "write the synthesised Distribution to the output path instead of building an archive")
 	f.StringVar(&productResources, "resources", "", "directory to embed as Resources/")
 	f.StringVar(&productTitle, "title", "", "title for the synthesised Distribution")
 	f.StringVar(&productMinOS, "min-os-version", "", "minimum macOS version for the synthesised Distribution")
@@ -72,8 +76,24 @@ type productReport struct {
 
 func runProduct(cmd *cobra.Command, args []string) error {
 	productOutput := args[0]
+	if productSynthesize {
+		return runSynthesize(productOutput)
+	}
+	// A distribution names its packages; --package-path says where to look
+	// for them, as productbuild does.
+	if len(productPackages) == 0 && productDistribution != "" {
+		data, err := os.ReadFile(productDistribution)
+		if err != nil {
+			return usageErrorf("unable to read --distribution: %v", err)
+		}
+		found, err := flatpkg.ResolvePackagePaths(data, productPackagePaths)
+		if err != nil {
+			return buildError(err)
+		}
+		productPackages = found
+	}
 	if len(productPackages) == 0 {
-		return usageErrorf("at least one --package is required")
+		return usageErrorf("at least one --package is required (or a --distribution that names them)")
 	}
 	o := flatpkg.ProductOptions{
 		Packages:       productPackages,
@@ -136,5 +156,40 @@ func runProduct(cmd *cobra.Command, args []string) error {
 		return jsonOut(report)
 	}
 	progressf("built %s: product archive with %d component(s)%s", productOutput, len(report.Components), signedLabel(signer != nil))
+	return nil
+}
+
+// synthesizeReport is the JSON schema for macospkg product --synthesize.
+type synthesizeReport struct {
+	Output   string   `json:"output"`
+	Packages []string `json:"packages"`
+}
+
+// runSynthesize writes the Distribution productbuild --synthesize writes,
+// which is a starting point for one you then edit and pass to
+// --distribution. It is not the document a product archive carries; see
+// flatpkg.SynthesizeDistribution.
+func runSynthesize(out string) error {
+	if len(productPackages) == 0 {
+		return usageErrorf("--synthesize needs at least one --package")
+	}
+	data, err := flatpkg.SynthesizeDistribution(flatpkg.ProductOptions{
+		Packages:       productPackages,
+		Title:          productTitle,
+		MinOSVersion:   productMinOS,
+		ProductID:      productID,
+		ProductVersion: productVersion,
+	})
+	if err != nil {
+		return buildError(err)
+	}
+	if err := os.WriteFile(out, data, 0o644); err != nil { //nolint:gosec // the argument names the output document on purpose
+		return buildError(err)
+	}
+	report := synthesizeReport{Output: out, Packages: productPackages}
+	if opts.Output == "json" {
+		return jsonOut(report)
+	}
+	progressf("wrote %s for %d package(s)", out, len(productPackages))
 	return nil
 }
