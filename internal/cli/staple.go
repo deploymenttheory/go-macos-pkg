@@ -89,7 +89,7 @@ func runStaple(cmd *cobra.Command, args []string) error {
 			report.TicketBytes = len(existing.Data)
 		}
 		switch {
-		case opts.Output == "json":
+		case structured():
 			if err := jsonOut(report); err != nil {
 				return err
 			}
@@ -131,7 +131,7 @@ func runStaple(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	report := stapleReport{Path: dst, Stapled: true, TicketBytes: len(ticket), RecordName: record, Replaced: existing != nil}
-	if opts.Output == "json" {
+	if structured() {
 		return jsonOut(report)
 	}
 	progressf("stapled a %d-byte notarization ticket to %s", len(ticket), dst)

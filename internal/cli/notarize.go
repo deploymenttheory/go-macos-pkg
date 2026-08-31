@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/deploymenttheory/go-macos-pkg/pkg/notary"
@@ -23,6 +24,7 @@ var (
 	notarizeLog      bool
 	notarizeName     string
 	notarizeForce    bool
+	notarizeWebhook  string
 )
 
 var notarizeCmd = &cobra.Command{
@@ -68,7 +70,7 @@ var notarizeStatusCmd = &cobra.Command{
 		if err != nil {
 			return notaryError(err)
 		}
-		if opts.Output == "json" {
+		if structured() {
 			return jsonOut(st)
 		}
 		fmt.Printf("%s\t%s\t%s\t%s\n", st.ID, st.Status, st.CreatedDate, st.Name)
@@ -107,7 +109,7 @@ var notarizeWaitCmd = &cobra.Command{
 			return err
 		}
 		st, err := waitFor(svc, args[0])
-		if opts.Output == "json" && st != nil {
+		if structured() && st != nil {
 			if jerr := jsonOut(st); jerr != nil {
 				return jerr
 			}
@@ -129,7 +131,7 @@ var notarizeListCmd = &cobra.Command{
 		if err != nil {
 			return notaryError(err)
 		}
-		if opts.Output == "json" {
+		if structured() {
 			for _, st := range list {
 				if err := jsonOut(st); err != nil {
 					return err
@@ -144,6 +146,61 @@ var notarizeListCmd = &cobra.Command{
 	},
 }
 
+var notarizeStoreCmd = &cobra.Command{
+	Use:   "store-credentials NAME",
+	Short: "Remember a set of notarization credentials under a name",
+	Long: `Write the key ID, the issuer ID and the path to the .p8 under a name, so
+later commands can say --profile NAME instead of repeating all three.
+
+The private key is not copied. The profile holds the path to it, so the
+key stays wherever you keep it and there is one copy of the secret rather
+than two. notarytool stores its profiles in the Keychain, which does not
+exist off macOS; this is a file, readable only by you, under the
+directory the operating system gives for application configuration.
+
+Examples:
+  macospkg notarize store-credentials release \
+      --key-id ABC123 --issuer-id 1234-5678 --private-key ~/keys/AuthKey.p8
+  macospkg notarize Foo.pkg --profile release --wait --staple`,
+	Args: exactArgs(1, "NAME"),
+	RunE: runNotarizeStore,
+}
+
+// runNotarizeStore writes a credential profile.
+func runNotarizeStore(cmd *cobra.Command, args []string) error {
+	nf := notaryByCommand[cmd]
+	if nf == nil || nf.keyID == "" || nf.issuerID == "" || nf.privateKey == "" {
+		return usageErrorf("store-credentials needs --key-id, --issuer-id and --private-key")
+	}
+	// Resolve the key path now, so a profile written from one directory
+	// still works from another, and fail here rather than at the first
+	// use if the file is not there.
+	keyPath, err := filepath.Abs(nf.privateKey)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(keyPath); err != nil {
+		return withCode(ExitAuth, fmt.Errorf("unable to read --private-key: %w", err))
+	}
+	path, err := saveNotaryProfile(args[0], notaryProfile{
+		KeyID: nf.keyID, IssuerID: nf.issuerID, PrivateKeyPath: keyPath,
+	})
+	if err != nil {
+		return err
+	}
+	if structured() {
+		return jsonOut(struct {
+			Profile        string `json:"profile"`
+			Path           string `json:"path"`
+			KeyID          string `json:"keyId"`
+			IssuerID       string `json:"issuerId"`
+			PrivateKeyPath string `json:"privateKeyPath"`
+		}{args[0], path, nf.keyID, nf.issuerID, keyPath})
+	}
+	progressf("wrote %s; the private key stays at %s", path, keyPath)
+	return nil
+}
+
 func init() {
 	f := notarizeCmd.Flags()
 	f.BoolVar(&notarizeWait, "wait", false, "wait for Apple's verdict")
@@ -152,13 +209,14 @@ func init() {
 	f.BoolVar(&notarizeStaple, "staple", false, "staple the ticket once accepted (implies --wait)")
 	f.BoolVar(&notarizeLog, "log", false, "print the developer log once finished (always printed on rejection)")
 	f.StringVar(&notarizeName, "name", "", "submission name shown in App Store Connect (default: the file name)")
-	f.BoolVar(&notarizeForce, "force", false, "submit even if the package is not signed")
-	for _, c := range []*cobra.Command{notarizeCmd, notarizeStatusCmd, notarizeLogCmd, notarizeWaitCmd, notarizeListCmd} {
+	f.BoolVar(&notarizeForce, "force", false, "submit even if the file is not signed")
+	f.StringVar(&notarizeWebhook, "webhook", "", "public URL for Apple to post the verdict to when notarization finishes, so a job need not sit and poll; best effort, so keep --wait or a later status check as the answer you rely on")
+	for _, c := range []*cobra.Command{notarizeCmd, notarizeStatusCmd, notarizeLogCmd, notarizeWaitCmd, notarizeListCmd, notarizeStoreCmd} {
 		addNotaryFlags(c)
 	}
 	notarizeWaitCmd.Flags().DurationVar(&notarizeTimeout, "timeout", 30*time.Minute, "how long to wait before exiting 9")
 	notarizeWaitCmd.Flags().DurationVar(&notarizeInterval, "poll-interval", 30*time.Second, "how often to poll")
-	notarizeCmd.AddCommand(notarizeStatusCmd, notarizeLogCmd, notarizeWaitCmd, notarizeListCmd)
+	notarizeCmd.AddCommand(notarizeStatusCmd, notarizeLogCmd, notarizeWaitCmd, notarizeListCmd, notarizeStoreCmd)
 }
 
 // notarizeReport is the JSON schema for macospkg notarize.
@@ -173,22 +231,17 @@ type notarizeReport struct {
 }
 
 func runNotarize(cmd *cobra.Command, args []string) error {
-	p, err := openPackage(args[0])
-	if err != nil {
+	if err := checkNotarizable(args[0]); err != nil {
 		return err
 	}
-	if toc := p.XAR.TOC(); toc.Signature == nil && toc.XSignature == nil && !notarizeForce {
-		p.Close()
-		return withCode(ExitSignature, fmt.Errorf("%s is not signed; Apple's notary service requires a Developer ID Installer signature (sign it first, or --force)", p.Path))
-	}
-	p.Close()
 
 	svc, err := notaryService(cmd, nil)
 	if err != nil {
 		return err
 	}
-	report, err := notarizeFile(svc, args[0], notarizeName, notarizeWait || notarizeStaple, notarizeStaple, notarizeLog)
-	if opts.Output == "json" && report != nil {
+	report, err := notarizeFile(svc, args[0], notarizeName, notarizeWait || notarizeStaple, notarizeStaple, notarizeLog,
+		notary.SubmitOptions{Webhook: notarizeWebhook})
+	if structured() && report != nil {
 		if jerr := jsonOut(report); jerr != nil {
 			return jerr
 		}
@@ -198,14 +251,14 @@ func runNotarize(cmd *cobra.Command, args []string) error {
 
 // notarizeFile runs the submit / wait / staple sequence used by notarize
 // and by build --notarize.
-func notarizeFile(svc notary.Service, path, name string, wait, doStaple, printLog bool) (*notarizeReport, error) {
+func notarizeFile(svc notary.Service, path, name string, wait, doStaple, printLog bool, o notary.SubmitOptions) (*notarizeReport, error) {
 	if name == "" {
 		name = filepath.Base(path)
 	}
 	ctx := context.Background()
 	progressf("submitting %s to Apple's notary service", path)
 	var lastPct int64 = -1
-	sub, sum, err := notary.Submit(ctx, svc, notary.NewS3Uploader(), path, name, func(written, total int64) {
+	sub, sum, err := notary.Submit(ctx, svc, notary.NewS3Uploader(), path, name, o, func(written, total int64) {
 		if total > 0 {
 			if pct := written * 100 / total; pct/10 != lastPct/10 {
 				lastPct = pct
@@ -223,7 +276,7 @@ func notarizeFile(svc notary.Service, path, name string, wait, doStaple, printLo
 	progressf("submission id %s", sub.ID)
 	if !wait {
 		report.Status = notary.StatusInProgress
-		if opts.Output != "json" {
+		if !structured() {
 			fmt.Println(sub.ID)
 		}
 		return report, nil
@@ -236,7 +289,7 @@ func notarizeFile(svc notary.Service, path, name string, wait, doStaple, printLo
 	if (printLog || rejected) && st != nil && st.Done() {
 		if log, lerr := notary.FetchLog(ctx, svc, nil, sub.ID); lerr == nil {
 			report.Log = log
-			if opts.Output != "json" {
+			if !structured() {
 				printLogIssues(log)
 			}
 		} else {
@@ -306,3 +359,44 @@ func stapleFile(src, dst string) error {
 
 // stapleLookup is replaceable for tests.
 var stapleLookup = staple.NewLookup
+
+// checkNotarizable refuses a file the notary service would reject anyway.
+//
+// Apple takes three kinds: a flat package, a disk image and a zip archive.
+// Only a package can be read here, and only a package's signature can be
+// checked before the upload, so that is the only one this looks inside. A
+// disk image or a zip goes up as it is: what matters is the signature on
+// what it contains, which Apple checks and reports in the log, and neither
+// container is something this tool can open. --force skips the check
+// entirely.
+func checkNotarizable(path string) error {
+	if notarizeForce {
+		return nil
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		return withCode(ExitBadPackage, err)
+	}
+	if st.IsDir() {
+		// An .app bundle is a directory, and Apple's service takes an
+		// archive rather than a directory. Say so plainly: it is a
+		// common mistake and the upload would fail late.
+		return usageErrorf("%s is a directory; the notary service takes a flat package, a disk image or a zip archive, so archive it first", path)
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".dmg", ".zip":
+		// Nothing to check here: the signature that matters is on what
+		// the container holds, which Apple checks on its side.
+		verbosef("submitting %s as-is; its contents are checked by Apple, not here", filepath.Base(path))
+		return nil
+	}
+	p, err := openPackage(path)
+	if err != nil {
+		return err
+	}
+	defer p.Close()
+	if toc := p.XAR.TOC(); toc.Signature == nil && toc.XSignature == nil {
+		return withCode(ExitSignature, fmt.Errorf("%s is not signed; Apple's notary service requires a Developer ID Installer signature (sign it first, or --force)", p.Path))
+	}
+	return nil
+}

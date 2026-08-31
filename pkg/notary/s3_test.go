@@ -1,15 +1,19 @@
 package notary
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -116,5 +120,147 @@ func TestS3UploaderPutsAndRetries(t *testing.T) {
 	u = &S3Uploader{Client: srv2.Client(), Endpoint: srv2.URL}
 	if err := u.Upload(context.Background(), creds, path, sumHex, nil); err == nil || attempts != 1 {
 		t.Errorf("403: err %v attempts %d", err, attempts)
+	}
+}
+
+// TestS3UploaderSplitsALargeFile drives the multipart path against a fake
+// S3, checking the three calls it makes and that the parts reassemble into
+// the file that went in.
+//
+// The 5 GiB threshold cannot be tested with a 5 GiB file, so PartSize and
+// the threshold are what the test lowers: multipartUpload is called
+// directly, which is the same code the size check reaches.
+func TestS3UploaderSplitsALargeFile(t *testing.T) {
+	// A body that is not a round number of parts, so the last part is
+	// short and the offsets have to be right.
+	body := bytes.Repeat([]byte("go-macos-pkg"), 4096) // 48 KiB
+	path := filepath.Join(t.TempDir(), "big.pkg")
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		mu        sync.Mutex
+		started   int
+		completed int
+		parts     = map[int][]byte{}
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		q := r.URL.Query()
+		switch {
+		case r.Method == http.MethodPost && q.Has("uploads"):
+			started++
+			w.Header().Set("Content-Type", "application/xml")
+			fmt.Fprint(w, `<?xml version="1.0"?><InitiateMultipartUploadResult><UploadId>up-1</UploadId></InitiateMultipartUploadResult>`)
+		case r.Method == http.MethodPut && q.Get("uploadId") == "up-1":
+			n, err := strconv.Atoi(q.Get("partNumber"))
+			if err != nil {
+				t.Errorf("bad part number %q", q.Get("partNumber"))
+			}
+			data, _ := io.ReadAll(r.Body)
+			parts[n] = data
+			w.Header().Set("ETag", fmt.Sprintf("\"etag-%d\"", n))
+		case r.Method == http.MethodPost && q.Get("uploadId") == "up-1":
+			data, _ := io.ReadAll(r.Body)
+			if !bytes.Contains(data, []byte("<PartNumber>1</PartNumber>")) {
+				t.Errorf("the completion did not list the parts: %s", data)
+			}
+			completed++
+			fmt.Fprint(w, `<?xml version="1.0"?><CompleteMultipartUploadResult/>`)
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer srv.Close()
+
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	u := &S3Uploader{Client: srv.Client(), Endpoint: srv.URL, PartSize: minPartSize}
+	creds := S3Credentials{AccessKeyID: "a", SecretAccessKey: "s", SessionToken: "t", Bucket: "b", Object: "o"}
+	var lastWritten, lastTotal int64
+	err = u.multipartUpload(context.Background(), creds, f, int64(len(body)), u.targetURL(creds),
+		func(written, total int64) { lastWritten, lastTotal = written, total })
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if started != 1 || completed != 1 {
+		t.Errorf("started %d uploads and completed %d, want 1 and 1", started, completed)
+	}
+	// The parts, in order, are the file.
+	var joined []byte
+	for i := 1; i <= len(parts); i++ {
+		joined = append(joined, parts[i]...)
+	}
+	if !bytes.Equal(joined, body) {
+		t.Errorf("the parts do not reassemble into the file: got %d bytes, want %d", len(joined), len(body))
+	}
+	if want := (len(body) + minPartSize - 1) / minPartSize; len(parts) != want {
+		t.Errorf("sent %d parts, want %d", len(parts), want)
+	}
+	if lastWritten != int64(len(body)) || lastTotal != int64(len(body)) {
+		t.Errorf("progress ended at %d/%d, want %d/%d", lastWritten, lastTotal, len(body), len(body))
+	}
+}
+
+// TestS3UploaderAbortsAFailedUpload checks that a part failing does not
+// leave an incomplete upload sitting in Apple's bucket.
+func TestS3UploaderAbortsAFailedUpload(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "big.pkg")
+	if err := os.WriteFile(path, bytes.Repeat([]byte("x"), 3*minPartSize), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var aborted bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		switch {
+		case r.Method == http.MethodPost && q.Has("uploads"):
+			fmt.Fprint(w, `<?xml version="1.0"?><InitiateMultipartUploadResult><UploadId>up-1</UploadId></InitiateMultipartUploadResult>`)
+		case r.Method == http.MethodDelete:
+			aborted = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			// Every part fails.
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	u := &S3Uploader{Client: srv.Client(), Endpoint: srv.URL, PartSize: minPartSize}
+	creds := S3Credentials{AccessKeyID: "a", SecretAccessKey: "s", SessionToken: "t", Bucket: "b", Object: "o"}
+	err = u.multipartUpload(context.Background(), creds, f, 3*minPartSize, u.targetURL(creds), nil)
+	if err == nil {
+		t.Fatal("a failing part should have failed the upload")
+	}
+	if !aborted {
+		t.Error("the incomplete upload was not aborted")
+	}
+}
+
+// TestS3UploaderUsesTheAccelerateEndpoint pins the host every upload goes
+// to. Apple's own documented example asks for transfer acceleration, so
+// there is no setting: the endpoint is the endpoint.
+func TestS3UploaderUsesTheAccelerateEndpoint(t *testing.T) {
+	creds := S3Credentials{Bucket: "bucket", Object: "key"}
+	if got := (&S3Uploader{}).targetURL(creds); got != "https://bucket.s3-accelerate.amazonaws.com/key" {
+		t.Errorf("endpoint = %s", got)
+	}
+	// A test endpoint carries the bucket in the path, since it has no
+	// bucket in its host.
+	u := &S3Uploader{Endpoint: "http://127.0.0.1:1"}
+	if got := u.targetURL(creds); got != "http://127.0.0.1:1/bucket/key" {
+		t.Errorf("test endpoint = %s", got)
 	}
 }

@@ -24,6 +24,7 @@ var (
 	verifyRequireStapled bool
 	verifyRequireDevID   bool
 	verifyOnline         bool
+	verifyRevocation     bool
 )
 
 var verifyCmd = &cobra.Command{
@@ -57,6 +58,7 @@ func init() {
 	f.BoolVar(&verifyRequireStapled, "require-stapled", false, "fail unless a notarization ticket is stapled")
 	f.BoolVar(&verifyRequireDevID, "require-developer-id", false, "fail unless the signer is a Developer ID Installer certificate")
 	f.BoolVar(&verifyOnline, "online", false, "ask Apple's ticket database whether this exact package was notarized")
+	f.BoolVar(&verifyRevocation, "revocation", false, "ask the certificate authority whether the signing certificate has been revoked since it was issued, which chain verification cannot tell you")
 }
 
 // verifyReport is the JSON schema for macospkg verify.
@@ -80,6 +82,9 @@ type verifyReport struct {
 	Certificates      []certSummary `json:"certificates"`
 	Stapled           bool          `json:"stapled"`
 	Notarized         *bool         `json:"notarized,omitempty"` // only with --online
+	Revoked           *bool         `json:"revoked,omitempty"`   // only with --revocation
+	RevokedAt         string        `json:"revokedAt,omitempty"`
+	RevocationChecked bool          `json:"revocationChecked"`
 	Errors            []string      `json:"errors"`
 }
 
@@ -139,6 +144,11 @@ func runVerify(cmd *cobra.Command, args []string) error {
 	if verifyRequireStapled && !report.Stapled {
 		report.Errors = append(report.Errors, "no notarization ticket is stapled")
 	}
+	if verifyRevocation {
+		if err := checkRevocation(res, &report); err != nil {
+			return err
+		}
+	}
 	if verifyOnline {
 		record, rerr := staple.RecordNameFor(p.XAR)
 		notarized := false
@@ -159,7 +169,7 @@ func runVerify(cmd *cobra.Command, args []string) error {
 	}
 	report.Valid = report.Signed && len(report.Errors) == 0
 
-	if opts.Output == "json" {
+	if structured() {
 		if err := jsonOut(report); err != nil {
 			return err
 		}
@@ -226,7 +236,58 @@ func printVerify(r *verifyReport) {
 			fmt.Println("Notarized: NO (Apple has no ticket for this package)")
 		}
 	}
+	switch {
+	case r.Revoked != nil && *r.Revoked:
+		at := ""
+		if r.RevokedAt != "" {
+			at = " on " + r.RevokedAt
+		}
+		fmt.Printf("Revoked:   YES (the authority withdrew this certificate%s)\n", at)
+	case r.Revoked != nil:
+		fmt.Println("Revoked:   no (the authority still vouches for this certificate)")
+	}
 	for _, e := range r.Errors {
 		fmt.Printf("Error:     %s\n", e)
 	}
+}
+
+// checkRevocation asks the authority whether the signer is still good, and
+// records the answer in the report.
+//
+// A certificate can only be checked against its issuer, so this needs the
+// chain the package embeds. Where the package carries only the leaf there
+// is nothing to ask with, which is said plainly rather than passed off as
+// a clean result.
+func checkRevocation(res *pkgsign.Result, report *verifyReport) error {
+	if !res.Signed || res.Signer == nil {
+		// Already reported as unsigned; saying it twice helps nobody.
+		return nil
+	}
+	if len(res.Certificates) < 2 {
+		report.Errors = append(report.Errors, "revocation: the package embeds no issuer certificate to check the signer against")
+		return nil
+	}
+	status, err := pkgsign.CheckRevocation(context.Background(), nil, res.Certificates[0], res.Certificates[1])
+	if err != nil {
+		report.Errors = append(report.Errors, "revocation: "+err.Error())
+		return nil
+	}
+	report.RevocationChecked = status.Checked
+	if !status.Checked {
+		// Not an error: a certificate naming no responder cannot be
+		// asked about. Worth remarking on for a Developer ID one, since
+		// Apple's do carry a responder.
+		verbosef("the signing certificate names no revocation responder")
+		return nil
+	}
+	revoked := status.Revoked
+	report.Revoked = &revoked
+	if revoked {
+		if !status.RevokedAt.IsZero() {
+			report.RevokedAt = status.RevokedAt.UTC().Format(time.RFC3339)
+		}
+		report.Valid = false
+		report.Errors = append(report.Errors, "revocation: the signing certificate has been revoked")
+	}
+	return nil
 }

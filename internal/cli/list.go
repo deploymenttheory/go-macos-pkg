@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"text/tabwriter"
 
@@ -19,6 +20,9 @@ var (
 	listComponent string
 	listLong      bool
 	listScripts   bool
+	listOnlyFiles bool
+	listOnlyDirs  bool
+	listPattern   string
 )
 
 var listCmd = &cobra.Command{
@@ -49,6 +53,9 @@ func init() {
 	listCmd.Flags().StringVar(&listComponent, "component", "", "only this component of a product archive (e.g. foo.pkg)")
 	listCmd.Flags().BoolVarP(&listLong, "long", "l", false, "long format: mode, uid/gid, size, modification time, path")
 	listCmd.Flags().BoolVar(&listScripts, "scripts", false, "list the Scripts archive entries rather than payload files")
+	listCmd.Flags().BoolVar(&listOnlyFiles, "only-files", false, "leave out directories, listing only the files a package installs")
+	listCmd.Flags().BoolVar(&listOnlyDirs, "only-dirs", false, "leave out files, listing only the directories a package installs")
+	listCmd.Flags().StringVar(&listPattern, "regexp", "", "only paths matching this regular expression")
 }
 
 // payloadEntry is the JSON schema for a payload line.
@@ -85,6 +92,16 @@ func runList(cmd *cobra.Command, args []string) error {
 
 	if listArchive {
 		return listArchiveEntries(p)
+	}
+	if listOnlyFiles && listOnlyDirs {
+		return usageErrorf("--only-files and --only-dirs ask for different halves of the listing; pass neither to see both")
+	}
+	if listPattern != "" {
+		re, err := regexp.Compile(listPattern)
+		if err != nil {
+			return usageErrorf("invalid --regexp: %v", err)
+		}
+		listMatch = re
 	}
 	components, err := selectComponents(p, listComponent)
 	if err != nil {
@@ -131,7 +148,10 @@ func listPayload(p *flatpkg.Package, components []*flatpkg.Component) error {
 			return fmt.Errorf("%s: %w", componentLabel(c), err)
 		}
 		for _, e := range entries {
-			if opts.Output == "json" {
+			if !listWanted(e.Path, e.Type == bom.TypeDirectory) {
+				continue
+			}
+			if structured() {
 				if err := jsonOut(payloadEntryOf(e, c, multi)); err != nil {
 					return err
 				}
@@ -202,7 +222,7 @@ func listArchiveEntries(p *flatpkg.Package) error {
 			ae.Length = f.Data.Length
 			ae.Offset = f.Data.Offset
 		}
-		if opts.Output == "json" {
+		if structured() {
 			if err := jsonOut(ae); err != nil {
 				return err
 			}
@@ -262,7 +282,7 @@ func listScriptEntries(p *flatpkg.Package, components []*flatpkg.Component) erro
 				if multi {
 					pe.Component = c.Name
 				}
-				if opts.Output == "json" {
+				if structured() {
 					if err := jsonOut(pe); err != nil {
 						return err
 					}
@@ -291,4 +311,24 @@ func componentLabel(c *flatpkg.Component) string {
 		return "component package"
 	}
 	return "component " + c.Name
+}
+
+// listMatch is the compiled --regexp, or nil.
+var listMatch *regexp.Regexp
+
+// listWanted applies --only-files, --only-dirs and --regexp to one entry.
+//
+// The two --only flags are pkgutil's, where they narrow a receipt's file
+// listing; they mean the same here for a package that is not installed yet.
+// --regexp is pkgutil's name for matching, though pkgutil matches package
+// identifiers with it rather than paths, which have no other way to be
+// filtered.
+func listWanted(path string, isDir bool) bool {
+	switch {
+	case listOnlyFiles && isDir:
+		return false
+	case listOnlyDirs && !isDir:
+		return false
+	}
+	return listMatch == nil || listMatch.MatchString(path)
 }

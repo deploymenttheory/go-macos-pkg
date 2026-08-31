@@ -11,6 +11,7 @@ package notary
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -53,7 +54,7 @@ func (s *Status) Done() bool { return s.Status != StatusInProgress && s.Status !
 
 // Service is the notary API as this package uses it.
 type Service interface {
-	Submit(ctx context.Context, name, sha256Hex string) (*Submission, error)
+	Submit(ctx context.Context, name, sha256Hex string, o SubmitOptions) (*Submission, error)
 	Status(ctx context.Context, id string) (*Status, error)
 	LogURL(ctx context.Context, id string) (string, error)
 	List(ctx context.Context) ([]Status, error)
@@ -75,19 +76,61 @@ const (
 	EnvPrivateKeyPath = "APPLE_PRIVATE_KEY_PATH"
 )
 
+// The names electron-builder uses for the same three things, accepted as
+// well because a project that already notarizes has them set and should
+// not have to set them twice under different names. APPLE_API_KEY is the
+// .p8 base64-encoded, which is how a key survives being a CI secret.
+const (
+	EnvBuilderKeyID   = "APPLE_API_KEY_ID"
+	EnvBuilderIssuer  = "APPLE_API_ISSUER"
+	EnvBuilderKeyData = "APPLE_API_KEY"
+)
+
 // CredentialsFromEnv reads the APPLE_* variables.
+//
+// Where a name has an electron-builder equivalent, either will do, and the
+// name this tool documents wins if both are set.
 func CredentialsFromEnv() (*Credentials, error) {
-	c := &Credentials{KeyID: os.Getenv(EnvKeyID), IssuerID: os.Getenv(EnvIssuerID)}
-	if pem := os.Getenv(EnvPrivateKeyPEM); pem != "" {
-		c.PrivateKey = []byte(pem)
-	} else if path := os.Getenv(EnvPrivateKeyPath); path != "" {
+	c := &Credentials{
+		KeyID:    firstSet(EnvKeyID, EnvBuilderKeyID),
+		IssuerID: firstSet(EnvIssuerID, EnvBuilderIssuer),
+	}
+	switch {
+	case os.Getenv(EnvPrivateKeyPEM) != "":
+		c.PrivateKey = []byte(os.Getenv(EnvPrivateKeyPEM))
+	case os.Getenv(EnvPrivateKeyPath) != "":
+		path := os.Getenv(EnvPrivateKeyPath)
 		data, err := os.ReadFile(path) //nolint:gosec // the variable names the key file on purpose
 		if err != nil {
 			return nil, fmt.Errorf("%w: %s: %v", ErrCredentials, EnvPrivateKeyPath, err)
 		}
 		c.PrivateKey = data
+	case os.Getenv(EnvBuilderKeyData) != "":
+		// Base64, as electron-builder's documentation says to encode it.
+		// A key pasted in as-is is accepted too rather than rejected on a
+		// technicality: PEM is recognisable and the intent is obvious.
+		raw := os.Getenv(EnvBuilderKeyData)
+		if strings.Contains(raw, "-----BEGIN") {
+			c.PrivateKey = []byte(raw)
+			break
+		}
+		data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(raw))
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s is not base64: %v", ErrCredentials, EnvBuilderKeyData, err)
+		}
+		c.PrivateKey = data
 	}
 	return c, c.Validate()
+}
+
+// firstSet returns the value of the first variable that has one.
+func firstSet(names ...string) string {
+	for _, n := range names {
+		if v := os.Getenv(n); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // Validate checks that everything needed is present.
@@ -133,11 +176,20 @@ func NewService(c *Credentials, userAgent string) (Service, error) {
 	return &sdkService{client: client}, nil
 }
 
-func (s *sdkService) Submit(ctx context.Context, name, sha256Hex string) (*Submission, error) {
-	resp, _, err := s.client.NotaryAPI.Submissions.SubmitSoftwareV2(ctx, &submissions.NewSubmissionRequest{
+func (s *sdkService) Submit(ctx context.Context, name, sha256Hex string, o SubmitOptions) (*Submission, error) {
+	req := &submissions.NewSubmissionRequest{
 		SHA256:         sha256Hex,
 		SubmissionName: name,
-	})
+	}
+	if o.Webhook != "" {
+		// Apple posts the verdict to the URL when notarization finishes,
+		// so a build does not have to sit and poll for it. "webhook" is
+		// the only channel the service defines.
+		req.Notifications = []submissions.NewSubmissionRequestNotification{
+			{Channel: WebhookChannel, Target: o.Webhook},
+		}
+	}
+	resp, _, err := s.client.NotaryAPI.Submissions.SubmitSoftwareV2(ctx, req)
 	if err != nil {
 		return nil, apiError("submit", err)
 	}
@@ -206,13 +258,27 @@ func FileSHA256(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// WebhookChannel is the only notification channel Apple's notary service
+// defines.
+const WebhookChannel = "webhook"
+
+// SubmitOptions carries what a submission can ask for beyond its name and
+// its hash.
+type SubmitOptions struct {
+	// Webhook is a public URL Apple posts the verdict to when
+	// notarization finishes, so a job need not sit and poll. Apple's own
+	// documentation warns it is best effort: treat it as a way to be told
+	// sooner, not as the only way you will ever hear.
+	Webhook string
+}
+
 // Submit hashes the file, registers the submission and uploads the file.
-func Submit(ctx context.Context, svc Service, up Uploader, path, name string, progress func(written, total int64)) (*Submission, string, error) {
+func Submit(ctx context.Context, svc Service, up Uploader, path, name string, o SubmitOptions, progress func(written, total int64)) (*Submission, string, error) {
 	sum, err := FileSHA256(path)
 	if err != nil {
 		return nil, "", err
 	}
-	sub, err := svc.Submit(ctx, name, sum)
+	sub, err := svc.Submit(ctx, name, sum, o)
 	if err != nil {
 		return nil, sum, err
 	}

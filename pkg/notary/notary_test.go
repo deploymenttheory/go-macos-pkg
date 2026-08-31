@@ -2,6 +2,7 @@ package notary
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -18,9 +19,13 @@ type fakeService struct {
 	calls    int
 	submits  []string
 	logURL   string
+	// submitOptions records what the last submission asked for, so a test
+	// can check a webhook reached the request.
+	submitOptions SubmitOptions
 }
 
-func (f *fakeService) Submit(_ context.Context, name, sha string) (*Submission, error) {
+func (f *fakeService) Submit(_ context.Context, name, sha string, o SubmitOptions) (*Submission, error) {
+	f.submitOptions = o
 	f.submits = append(f.submits, name+":"+sha)
 	return &Submission{ID: "sub-1", Creds: S3Credentials{AccessKeyID: "a", SecretAccessKey: "s", SessionToken: "t", Bucket: "b", Object: "o"}}, nil
 }
@@ -49,7 +54,7 @@ func TestSubmitAndWait(t *testing.T) {
 	os.WriteFile(path, []byte("hello"), 0o644)
 	svc := &fakeService{statuses: []string{StatusInProgress, StatusInProgress, StatusAccepted}}
 	up := &fakeUploader{}
-	sub, sum, err := Submit(context.Background(), svc, up, path, "x.pkg", nil)
+	sub, sum, err := Submit(context.Background(), svc, up, path, "x.pkg", SubmitOptions{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,5 +114,109 @@ func TestCredentials(t *testing.T) {
 	// A real ES256 key must be parseable by the SDK.
 	if _, err := NewService(&Credentials{KeyID: "K", IssuerID: "I", PrivateKey: []byte("junk")}, "test"); !errors.Is(err, ErrCredentials) {
 		t.Errorf("junk key: %v", err)
+	}
+}
+
+// TestSubmitCarriesAWebhook checks the notification reaches the request.
+//
+// A webhook is the difference between a build that waits for Apple and one
+// that gets told, so it is worth pinning that asking for one is not quietly
+// dropped on the way to the service.
+func TestSubmitCarriesAWebhook(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "x.pkg")
+	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc := &fakeService{statuses: []string{StatusAccepted}}
+	if _, _, err := Submit(context.Background(), svc, &fakeUploader{}, path, "x.pkg",
+		SubmitOptions{Webhook: "https://example.invalid/hook"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := svc.submitOptions.Webhook; got != "https://example.invalid/hook" {
+		t.Errorf("the submission did not carry the webhook: %q", got)
+	}
+
+	// And that asking for none leaves none, so a submission without one
+	// does not grow an empty notification.
+	svc = &fakeService{statuses: []string{StatusAccepted}}
+	if _, _, err := Submit(context.Background(), svc, &fakeUploader{}, path, "x.pkg", SubmitOptions{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if svc.submitOptions.Webhook != "" {
+		t.Errorf("a submission with no webhook asked for one: %q", svc.submitOptions.Webhook)
+	}
+}
+
+// TestCredentialsFromEnvAcceptsBuilderNames covers the variable names
+// electron-builder uses.
+//
+// A project that already notarizes has APPLE_API_KEY_ID, APPLE_API_ISSUER
+// and APPLE_API_KEY set, and should not have to set the same three things
+// again under different names. The key comes base64-encoded, which is how
+// a .p8 survives being a CI secret.
+func TestCredentialsFromEnvAcceptsBuilderNames(t *testing.T) {
+	const pem = "-----BEGIN PRIVATE KEY-----\nZm9v\n-----END PRIVATE KEY-----\n"
+	for _, tc := range []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{
+			name: "electron-builder names, key base64 as documented",
+			env: map[string]string{
+				"APPLE_API_KEY_ID": "K", "APPLE_API_ISSUER": "I",
+				"APPLE_API_KEY": base64.StdEncoding.EncodeToString([]byte(pem)),
+			},
+			want: pem,
+		},
+		{
+			// Pasted in as-is rather than encoded. Recognisable, and the
+			// intent is obvious, so it is taken rather than refused.
+			name: "electron-builder names, key pasted unencoded",
+			env: map[string]string{
+				"APPLE_API_KEY_ID": "K", "APPLE_API_ISSUER": "I", "APPLE_API_KEY": pem,
+			},
+			want: pem,
+		},
+		{
+			name: "our own names still win where both are set",
+			env: map[string]string{
+				"APPLE_KEY_ID": "ours", "APPLE_ISSUER_ID": "I",
+				"APPLE_PRIVATE_KEY_PEM": pem,
+				"APPLE_API_KEY_ID":      "theirs", "APPLE_API_ISSUER": "other",
+			},
+			want: pem,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			c, err := CredentialsFromEnv()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(c.PrivateKey) != tc.want {
+				t.Errorf("private key = %q, want %q", c.PrivateKey, tc.want)
+			}
+			if c.IssuerID == "" {
+				t.Error("no issuer was read")
+			}
+			if _, ours := tc.env["APPLE_KEY_ID"]; ours && c.KeyID != "ours" {
+				t.Errorf("key ID = %q, want the name this tool documents to win", c.KeyID)
+			}
+		})
+	}
+}
+
+// TestCredentialsFromEnvRejectsAMangledKey pins that a key that is neither
+// base64 nor PEM is reported rather than passed on to fail later as an
+// unparseable key.
+func TestCredentialsFromEnvRejectsAMangledKey(t *testing.T) {
+	t.Setenv("APPLE_API_KEY_ID", "K")
+	t.Setenv("APPLE_API_ISSUER", "I")
+	t.Setenv("APPLE_API_KEY", "not base64 and not a key !!!")
+	if _, err := CredentialsFromEnv(); err == nil {
+		t.Fatal("a key that is neither base64 nor PEM should be reported")
 	}
 }

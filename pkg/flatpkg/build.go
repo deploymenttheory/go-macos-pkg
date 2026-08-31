@@ -23,6 +23,32 @@ import (
 	"github.com/deploymenttheory/go-macos-pkg/pkg/xar"
 )
 
+// LargePayloadMinOS is the macOS major version a large payload needs. The
+// format is not readable before macOS 12, and pkgbuild refuses to build one
+// without being told so explicitly.
+const LargePayloadMinOS = 12
+
+// DefaultFilters are the paths pkgbuild leaves out of a payload when it is
+// given no --filter of its own: any path component named exactly .svn, CVS
+// or .DS_Store, whether it is a file or a directory. A directory that
+// matches takes its whole subtree with it.
+//
+// The expressions are matched against the "./path" form, which is what
+// pkgbuild matches: "^keep" and "^/.*keep" both miss where "^\./keep" and
+// "/keep$" hit. The names are matched exactly, so CVSdir, notCVS.txt and
+// .DS_Store_dir are all kept.
+//
+// Applying these is the caller's decision, not BuildComponent's: a library
+// caller that sets no Exclude gets no filtering, while the command line
+// applies them exactly as pkgbuild does.
+var DefaultFilters = []string{`/\.svn$`, `/CVS$`, `/\.DS_Store$`}
+
+// DefaultScriptTimeout is the timeout, in seconds, that current pkgbuild
+// writes on every script it records in a PackageInfo. Versions before
+// InstallCmds-860 wrote no timeout attribute at all; the fixtures record
+// both shapes, and we write what the current tool writes.
+const DefaultScriptTimeout = "600"
+
 // Ownership selects how payload owners are recorded, as pkgbuild's
 // --ownership does.
 type Ownership int
@@ -80,9 +106,14 @@ const (
 	// The acceptance suite pins that.
 	CompressionLZFSE
 	CompressionLZBitmap
+	// CompressionNone stores the cpio with no container at all, which is
+	// what productbuild --component-compression none writes. It suits a
+	// payload that is already compressed, where a second pass buys little
+	// and costs installation time.
+	CompressionNone
 )
 
-// ParseCompression parses gzip, pbzx, latest, lzfse or lzbitmap.
+// ParseCompression parses gzip, none, pbzx, latest, lzfse or lzbitmap.
 //
 // The pbz* family also has pbz4 (Apple-framed LZ4) and pbzz (zlib), and
 // pkg/pbzx writes both: Apple's own aa reads what we produce. They are
@@ -101,6 +132,8 @@ func ParseCompression(s string) (Compression, error) {
 		return CompressionLZFSE, nil
 	case "lzbitmap", "pbzb":
 		return CompressionLZBitmap, nil
+	case "none":
+		return CompressionNone, nil
 	case "lz4", "pbz4", "zlib", "pbzz":
 		return 0, fmt.Errorf("compression %q writes a payload macOS cannot read: pkgutil refuses a pbz4 or pbzz Payload, so the package would not install (pkg/pbzx writes the container itself, if you need one outside a package)", s)
 	}
@@ -115,6 +148,8 @@ func (c Compression) String() string {
 		return "lzfse"
 	case CompressionLZBitmap:
 		return "lzbitmap"
+	case CompressionNone:
+		return "none"
 	}
 	return "gzip"
 }
@@ -137,6 +172,9 @@ func (c Compression) Algorithm() (pbzx.Algorithm, bool) {
 func (c Compression) Encoding() PayloadEncoding {
 	if a, ok := c.Algorithm(); ok {
 		return pbzEncoding(a)
+	}
+	if c == CompressionNone {
+		return PayloadCPIO
 	}
 	return PayloadGzip
 }
@@ -234,9 +272,12 @@ type ComponentOptions struct {
 	// NoPayload builds a package with no Payload, like pkgbuild --nopayload.
 	NoPayload bool
 
-	Identifier      string
-	Version         string
-	InstallLocation string // default "/"
+	Identifier string
+	Version    string
+	// InstallLocation is written as the install-location attribute. Empty
+	// leaves the attribute out, as pkgbuild does, which the Installer
+	// reads as "/".
+	InstallLocation string
 	Ownership       Ownership
 	MinOSVersion    string
 	// PostinstallAction is none, logout, restart or shutdown.
@@ -253,6 +294,37 @@ type ComponentOptions struct {
 	// PreserveXattr sets preserve-xattr on the PackageInfo, as pkgbuild
 	// --preserve-xattr does.
 	PreserveXattr bool
+	// KeepSidecarFiles carries "._" AppleDouble files through as the
+	// files they are, rather than folding them into their owner's
+	// extended attributes and deriving them again on the way out.
+	//
+	// A build wants the folding: it is what lets a tree exported from
+	// macOS to a host with no extended attributes package the same way.
+	// Flatten wants the opposite. Its contract is that the contents go
+	// back as they stand, and folding then re-deriving gives a different
+	// answer on a host that cannot store Apple's attribute names, which
+	// would make a flattened package depend on where it was flattened.
+	KeepSidecarFiles bool
+	// ScriptTimeout is the timeout attribute written on every top-level
+	// script, in seconds. Empty means DefaultScriptTimeout, which is what
+	// current pkgbuild writes.
+	ScriptTimeout string
+	// ComponentPlist carries pkgbuild's --component-plist rules. When it
+	// is set it is exhaustive: only the bundles it names, and their
+	// children, are described. Empty means every bundle found takes the
+	// defaults.
+	ComponentPlist []ComponentBundle
+	// LargePayload names the payload entry LargeSegmentedPayload rather
+	// than Payload, as pkgbuild --large-payload does, and marks it in the
+	// PackageInfo. Only macOS 12 and later reads such a package, so
+	// MinOSVersion must be 12.0 or later, which is the precondition
+	// pkgbuild enforces too.
+	LargePayload bool
+	// Components are bundle paths to package in place of a Root, as
+	// pkgbuild --component does. They must share one directory, which
+	// becomes the root. With exactly one, the identifier, version and
+	// install location are inferred from it when they are not given.
+	Components []string
 
 	// Xattrs selects where extended attributes come from. They are
 	// carried the way pkgbuild carries them: as AppleDouble "._" sidecar
@@ -338,6 +410,43 @@ func installKBytes(entries []payloadEntry) int {
 	return int((blocks*512 + 1023) / 1024)
 }
 
+// componentPayloadCounts is what pkgbuild reports for a --component build,
+// which is not what it reports for a --root build of the same payload.
+//
+// A --root build counts every archived entry and sizes the directories the
+// way the bill of materials does. A --component build describes the bundle
+// instead of the archive: it counts the entries other than the root and the
+// AppleDouble sidecars, and adds up the bytes of the regular files alone,
+// with no directory overhead. The same eleven-entry payload comes out as
+// 11 files and 3 KB one way and 5 files and 0 KB the other, and 17 entries
+// come out as 17 and 308 against 8 and 305.
+func componentPayloadCounts(entries []payloadEntry) (files, kbytes int) {
+	var bytes int64
+	seen := map[uint64]bool{}
+	for _, e := range entries {
+		if e.rel == "." || e.sidecar != nil || isAppleDoubleName(e.rel) {
+			continue
+		}
+		files++
+		if e.isDir() {
+			continue
+		}
+		if e.linkKey != 0 {
+			if seen[e.linkKey] {
+				continue
+			}
+			seen[e.linkKey] = true
+		}
+		bytes += e.size
+	}
+	return files, int(bytes / 1024)
+}
+
+// isAppleDoubleName reports whether a path names a "._" sidecar file.
+func isAppleDoubleName(rel string) bool {
+	return strings.HasPrefix(path.Base(rel), "._")
+}
+
 // payloadEntry is one path in the payload, collected before writing.
 type payloadEntry struct {
 	rel      string // "./a/b"
@@ -364,6 +473,42 @@ func (e *payloadEntry) isDir() bool { return e.mode&cpio.ModeTypeMask == cpio.Mo
 
 // BuildComponent writes a component package to out.
 func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
+	if len(o.Components) > 0 {
+		if o.Root != "" {
+			return nil, fmt.Errorf("flatpkg: a component build takes no payload root")
+		}
+		root, keep, err := resolveComponents(o.Components)
+		if err != nil {
+			return nil, err
+		}
+		o.Root = root
+		// Keep only the named bundles, and still honour whatever the
+		// caller was excluding.
+		outer := o.Exclude
+		o.Exclude = func(rel string) bool {
+			if !keep(rel) {
+				return true
+			}
+			return outer != nil && outer(rel)
+		}
+		if len(o.Components) == 1 {
+			id, err := InferFromBundle(o.Components[0])
+			if err != nil {
+				return nil, err
+			}
+			if o.Identifier == "" {
+				o.Identifier = id.Identifier
+			}
+			if o.Version == "" {
+				o.Version = id.Version
+			}
+			if o.InstallLocation == "" {
+				o.InstallLocation = id.InstallLocation
+			}
+		} else if o.Identifier == "" {
+			return nil, fmt.Errorf("flatpkg: an identifier is required unless there is exactly one component to take it from")
+		}
+	}
 	if o.Identifier == "" {
 		return nil, fmt.Errorf("flatpkg: an identifier is required")
 	}
@@ -373,12 +518,22 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 	if o.Root == "" && !o.NoPayload {
 		return nil, fmt.Errorf("flatpkg: a payload root is required (or NoPayload)")
 	}
+	if o.LargePayload {
+		// pkgbuild's own precondition, and it matters: the format is not
+		// readable before macOS 12, so a package that did not say so
+		// would fail to install rather than fail to build.
+		if !MinOSVersionAtLeast(o.MinOSVersion, LargePayloadMinOS) {
+			return nil, fmt.Errorf("flatpkg: a large payload needs --min-os-version 12.0 or later; macOS 11 and earlier cannot read one")
+		}
+	}
 	if o.Ownership != OwnershipRecommended && runtime.GOOS == "windows" {
 		return nil, fmt.Errorf("%w: preserving ownership (Windows has no uid or gid)", ErrUnsupportedOnPlatform)
 	}
-	if o.InstallLocation == "" {
-		o.InstallLocation = "/"
-	}
+	// InstallLocation is deliberately not defaulted. pkgbuild writes the
+	// attribute only when it is told one, and the Installer treats an
+	// absent install-location as "/", so filling it in would both diverge
+	// from pkgbuild's document and rewrite a package that had none when it
+	// is expanded and built again.
 	if o.Auth == "" {
 		o.Auth = "root"
 	}
@@ -443,6 +598,9 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 	}
 
 	var payloadPath, bomPath, scriptsPath string
+	// Filled in from the component property list while the bundles are
+	// walked, and written into <scripts> below.
+	var bundleScripts []bundleScript
 	if !o.NoPayload {
 		entries, err := collectPayload(o, epoch)
 		if err != nil {
@@ -455,25 +613,53 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 		}
 		res.NumberOfFiles = len(entries)
 		res.InstallKBytes = installKBytes(entries)
+		if len(o.Components) > 0 {
+			res.NumberOfFiles, res.InstallKBytes = componentPayloadCounts(entries)
+		}
 		info.Payload = &Payload{NumberOfFiles: res.NumberOfFiles, InstallKBytes: res.InstallKBytes}
+		if o.LargePayload {
+			info.Payload.LargeSegmented = "true"
+		}
 
 		bundles, err := findBundles(o.Root)
 		if err != nil {
 			return nil, fmt.Errorf("flatpkg: scanning for bundles: %w", err)
 		}
+		// A component property list is exhaustive: pkgbuild records only
+		// the bundles it names, and drops any others from the payload's
+		// description entirely. Without one, every bundle found is
+		// recorded under the defaults.
+		bundles, rules := resolveBundleRules(bundles, o.ComponentPlist)
 		res.Bundles = bundles
 		for _, b := range bundles {
 			// pkgbuild's layout: details once, at the top level, then id
 			// references in bundle-version (version checking),
-			// upgrade-bundle, strict-identifier and relocate.
+			// upgrade-bundle or update-bundle, strict-identifier and
+			// relocate.
 			info.Bundles = append(info.Bundles, b)
+			r, ok := rules[b.Path]
+			if !ok {
+				// Nested: described, never referenced. Its behaviour is
+				// the containing bundle's.
+				continue
+			}
 			ref := BundleRef{ID: b.ID}
-			info.BundleVersion.Bundles = append(info.BundleVersion.Bundles, Bundle{ID: b.ID})
-			info.UpgradeBundle.Bundles = append(info.UpgradeBundle.Bundles, ref)
-			info.StrictIdentifier.Bundles = append(info.StrictIdentifier.Bundles, ref)
-			if !o.NoBundleRelocation {
+			if r.versionChecked {
+				info.BundleVersion.Bundles = append(info.BundleVersion.Bundles, Bundle{ID: b.ID})
+			}
+			switch r.overwriteAction {
+			case OverwriteUpgrade:
+				info.UpgradeBundle.Bundles = append(info.UpgradeBundle.Bundles, ref)
+			case OverwriteUpdate:
+				info.UpdateBundle.Bundles = append(info.UpdateBundle.Bundles, ref)
+			}
+			if r.strictIdentifier {
+				info.StrictIdentifier.Bundles = append(info.StrictIdentifier.Bundles, ref)
+			}
+			if r.relocatable && !o.NoBundleRelocation {
 				info.Relocate.Bundles = append(info.Relocate.Bundles, ref)
 			}
+			bundleScripts = append(bundleScripts, scriptsForBundle(b, r)...)
 		}
 	}
 
@@ -482,7 +668,7 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(names) == 0 {
+		if len(names) == 0 && len(bundleScripts) == 0 {
 			return nil, fmt.Errorf("flatpkg: %s contains no install scripts (preinstall, postinstall, ...)", o.Scripts)
 		}
 		scriptsPath = filepath.Join(tmp, "Scripts")
@@ -490,24 +676,39 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 			return nil, err
 		}
 		info.Scripts = &Scripts{}
-		for _, n := range names {
-			s := &Script{File: "./" + n}
-			switch n {
+		// pkgbuild writes the bundle-specific scripts first, in bundle
+		// order, then the package's own.
+		for _, bs := range bundleScripts {
+			s := Script{File: "./" + bs.file, ComponentID: bs.componentID, Timeout: bs.timeout}
+			switch bs.kind {
 			case "preinstall":
-				info.Scripts.Preinstall = s
+				info.Scripts.Preinstall = append(info.Scripts.Preinstall, s)
 			case "postinstall":
-				info.Scripts.Postinstall = s
-			case "preflight":
-				info.Scripts.Preflight = s
-			case "postflight":
-				info.Scripts.Postflight = s
-			case "preupgrade":
-				info.Scripts.Preupgrade = s
-			case "postupgrade":
-				info.Scripts.Postupgrade = s
+				info.Scripts.Postinstall = append(info.Scripts.Postinstall, s)
 			}
 		}
-		res.Scripts = names
+		timeout := o.ScriptTimeout
+		if timeout == "" {
+			timeout = DefaultScriptTimeout
+		}
+		for _, n := range names {
+			s := Script{File: "./" + n, Timeout: timeout}
+			switch n {
+			case "preinstall":
+				info.Scripts.Preinstall = append(info.Scripts.Preinstall, s)
+			case "postinstall":
+				info.Scripts.Postinstall = append(info.Scripts.Postinstall, s)
+			case "preflight":
+				info.Scripts.Preflight = append(info.Scripts.Preflight, s)
+			case "postflight":
+				info.Scripts.Postflight = append(info.Scripts.Postflight, s)
+			case "preupgrade":
+				info.Scripts.Preupgrade = append(info.Scripts.Preupgrade, s)
+			case "postupgrade":
+				info.Scripts.Postupgrade = append(info.Scripts.Postupgrade, s)
+			}
+		}
+		res.Scripts = info.Scripts.Names()
 	}
 
 	res.PackageInfo = info
@@ -531,7 +732,11 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 		if err := addFileEntry(w, EntryBom, hdr, xar.EncodingGzip, bomPath); err != nil {
 			return nil, err
 		}
-		if err := addFileEntry(w, EntryPayload, hdr, xar.EncodingNone, payloadPath); err != nil {
+		payloadEntryName := EntryPayload
+		if o.LargePayload {
+			payloadEntryName = EntryLargePayload
+		}
+		if err := addFileEntry(w, payloadEntryName, hdr, xar.EncodingNone, payloadPath); err != nil {
 			return nil, err
 		}
 	}
@@ -571,6 +776,10 @@ func collectPayload(o ComponentOptions, epoch time.Time) ([]payloadEntry, error)
 	}
 	var entries []payloadEntry
 	childCount := map[string]int{}
+	// sourceHadChild records the directories that held anything on disk,
+	// filtered or not, which is what tells an emptied directory apart from
+	// one that was already empty. See pruneEmptiedDirs.
+	sourceHadChild := map[string]bool{}
 	linkKeys := &linkKeySet{}
 	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -583,6 +792,9 @@ func collectPayload(o ComponentOptions, epoch time.Time) ([]payloadEntry, error)
 		relSlash := "."
 		if rel != "." {
 			relSlash = "./" + filepath.ToSlash(rel)
+		}
+		if relSlash != "." {
+			sourceHadChild[parentPath(relSlash)] = true
 		}
 		if relSlash != "." && o.Exclude != nil && o.Exclude(relSlash) {
 			if d.IsDir() {
@@ -649,9 +861,12 @@ func collectPayload(o ComponentOptions, epoch time.Time) ([]payloadEntry, error)
 	if err != nil {
 		return nil, fmt.Errorf("flatpkg: walking payload root: %w", err)
 	}
-	entries, err = liftSidecarFiles(entries, childCount, o.ExcludeXattr)
-	if err != nil {
-		return nil, err
+	entries = pruneEmptiedDirs(entries, childCount, sourceHadChild)
+	if !o.KeepSidecarFiles {
+		entries, err = liftSidecarFiles(entries, childCount, o.ExcludeXattr)
+		if err != nil {
+			return nil, err
+		}
 	}
 	for _, ov := range o.XattrOverrides {
 		if err := applyXattrOverride(entries, ov); err != nil {
@@ -791,6 +1006,39 @@ func mergeXattrs(base, extra *appledouble.File, exclude func(string) bool) *appl
 // packages the same way. A "._" file with no owner, or that is not
 // AppleDouble, stays an ordinary file. exclude prunes the lifted names
 // as it prunes the ones read from the host, so the two hosts agree.
+// pruneEmptiedDirs drops the directories that held something in the source
+// tree but hold nothing once the filters have run, which is what pkgbuild
+// does: a directory that was already empty on disk is packaged, and one the
+// filters emptied is not. The prune cascades, so a parent left with nothing
+// goes too.
+//
+// childCount is the live count of surviving children, so it doubles as the
+// test and is kept correct as directories are dropped. Walk order puts a
+// parent before its children, so one backwards pass reaches the deepest
+// directory first and the cascade needs no second sweep.
+func pruneEmptiedDirs(entries []payloadEntry, childCount map[string]int, sourceHadChild map[string]bool) []payloadEntry {
+	drop := map[string]bool{}
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
+		if e.rel == "." || !e.isDir() || !sourceHadChild[e.rel] || childCount[e.rel] > 0 {
+			continue
+		}
+		drop[e.rel] = true
+		delete(childCount, e.rel)
+		childCount[parentPath(e.rel)]--
+	}
+	if len(drop) == 0 {
+		return entries
+	}
+	kept := make([]payloadEntry, 0, len(entries)-len(drop))
+	for _, e := range entries {
+		if !drop[e.rel] {
+			kept = append(kept, e)
+		}
+	}
+	return kept
+}
+
 func liftSidecarFiles(entries []payloadEntry, childCount map[string]int, exclude func(string) bool) ([]payloadEntry, error) {
 	index := map[string]int{}
 	for i, e := range entries {
@@ -945,6 +1193,12 @@ func permBits(fi os.FileInfo, rel string, o ComponentOptions, def uint32) uint32
 	return perm
 }
 
+// nopWriteCloser lets an uncompressed payload share the path a compressed
+// one takes, without the container closing the file underneath it.
+type nopWriteCloser struct{ io.Writer }
+
+func (nopWriteCloser) Close() error { return nil }
+
 // writePayloadAndBom streams the entries into an odc cpio inside the
 // chosen container and builds the bill of materials alongside.
 func writePayloadAndBom(entries []payloadEntry, payloadPath, bomPath string, compression Compression, blockSize uint64, progress func(string)) error {
@@ -954,9 +1208,14 @@ func writePayloadAndBom(entries []payloadEntry, payloadPath, bomPath string, com
 	}
 	defer pf.Close()
 	var container io.WriteCloser
-	if algo, ok := compression.Algorithm(); ok {
+	switch algo, ok := compression.Algorithm(); {
+	case ok:
 		container, err = pbzx.NewWriter(pf, algo, blockSize)
-	} else {
+	case compression == CompressionNone:
+		// The cpio is the payload. Closing it must not close the file,
+		// which this function closes itself.
+		container = nopWriteCloser{pf}
+	default:
 		container, err = gzip.NewWriterLevel(pf, gzip.DefaultCompression)
 	}
 	if err != nil {
@@ -1157,13 +1416,26 @@ func scriptNames(dir string) ([]string, error) {
 // the execute bits on so a script committed from Windows still runs.
 // Extended attributes travel as sidecars, as in the payload.
 func writeScripts(dir, dst string, o ComponentOptions, epoch time.Time) error {
+	return writeArchivedDir(dir, dst, o, epoch, true)
+}
+
+// writeArchivedDir packs a directory into the gzip cpio that a xar entry
+// like Scripts or PlugIns carries.
+//
+// forceExecutable is what tells a component's scripts from a product's
+// auxiliary directories. pkgbuild makes every file in a component's Scripts
+// executable, because the Installer runs them; productbuild leaves the modes
+// alone in a product's Scripts and PlugIns, where a directory holds data and
+// bundles as well as anything runnable.
+func writeArchivedDir(dir, dst string, o ComponentOptions, epoch time.Time, forceExecutable bool) error {
 	so := ComponentOptions{
-		Root:         dir,
-		Ownership:    OwnershipRecommended,
-		Xattrs:       o.Xattrs,
-		ExcludeXattr: o.ExcludeXattr,
-		HardLinks:    HardLinksCopy,
-		FileModes:    map[string]uint32{},
+		Root:             dir,
+		Ownership:        OwnershipRecommended,
+		Xattrs:           o.Xattrs,
+		ExcludeXattr:     o.ExcludeXattr,
+		KeepSidecarFiles: o.KeepSidecarFiles,
+		HardLinks:        HardLinksCopy,
+		FileModes:        map[string]uint32{},
 	}
 	entries, err := collectPayload(so, epoch)
 	if err != nil {
@@ -1172,13 +1444,18 @@ func writeScripts(dir, dst string, o ComponentOptions, epoch time.Time) error {
 	for i := range entries {
 		e := &entries[i]
 		switch {
-		case e.sidecar != nil:
+		// A sidecar, whether it was folded into its owner or is being
+		// carried as the file it is, keeps the mode pkgbuild gives it.
+		// Only the scripts themselves are made executable.
+		case e.sidecar != nil || isAppleDoubleName(e.rel):
 		case e.isDir():
 			e.mode = cpio.ModeDir | 0o755
 		case e.mode&cpio.ModeTypeMask == cpio.ModeRegular:
-			e.mode = cpio.ModeRegular | 0o755
+			if forceExecutable {
+				e.mode = cpio.ModeRegular | 0o755
+			}
 		default:
-			return fmt.Errorf("flatpkg: scripts: %s is not a regular file", e.rel)
+			return fmt.Errorf("flatpkg: %s: %s is not a regular file", filepath.Base(dst), e.rel)
 		}
 		e.uid, e.gid = 0, 0
 	}

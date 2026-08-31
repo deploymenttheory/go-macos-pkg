@@ -223,3 +223,39 @@ func TestRealPackageStaple(t *testing.T) {
 		}
 	}
 }
+
+// TestRevocationCheckAgainstApple asks Apple's own responder about a real
+// Developer ID certificate.
+//
+// Chain verification cannot tell a live certificate from one the authority
+// has withdrawn, which is the gap this closes and the reason
+// pkgutil --check-signature consults a responder too. Needs the network,
+// so it is skipped where Apple is unreachable, as the other online tests
+// are.
+func TestRevocationCheckAgainstApple(t *testing.T) {
+	pkg := realPackage(t)
+	var v struct {
+		Valid             bool     `json:"valid"`
+		Revoked           *bool    `json:"revoked"`
+		RevocationChecked bool     `json:"revocationChecked"`
+		Errors            []string `json:"errors"`
+	}
+	stdout, stderr, code := run(t, "-o", "json", "verify", "--revocation", pkg)
+	if unreachable(stderr) {
+		t.Skip("Apple's revocation responder is unreachable")
+	}
+	if code != 0 {
+		t.Fatalf("verify --revocation: exit %d\n%s\n%s", code, stdout, stderr)
+	}
+	decodeJSON(t, stdout, &v)
+	if !v.RevocationChecked {
+		t.Fatal("a Developer ID certificate should name a responder, and it should have been asked")
+	}
+	if v.Revoked == nil || *v.Revoked {
+		t.Errorf("the certificate on a shipping package should not be revoked: %+v", v)
+	}
+	if !v.Valid {
+		t.Errorf("verify reported invalid: %v", v.Errors)
+	}
+	attest(t, "%s: the authority still vouches for the signing certificate", filepath.Base(pkg))
+}

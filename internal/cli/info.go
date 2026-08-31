@@ -153,7 +153,7 @@ func runInfo(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if opts.Output == "json" {
+	if structured() {
 		return jsonOut(summary)
 	}
 	printSummary(summary)

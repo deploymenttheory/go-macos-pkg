@@ -28,6 +28,12 @@ var (
 	buildNoBundleRelocation bool
 	buildPreserveXattr      bool
 	buildExclude            []string
+	buildFilter             []string
+	buildAnalyze            bool
+	buildComponentPlist     string
+	buildComponents         []string
+	buildPrior              string
+	buildLargePayload       bool
 	buildExecutable         []string
 	buildManifest           string
 	buildCompression        string
@@ -90,18 +96,24 @@ func init() {
 	f := buildCmd.Flags()
 	f.StringVar(&buildIdentifier, "identifier", "", "package identifier, e.g. com.example.foo")
 	f.StringVar(&buildVersion, "version", "", "package version, e.g. 1.2.0")
-	f.StringVar(&buildInstallLocation, "install-location", "", "where the payload is installed (default /)")
+	f.StringVar(&buildInstallLocation, "install-location", "", "default install location for the payload. Left out of the PackageInfo when unset, which the Installer reads as /")
 	f.StringVar(&buildScripts, "scripts", "", "directory of install scripts (preinstall, postinstall, ...)")
 	f.StringVar(&buildOwnership, "ownership", "", "payload ownership: recommended, preserve or preserve-other")
 	f.StringVar(&buildMinOS, "min-os-version", "", "minimum macOS version, e.g. 12.0")
 	f.StringVar(&buildPostinstallAction, "postinstall-action", "", "none, logout, restart or shutdown")
 	f.StringVar(&buildAuth, "auth", "", "root (default) or none")
 	f.BoolVar(&buildNoPayload, "nopayload", false, "build a scripts-only package with no payload")
+	f.BoolVar(&buildLargePayload, "large-payload", false, "use the payload format that carries files of 8 GiB and over. Only macOS 12 and later can read one, so --min-os-version 12.0 or later is required")
 	f.BoolVar(&buildRelocatable, "relocatable", false, "mark the package relocatable")
 	f.BoolVar(&buildNoBundleRelocation, "no-bundle-relocation", false, "always install bundles at their packaged paths")
 	f.BoolVar(&buildPreserveXattr, "preserve-xattr", false, "set preserve-xattr on the package")
-	f.StringArrayVar(&buildExclude, "exclude", nil, "payload paths to leave out (regular expression on ./path); repeatable")
+	f.StringArrayVar(&buildFilter, "filter", nil, "regular expression matched against each \"./path\" in the payload; anything matching is left out. Repeatable, and naming even one replaces the default filters (.svn, CVS, .DS_Store) rather than adding to them")
+	f.StringArrayVar(&buildExclude, "exclude", nil, "another spelling of --filter; repeatable")
 	f.StringArrayVar(&buildExecutable, "executable", nil, "payload paths that are executable, for hosts without execute bits (regular expression); repeatable")
+	f.StringArrayVar(&buildComponents, "component", nil, "bundle to package, in place of a source directory; repeatable, and with exactly one the identifier, version and install location are read from its Info.plist")
+	f.StringVar(&buildPrior, "prior", "", "a previous build of this package to take the identifier and install location from; its version is read as an integer and incremented")
+	f.BoolVar(&buildAnalyze, "analyze", false, "write a template component property list for the bundles in SRC instead of building a package; the second argument is where it goes")
+	f.StringVar(&buildComponentPlist, "component-plist", "", "component property list naming the bundles in SRC and how the Installer should treat each; with --analyze, the earlier list whose settings are carried forward")
 	f.StringVar(&buildManifest, "manifest", "", "build-info.yaml/.json/.plist to read options from")
 	f.StringVar(&buildCompression, "compression", "", "payload container: gzip (default, every macOS), pbzx/latest (smaller; macOS 12 or later) or lzfse/lzbitmap (pbze/pbzb; macOS reads them, pkgbuild writes neither)")
 	f.Uint64Var(&buildBlockSize, "pbzx-block-size", 0, "block size in bytes for any pbz* container (default 16 MiB, as pkgbuild)")
@@ -132,10 +144,21 @@ type buildReport struct {
 }
 
 func runBuild(cmd *cobra.Command, args []string) error {
+	// With --component the payload comes from the named bundles, so the
+	// first argument is the output rather than a source directory.
 	src := args[0]
 	buildOutput := ""
 	if len(args) > 1 {
 		buildOutput = args[1]
+	}
+	if len(buildComponents) > 0 {
+		if len(args) > 1 {
+			return usageErrorf("--component takes only an output path: build OUT.pkg --component Foo.app")
+		}
+		src, buildOutput = "", args[0]
+	}
+	if buildAnalyze {
+		return runAnalyze(src, buildOutput)
 	}
 	m, err := loadManifestFor(src, buildManifest)
 	if err != nil {
@@ -151,9 +174,11 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return manifest
 	}
 	o := flatpkg.ComponentOptions{
+		Components:         buildComponents,
 		Root:               m.payloadRoot(src),
 		Scripts:            pick(buildScripts, m.scriptsDir(src)),
 		NoPayload:          buildNoPayload || m.NoPayload,
+		LargePayload:       buildLargePayload,
 		Identifier:         pick(buildIdentifier, m.Identifier),
 		Version:            pick(buildVersion, m.Version),
 		InstallLocation:    pick(buildInstallLocation, m.InstallLocation),
@@ -168,13 +193,40 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		GeneratorVersion:   "go-macos-pkg " + tools.Version(),
 		Progress:           func(rel string) { verbosef("packaged %s", rel) },
 	}
-	if o.Identifier == "" {
-		return usageErrorf("--identifier is required (or identifier in a build-info manifest)")
+	if buildLargePayload && !flatpkg.MinOSVersionAtLeast(o.MinOSVersion, flatpkg.LargePayloadMinOS) {
+		// A flag combination, so it is a usage error rather than a build
+		// failure. flatpkg checks it again for a library caller.
+		return usageErrorf("--large-payload needs --min-os-version 12.0 or later; macOS 11 and earlier cannot read one")
 	}
-	if o.Version == "" {
-		return usageErrorf("--version is required (or version in a build-info manifest)")
+	if buildPrior != "" {
+		prior, err := flatpkg.InferFromPrior(buildPrior)
+		if err != nil {
+			return buildError(err)
+		}
+		if o.Identifier == "" {
+			o.Identifier = prior.Identifier
+		}
+		if o.Version == "" {
+			o.Version = prior.Version
+		}
+		if o.InstallLocation == "" {
+			o.InstallLocation = prior.InstallLocation
+		}
 	}
-	output := pick(buildOutput, m.outputPath(src, o.Version))
+	// A component build infers all three from the bundle, so the checks
+	// that follow are made there instead.
+	if len(buildComponents) == 0 {
+		if o.Identifier == "" {
+			return usageErrorf("--identifier is required (or --component, --prior, or identifier in a build-info manifest)")
+		}
+		if o.Version == "" {
+			return usageErrorf("--version is required (or --component, --prior, or version in a build-info manifest)")
+		}
+	}
+	output := buildOutput
+	if len(buildComponents) == 0 {
+		output = pick(buildOutput, m.outputPath(src, o.Version))
+	}
 	if output == "" {
 		return usageErrorf("an output path is required: build SRC OUT.pkg (or a manifest with a name)")
 	}
@@ -183,6 +235,17 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return usageErrorf("%v", err)
 	}
 	o.Ownership = ownership
+	if buildComponentPlist != "" {
+		data, err := os.ReadFile(buildComponentPlist)
+		if err != nil {
+			return usageErrorf("unable to read --component-plist: %v", err)
+		}
+		list, err := flatpkg.ParseComponentPlist(data)
+		if err != nil {
+			return usageErrorf("--component-plist: %v", err)
+		}
+		o.ComponentPlist = list
+	}
 	compression, err := flatpkg.ParseCompression(pick(buildCompression, m.Compression))
 	if err != nil {
 		return usageErrorf("%v", err)
@@ -212,9 +275,18 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 	o.XattrOverrides = overrides
 
-	excludes, err := compilePatterns(append(buildExclude, m.Exclude...))
+	// pkgbuild's rule: the default filters apply only when the caller
+	// names none of its own, so a filter list is a replacement and not an
+	// addition. To keep everything, pass a pattern that cannot match, such
+	// as --filter 'a^'.
+	filters := append(append([]string{}, buildFilter...), buildExclude...)
+	filters = append(filters, m.Exclude...)
+	if len(filters) == 0 {
+		filters = flatpkg.DefaultFilters
+	}
+	excludes, err := compilePatterns(filters)
 	if err != nil {
-		return usageErrorf("invalid --exclude: %v", err)
+		return usageErrorf("invalid --filter: %v", err)
 	}
 	if len(excludes) > 0 {
 		o.Exclude = func(rel string) bool { return anyMatch(excludes, rel) }
@@ -272,7 +344,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 	report.SHA256, _ = sha256File(output)
 
-	if opts.Output == "json" {
+	if structured() {
 		return jsonOut(report)
 	}
 	progressf("built %s: %s %s, %d files, %d KB installed%s", output, report.Identifier, report.Version, report.NumberOfFiles, report.InstallKBytes, signedLabel(signer != nil))
@@ -348,4 +420,56 @@ func signedLabel(signed bool) string {
 		return ", signed"
 	}
 	return ""
+}
+
+// analyzeReport is the JSON schema for macospkg build --analyze.
+type analyzeReport struct {
+	Output  string   `json:"output"`
+	Bundles []string `json:"bundles"`
+}
+
+// runAnalyze writes a component property list for the bundles in a
+// destination root, as pkgbuild --analyze does. Given an existing list with
+// --component-plist, the settings of bundles that still exist are carried
+// forward, so adding a bundle does not mean editing the list again from
+// scratch.
+func runAnalyze(root, out string) error {
+	if out == "" {
+		return usageErrorf("--analyze needs an output path: build ROOT PLIST --analyze")
+	}
+	fresh, err := flatpkg.AnalyzeBundles(root)
+	if err != nil {
+		return buildError(err)
+	}
+	if buildComponentPlist != "" {
+		data, err := os.ReadFile(buildComponentPlist)
+		if err != nil {
+			return usageErrorf("unable to read --component-plist: %v", err)
+		}
+		prior, err := flatpkg.ParseComponentPlist(data)
+		if err != nil {
+			return usageErrorf("--component-plist: %v", err)
+		}
+		fresh = flatpkg.MergeComponentPlist(fresh, prior)
+	}
+	data, err := flatpkg.MarshalComponentPlist(fresh)
+	if err != nil {
+		return buildError(err)
+	}
+	if err := os.WriteFile(out, data, 0o644); err != nil { //nolint:gosec // the second argument names the output plist on purpose
+		return buildError(err)
+	}
+	report := analyzeReport{Output: out, Bundles: []string{}}
+	for _, b := range fresh {
+		report.Bundles = append(report.Bundles, b.RootRelativeBundlePath)
+	}
+	if structured() {
+		return jsonOut(report)
+	}
+	if len(report.Bundles) == 0 {
+		progressf("wrote %s: no bundles found under %s", out, root)
+	} else {
+		progressf("wrote %s: %d bundle(s)", out, len(report.Bundles))
+	}
+	return nil
 }

@@ -39,6 +39,7 @@ Notarized: yes (ticket on record with Apple)
 |---|:---:|:---:|:---:|
 | Inspect: `info`, `list`, `cat`, `inspect` | ✅ | ✅ | ✅ |
 | Unpack: `expand` (pkgutil parity), `extract` | ✅ | ✅ | ✅ |
+| Repack: `flatten` (pkgutil --flatten) | ✅ | ✅ | ✅ |
 | Build component packages and product archives, reproducibly | ✅ | ✅ | ✅ |
 | Sign with a Developer ID Installer certificate, with Apple timestamps | ✅ | ✅ | ✅ |
 | Verify signatures against Apple's roots; team, timestamp, staple | ✅ | ✅ | ✅ |
@@ -114,6 +115,9 @@ shasum -a 256 -c macospkg_<version>_checksums.txt --ignore-missing
 Every command takes the package first; `-o json` turns any output into
 JSON (one document, or one line per entry for listings).
 
+This section is the tour. [`docs/cli.md`](docs/cli.md) is the full
+reference: every flag, what it does, and when to reach for it.
+
 ### `info PKG`
 
 Kind (component package or product archive), each component's identity,
@@ -164,6 +168,13 @@ restores the package (`--xattrs auto`, the default; `apply`, `file` and
 `skip` choose explicitly). Hard links are recreated as hard links;
 `--hard-links=false` writes copies.
 
+### `flatten DIR [OUT.pkg]`
+
+`pkgutil --flatten`: the inverse of `expand`. Every file in the expanded
+directory goes back as the archive entry it was, a `Scripts` directory is
+packed again, and nothing is recomputed, so it is the way to change one
+thing in a package without rebuilding it.
+
 ### `build SRC [OUT.pkg] --identifier ID --version V [options]`
 
 A component package, what `pkgbuild` makes, from a directory. Options:
@@ -209,12 +220,14 @@ not to. The PKCS#12 password comes from `--p12-password-stdin`,
 `MACOSPKG_P12_PASSWORD` or `--p12-password`. A stapled ticket is removed,
 since re-signing invalidates it.
 
-### `verify PKG [--team-id ID] [--trust-anchors PEM] [--allow-untrusted] [--require-developer-id] [--require-stapled] [--online]`
+### `verify PKG [--team-id ID] [--trust-anchors PEM] [--allow-untrusted] [--require-developer-id] [--require-stapled] [--online] [--revocation]`
 
 `pkgutil --check-signature`, with every finding reported separately:
 digest, RSA, CMS, chain to Apple's roots (built in), team, timestamp,
-staple, and with `--online` whether Apple's ticket database has a ticket
-for this exact package. Exit 7 on any failure.
+staple, with `--online` whether Apple's ticket database has a ticket
+for this exact package, and with `--revocation` whether the authority has
+withdrawn the signing certificate since it was issued. Exit 7 on any
+failure.
 
 ### `notarize PKG [--wait] [--staple] [--timeout 30m] [--poll-interval 30s] [--log]`
 
@@ -237,7 +250,7 @@ a ticket fetched elsewhere.
 
 | Flag | Description |
 |---|---|
-| `-o, --output text\|json` | output format |
+| `-o, --output text\|json\|plist` | output format |
 | `-q, --quiet` | suppress progress messages |
 | `--verbose` | diagnostics on stderr |
 | `--source-date-epoch N` | pin every timestamp for reproducible output |
@@ -256,7 +269,7 @@ the bare variable outranks `MACOSPKG_SOURCE_DATE_EPOCH`.
 | 2 | usage error |
 | 3 | not a flat package (missing, not a xar, or a xar without PackageInfo/Distribution) |
 | 4 | credentials missing or rejected (PKCS#12 password, key mismatch, notary API key) |
-| 5 | unsupported (Apple Archive payload, ownership on Windows, non-RSA key, >5 GiB upload) |
+| 5 | unsupported (Apple Archive payload, ownership on Windows, non-RSA key) |
 | 6 | partial result (some entries skipped) |
 | 7 | signature or ticket check failed, or no ticket available |
 | 8 | notarization rejected |

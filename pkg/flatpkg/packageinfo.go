@@ -15,18 +15,25 @@ import (
 type PackageInfo struct {
 	XMLName xml.Name `xml:"pkg-info"`
 
-	FormatVersion         int    `xml:"format-version,attr"`
-	Identifier            string `xml:"identifier,attr"`
-	Version               string `xml:"version,attr"`
-	InstallLocation       string `xml:"install-location,attr,omitempty"`
-	Auth                  string `xml:"auth,attr,omitempty"` // none | root
-	OverwritePermissions  *bool  `xml:"overwrite-permissions,attr,omitempty"`
-	Relocatable           *bool  `xml:"relocatable,attr,omitempty"`
-	GeneratorVersion      string `xml:"generator-version,attr,omitempty"`
-	PostinstallAction     string `xml:"postinstall-action,attr,omitempty"` // none | logout | restart | shutdown
-	MinimumSystemVersion  string `xml:"minimumSystemVersion,attr,omitempty"`
-	PreserveXattr         *bool  `xml:"preserve-xattr,attr,omitempty"`
-	UseHFSPlusCompression *bool  `xml:"useHFSPlusCompression,attr,omitempty"`
+	// Field order is the order pkgbuild writes the attributes in, because
+	// encoding/xml emits attributes in field order and the documents are
+	// compared byte for byte against pkgbuild's. Every fixture in
+	// testdata/cli and both real-world oracles agree on it, across
+	// InstallCmds 834, 860.14 and 864.12.
+	OverwritePermissions *bool  `xml:"overwrite-permissions,attr,omitempty"`
+	Relocatable          *bool  `xml:"relocatable,attr,omitempty"`
+	Identifier           string `xml:"identifier,attr"`
+	PostinstallAction    string `xml:"postinstall-action,attr,omitempty"` // none | logout | restart | shutdown
+	Version              string `xml:"version,attr"`
+	FormatVersion        int    `xml:"format-version,attr"`
+	GeneratorVersion     string `xml:"generator-version,attr,omitempty"`
+	InstallLocation      string `xml:"install-location,attr,omitempty"`
+	Auth                 string `xml:"auth,attr,omitempty"` // none | root
+	MinimumSystemVersion string `xml:"minimumSystemVersion,attr,omitempty"`
+
+	// No fixture carries either of these, so their position is ours.
+	PreserveXattr         *bool `xml:"preserve-xattr,attr,omitempty"`
+	UseHFSPlusCompression *bool `xml:"useHFSPlusCompression,attr,omitempty"`
 
 	// Element order is pkgbuild's: payload, bundle, the bundle lists,
 	// then scripts.
@@ -54,21 +61,28 @@ type PackageInfo struct {
 // Payload summarises the payload: how many entries and how many kilobytes
 // they occupy once installed.
 type Payload struct {
+	// LargeSegmented marks a --large-payload package, whose archive entry
+	// is LargeSegmentedPayload rather than Payload. pkgbuild writes it
+	// first, before the counts, so it is declared first here.
+	LargeSegmented string `xml:"large-segmented,attr,omitempty"`
+
 	NumberOfFiles int `xml:"numberOfFiles,attr"`
 	InstallKBytes int `xml:"installKBytes,attr"`
-	// LargeSegmented marks a --large-payload package, whose archive entry
-	// is LargeSegmentedPayload rather than Payload.
-	LargeSegmented string `xml:"large-segmented,attr,omitempty"`
 }
 
 // Scripts names the install scripts carried in the Scripts archive.
+//
+// Each kind is a list, not a single script: a component property list can
+// give every bundle its own preinstall and postinstall, and pkgbuild writes
+// one element per bundle followed by the package's own. Each of the
+// bundle-specific ones carries the bundle's identifier as component-id.
 type Scripts struct {
-	Preinstall  *Script `xml:"preinstall"`
-	Postinstall *Script `xml:"postinstall"`
-	Preflight   *Script `xml:"preflight"`
-	Postflight  *Script `xml:"postflight"`
-	Preupgrade  *Script `xml:"preupgrade"`
-	Postupgrade *Script `xml:"postupgrade"`
+	Preinstall  []Script `xml:"preinstall"`
+	Postinstall []Script `xml:"postinstall"`
+	Preflight   []Script `xml:"preflight"`
+	Postflight  []Script `xml:"postflight"`
+	Preupgrade  []Script `xml:"preupgrade"`
+	Postupgrade []Script `xml:"postupgrade"`
 }
 
 // Script is one script reference: the file is relative to the Scripts
@@ -80,7 +94,8 @@ type Script struct {
 	Timeout string `xml:"timeout,attr,omitempty"`
 }
 
-// Names lists the scripts present, in Apple's canonical order.
+// Names lists the kinds of script present, in Apple's canonical order. A
+// kind appears once however many scripts of it the package carries.
 func (s *Scripts) Names() []string {
 	if s == nil {
 		return nil
@@ -88,14 +103,27 @@ func (s *Scripts) Names() []string {
 	var out []string
 	for _, p := range []struct {
 		name string
-		s    *Script
+		s    []Script
 	}{
 		{"preflight", s.Preflight}, {"preinstall", s.Preinstall}, {"preupgrade", s.Preupgrade},
 		{"postinstall", s.Postinstall}, {"postupgrade", s.Postupgrade}, {"postflight", s.Postflight},
 	} {
-		if p.s != nil {
+		if len(p.s) > 0 {
 			out = append(out, p.name)
 		}
+	}
+	return out
+}
+
+// All lists every script the package carries, in the order the document
+// records them.
+func (s *Scripts) All() []Script {
+	if s == nil {
+		return nil
+	}
+	var out []Script
+	for _, list := range [][]Script{s.Preinstall, s.Postinstall, s.Preflight, s.Postflight, s.Preupgrade, s.Postupgrade} {
+		out = append(out, list...)
 	}
 	return out
 }
@@ -147,7 +175,8 @@ func (p *PackageInfo) Marshal() ([]byte, error) {
 	var buf bytes.Buffer
 	buf.WriteString(`<?xml version="1.0" encoding="utf-8"?>` + "\n")
 	buf.Write(selfClose(body))
-	buf.WriteByte('\n')
+	// No trailing newline: pkgbuild's PackageInfo ends at the closing tag,
+	// and these documents are compared with its output byte for byte.
 	return buf.Bytes(), nil
 }
 

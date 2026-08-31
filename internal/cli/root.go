@@ -56,6 +56,7 @@ Read commands:
   cat      Write one archive entry or payload file to stdout
   inspect  Low-level structural inspection (header, TOC, bom, signature)
   expand   Unpack the archive like pkgutil --expand / --expand-full
+  flatten  Reassemble an expanded directory into a package (pkgutil --flatten)
   extract  Extract payload files to the local file system
 
 Write commands:
@@ -67,6 +68,9 @@ Signing and notarization:
   verify    Verify a package signature and, optionally, its stapled ticket
   notarize  Submit a package to Apple's notary service; wait and staple
   staple    Attach a notarization ticket; unstaple removes one
+
+Receipts:
+  receipts  What a volume records about the packages installed on it
 
 Packages are auto-detected by content; every command takes the package as its
 first argument. Data goes to stdout, diagnostics and progress to stderr.
@@ -93,11 +97,17 @@ Exit codes:
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		return resolveGlobalOptions(cmd)
 	},
+	// A property list is one document, so what a command emitted is
+	// written when it finishes rather than as it goes. Nothing to do for
+	// the other formats.
+	PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+		return flushPlist()
+	},
 }
 
 func init() {
 	flags := rootCmd.PersistentFlags()
-	flags.StringP("output", "o", "text", "output format: text or json")
+	flags.StringP("output", "o", "text", "output format: text, json, or plist for the one macOS reads natively")
 	flags.BoolP("quiet", "q", false, "suppress progress and non-essential messages")
 	flags.Bool("verbose", false, "verbose diagnostics on stderr")
 	flags.String("source-date-epoch", "", "fixed build timestamp (decimal seconds since 1970 UTC) for reproducible output")
@@ -112,6 +122,7 @@ func init() {
 	rootCmd.AddCommand(catCmd)
 	rootCmd.AddCommand(inspectCmd)
 	rootCmd.AddCommand(expandCmd)
+	rootCmd.AddCommand(flattenCmd)
 	rootCmd.AddCommand(extractCmd)
 	rootCmd.AddCommand(buildCmd)
 	rootCmd.AddCommand(productCmd)
@@ -120,6 +131,7 @@ func init() {
 	rootCmd.AddCommand(notarizeCmd)
 	rootCmd.AddCommand(stapleCmd)
 	rootCmd.AddCommand(unstapleCmd)
+	rootCmd.AddCommand(receiptsCmd)
 }
 
 // resolveGlobalOptions binds flags into viper and resolves the effective
@@ -175,9 +187,9 @@ func resolveGlobalOptions(cmd *cobra.Command) error {
 	}
 
 	switch opts.Output {
-	case "text", "json":
+	case "text", "json", "plist":
 	default:
-		return usageErrorf("invalid --output %q: must be text or json", opts.Output)
+		return usageErrorf("invalid --output %q: must be text, json or plist", opts.Output)
 	}
 
 	return nil

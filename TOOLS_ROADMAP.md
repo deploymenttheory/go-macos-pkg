@@ -16,16 +16,32 @@ what is planned or under consideration, roughly in priority order.
   macOS cannot read either as a package Payload.
 - **Apple's roots embedded**: `verify` chains to G2, G3 and Platform
   without a system trust store.
+- **`pkgutil` parity**: `flatten`, the listing filters, and a reader for a
+  volume's receipt database.
+- **`notarytool` parity**: `.dmg` and `.zip` submissions, webhooks,
+  credential profiles, multipart upload for anything over 5 GiB, and
+  property-list output.
+- **Revocation checking** in `verify`, which `pkgutil --check-signature`
+  does and we did not.
+- **`pkgbuild` and `productbuild` parity**: every option either implemented
+  or recorded as a non-goal, with the `PackageInfo` and `Distribution`
+  documents compared byte for byte against Apple's own output.
 
 ## Near term
 
-- **`--component-plist`**: per-bundle relocation and version rules.
+- **`stapler` parity**: `.app` bundles and `.dmg` images. The bundle design
+  is worked out and proven; what it needs is a reader for Mach-O code
+  signatures, to compute the CDHash the ticket is keyed on. Disk images
+  come from `deploymenttheory/go-apfs-v2` rather than a second
+  implementation here. See issue #30.
+- **Move the notarization workflow into the SDK**. `pkg/notary` has no
+  dependency on anything else here, and an SDK that stops before the upload
+  leaves every consumer to write it. See issue #29.
 
 ## Under consideration
 
 - **Apple Archive payloads**: the `--large-payload` / `--compression latest`
   format; detected and reported today.
 - **Multipart S3 upload** for packages over 5 GiB.
-- **Receipt inspection** of `/var/db/receipts`.
 
 Contributions and priority feedback are welcome via GitHub issues.

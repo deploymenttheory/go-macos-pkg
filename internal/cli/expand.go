@@ -107,7 +107,7 @@ func runExpand(cmd *cobra.Command, args []string) error {
 	}
 	report.Partial = res.Partial()
 
-	if opts.Output == "json" {
+	if structured() {
 		if err := jsonOut(report); err != nil {
 			return err
 		}

@@ -20,6 +20,7 @@ macOS leg additionally checks the result against Apple's own tools.
 | PackageInfo and Distribution models | ✅ | ✅ | ✅ |
 | `info`, `list`, `cat`, `inspect` | ✅ | ✅ | ✅ |
 | `expand` (pkgutil --expand / --expand-full parity) | ✅³ | ✅³ | ✅³ |
+| `flatten` (pkgutil --flatten parity) | ✅¹¹ | ✅¹¹ | ✅¹¹ |
 | `extract` (payload, scripts, pattern, verify) | ✅ | ✅ | 🟡⁴ |
 | `build` (component package) | ✅⁶ | ✅⁶ | ✅⁶ |
 | `product` (product archive) | ✅ | ✅ | ✅ |
@@ -29,7 +30,8 @@ macOS leg additionally checks the result against Apple's own tools.
 | `sign` (RSA + CMS, Apple timestamp) | ✅⁸ | ✅⁸ | ✅⁸ |
 | `verify` (digest, signatures, chain to Apple's roots, timestamp, staple) | ✅⁹ | ✅⁹ | ✅⁹ |
 | `notarize` (submit, upload, wait, log) | ✅¹⁰ | ✅¹⁰ | ✅¹⁰ |
-| `staple`, `unstaple`, `verify --online` | ✅ | ✅ | ✅ |
+| `staple`, `unstaple`, `verify --online` | ✅¹³ | ✅¹³ | ✅¹³ |
+| `receipts` (pkgutil's receipt database, read only) | ✅¹² | ✅¹² | ✅¹² |
 
 ¹ The `Size64` tree, which records sizes over 4 GiB, is read on a
 best-effort basis: its layout is not documented anywhere and no fixture
@@ -58,8 +60,26 @@ attributes, which loses nothing, since a build reads them back.
 
 ⁵ (superseded by ⁸–¹⁰ below)
 
-⁶ Parity with `pkgbuild` is checked by the macOS acceptance leg: the same
-source tree built both ways gives identical `lsbom` output, identical
+⁶ Parity with `pkgbuild` is checked by the macOS acceptance leg. The
+`PackageInfo` and `Distribution` documents are compared byte for byte
+against the ones `pkgbuild` and `productbuild` write for the same input
+(`acceptance/parity_test.go`), with a single normalisation:
+`generator-version`, which names the tool and which macospkg must not
+copy. That covers attribute order, script timeouts, the absence of a
+trailing newline, and the fact that `install-location` is written only
+when it is asked for. It also covers which bundle list each kind of bundle
+is referenced from: every bundle is version-checked and upgraded, only an
+application is relocated and strictly identified, and a bundle nested
+inside another is described but never referenced. One deliberate
+difference: pkgbuild emits the `bundle` elements, and the bundle-specific
+scripts, in its own hash order, which is deterministic for a given set of
+names but is neither the walk order nor a sort, and the same package can
+order the two differently. macospkg sorts by path instead and the
+comparison sorts both sides; the package's own scripts still follow the
+bundle-specific ones, which is pkgbuild's rule and is compared exactly. Matching Apple's order would mean
+reimplementing its hashing and would make the output depend on which macOS
+built the package. Beyond the documents, the same source tree built
+both ways gives identical `lsbom` output, identical
 `installKBytes`, identical `xar -tf` and `pkgutil --payload-files`, and
 `installer` installs the result, sidecars included: extended attributes
 are carried exactly as pkgbuild carries them (`._` AppleDouble entries with
@@ -67,8 +87,11 @@ pkgbuild's headers and bill-of-materials records; `--exclude-xattr` prunes
 host bookkeeping such as `com.apple.provenance`), and hard links are
 packaged as one inode. One deliberate difference: `--ownership preserve`
 is refused on Windows, and Windows exposes no inode, so hard links become
-copies there. `--large-payload`
-output is read but not written (its segmentation past 8 GiB is untested).
+copies there. `--large-payload` is read and written: on current macOS it is
+not a different container at all, but the same gzip cpio under a different
+entry name and marked in the PackageInfo, and both are byte-identical to
+pkgbuild's. What segmentation it does past 8 GiB is untested here, since no
+fixture that size can be committed.
 pbzx output matches pkgbuild's parameters (16 MiB blocks, one xz stream
 per chunk, no check, 8 MiB dictionary); pkgbuild has written pbzx for
 `--compression latest` on every macOS from 12 to 26, which the fixture
@@ -91,9 +114,52 @@ No keychain is used; the identity comes from a PKCS#12 or PEM files.
 ⁹ Validated against Google's Go installer (Apple-signed, notarized,
 stapled): the BER-encoded CMS Apple writes is normalised, Apple's critical
 marker extensions are accepted, and the chain reaches the built-in Apple
-Root CA. No revocation checking.
+Root CA. `--revocation` asks the responder the signing certificate names
+whether the authority has withdrawn it since, which chain verification
+cannot tell you and which `pkgutil --check-signature` consults too. It
+needs the network, so it happens only when asked for; a certificate naming
+no responder is reported as unchecked rather than as good.
 
 ¹⁰ The four notary API calls go through `deploymenttheory/go-sdk-appleservices`;
-the S3 upload (single PUT, 5 GiB limit), polling and log download are
-here. The end-to-end job needs Developer ID secrets and runs on the main
-repository's CI only.
+the S3 upload, polling and log download are here. A file over 5 GiB, which
+is S3's limit for one request, goes up in parts, and a failed upload is
+aborted rather than left incomplete in Apple's bucket. `--webhook` asks
+Apple to post the verdict rather than being polled for it. Uploads go through S3
+transfer acceleration, as `notarytool` and Apple's own documented example
+both do, and there is no setting to turn it off. `notarize store-credentials`
+remembers a set of credentials under a name, as `notarytool
+store-credentials` does, but writes a 0600 file rather than a Keychain item
+and stores the path to the `.p8` rather than a copy of it: one copy of a
+secret is better than two. One deliberate difference from `notarytool`:
+authentication is by App Store Connect API key only. `notarytool` also
+accepts an Apple ID with an app-specific password, which is not part of the
+documented Notary REST API, and guessing at an undocumented endpoint that
+handles credentials is not a trade worth making. The end-to-end job needs
+Developer ID secrets and runs on the main repository's CI only.
+
+¹¹ Expanding and flattening a package returns every entry unchanged, byte
+for byte, except the `Scripts` archives, which are built afresh from the
+unpacked directory and hold the same paths with the same modes.
+`pkgutil --flatten` does the same. The one difference is ownership: an
+archive a package arrives with records the uid of whoever built it, and
+`pkgutil --flatten` records the uid of whoever expanded it, while macospkg
+records root:wheel so the same directory gives the same package on any
+machine. The Installer runs scripts as root whatever the archive says.
+
+¹² Reads `<volume>/var/db/receipts`, so it works against a volume mounted
+anywhere rather than only the running system. Checked against `pkgutil`:
+`receipts info` agrees with `--pkg-info` field for field and `receipts
+files` with `--files` path for path, 8,704 of them for one package on the
+development machine. It sees less than `pkgutil --pkgs` does, and
+deliberately: macOS keeps its own packages in a sealed database reached
+through a private interface, which no directory lists. Every identifier
+here is one `pkgutil` reports; 32 of its 123 on that machine. The writes,
+`--forget` and `--learn`, are a non-goal: both change what the system
+believes it installed, and neither belongs to a tool that is not the
+Installer.
+
+¹³ Flat packages only. `stapler` also staples `.app` bundles and UDIF disk
+images, which this does not: a bundle's ticket is keyed on the CDHash of
+its Mach-O code signature, which needs a reader this tool does not have,
+and a disk image is `go-apfs-v2`'s domain. The design for bundles is worked
+out and proven against a stapled application; see issue #30.
