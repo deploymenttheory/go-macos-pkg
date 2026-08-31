@@ -95,6 +95,28 @@ func (cw *Writer) writeODC(hdr *Header) error {
 	if hdr.Size < 0 || hdr.Size > 0o77777777777 {
 		return fmt.Errorf("cpio: %s: size %d does not fit an odc header", name, hdr.Size)
 	}
+	// The 6-character fields hold 18 bits. Masking an over-large value
+	// writes a different number silently, and the bill of materials records
+	// the real one, so the payload and the Bom would disagree about who owns
+	// the file with nothing to show for it. uid and gid are the ones that
+	// reach this from real input: a Mac bound to a directory service issues
+	// uids in the millions, and --ownership preserve passes them straight
+	// through.
+	for _, f := range [...]struct {
+		name  string
+		value uint64
+	}{
+		{"uid", uint64(hdr.UID)},
+		{"gid", uint64(hdr.GID)},
+		{"inode", hdr.Inode},
+		{"link count", uint64(hdr.NLink)},
+		{"device", hdr.Dev},
+		{"rdev", hdr.RDev},
+	} {
+		if f.value > 0o777777 {
+			return fmt.Errorf("cpio: %s: %s %d does not fit an odc header (max %d)", name, f.name, f.value, 0o777777)
+		}
+	}
 	var mtime int64
 	if !hdr.ModTime.IsZero() {
 		mtime = hdr.ModTime.Unix()
@@ -104,13 +126,13 @@ func (cw *Writer) writeODC(hdr *Header) error {
 	}
 	_, err := fmt.Fprintf(cw.w, "%s%06o%06o%06o%06o%06o%06o%06o%011o%06o%011o%s\x00",
 		MagicODC,
-		hdr.Dev&0o777777,
-		hdr.Inode&0o777777,
+		hdr.Dev,
+		hdr.Inode,
 		hdr.Mode&0o777777,
-		hdr.UID&0o777777,
-		hdr.GID&0o777777,
-		hdr.NLink&0o777777,
-		hdr.RDev&0o777777,
+		hdr.UID,
+		hdr.GID,
+		hdr.NLink,
+		hdr.RDev,
 		mtime&0o77777777777,
 		nameSize,
 		hdr.Size,
