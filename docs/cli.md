@@ -324,6 +324,9 @@ This is the form to distribute and the form notarization expects.
 | `--distribution FILE` | Use this Distribution instead of synthesising one, naming its packages by file name. |
 | `--package-path DIR` | Where to look for the packages a `--distribution` names. Repeatable; the working directory is searched too. |
 | `--synthesize` | Write the synthesised Distribution to the output path instead of building an archive. |
+| `--scripts DIR` | Embed a directory as the `Scripts` entry, for the `system.run()` commands a Distribution invokes. Not a component's install scripts: nothing here runs on its own. |
+| `--plugins DIR` | Embed a directory as the `PlugIns` entry: an `InstallerSections.plist` and the Installer plug-in bundles. |
+| `--ui NAME` | The interface the synthesised `choices-outline` is for. `mas` marks one meant for the Mac App Store. |
 | `--resources DIR` | Embed a directory as `Resources/`, for the welcome, licence and background files the Distribution names. |
 | `--title T` | Title for the synthesised Distribution. |
 | `--product-id ID`, `--product-version V` | Identity for the synthesised Distribution. |
@@ -376,6 +379,12 @@ name its packages as plain file names:
 
 A document that already names archive entries is left exactly as it is, so
 expanding a package and building it again gives back the same bytes.
+
+**On `--ui`.** It renames as well as labels. The top choice takes the
+interface's own name instead of `default`, and every package's choice and
+reference is prefixed with it, so a document can carry an outline per
+interface without their ids colliding. It shapes a synthesised document
+only, so passing it with `--distribution` is refused rather than ignored.
 
 The usual route is `product --synthesize dist.xml --package A.pkg`, edit
 `dist.xml` to add choices or a licence, then

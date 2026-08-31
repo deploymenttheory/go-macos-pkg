@@ -1380,6 +1380,18 @@ func scriptNames(dir string) ([]string, error) {
 // the execute bits on so a script committed from Windows still runs.
 // Extended attributes travel as sidecars, as in the payload.
 func writeScripts(dir, dst string, o ComponentOptions, epoch time.Time) error {
+	return writeArchivedDir(dir, dst, o, epoch, true)
+}
+
+// writeArchivedDir packs a directory into the gzip cpio that a xar entry
+// like Scripts or PlugIns carries.
+//
+// forceExecutable is what tells a component's scripts from a product's
+// auxiliary directories. pkgbuild makes every file in a component's Scripts
+// executable, because the Installer runs them; productbuild leaves the modes
+// alone in a product's Scripts and PlugIns, where a directory holds data and
+// bundles as well as anything runnable.
+func writeArchivedDir(dir, dst string, o ComponentOptions, epoch time.Time, forceExecutable bool) error {
 	so := ComponentOptions{
 		Root:         dir,
 		Ownership:    OwnershipRecommended,
@@ -1399,9 +1411,11 @@ func writeScripts(dir, dst string, o ComponentOptions, epoch time.Time) error {
 		case e.isDir():
 			e.mode = cpio.ModeDir | 0o755
 		case e.mode&cpio.ModeTypeMask == cpio.ModeRegular:
-			e.mode = cpio.ModeRegular | 0o755
+			if forceExecutable {
+				e.mode = cpio.ModeRegular | 0o755
+			}
 		default:
-			return fmt.Errorf("flatpkg: scripts: %s is not a regular file", e.rel)
+			return fmt.Errorf("flatpkg: %s: %s is not a regular file", filepath.Base(dst), e.rel)
 		}
 		e.uid, e.gid = 0, 0
 	}

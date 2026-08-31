@@ -1041,3 +1041,94 @@ func TestSysctlImpliesNoFloor(t *testing.T) {
 	assert.NotContains(t, string(apple), "allowed-os-versions",
 		"if productbuild starts applying the 10.10 floor the manual describes, we should follow it")
 }
+
+// TestProductScriptsAndPluginsMatchProductbuild covers the two auxiliary
+// directories a product archive can carry: the scripts a Distribution
+// invokes with system.run(), and the Installer's plug-in bundles.
+func TestProductScriptsAndPluginsMatchProductbuild(t *testing.T) {
+	requireTools(t, "pkgbuild", "productbuild", "xar")
+	first, _, work := twoComponents(t)
+
+	scripts := filepath.Join(work, "scripts")
+	writeFile(t, filepath.Join(scripts, "helper.sh"), "#!/bin/sh\necho hi\n", 0o755)
+	writeFile(t, filepath.Join(scripts, "data.txt"), "data\n", 0o644)
+	plugins := filepath.Join(work, "plugins")
+	writeFile(t, filepath.Join(plugins, "InstallerSections.plist"), "<plist/>\n", 0o644)
+	writeFile(t, filepath.Join(plugins, "Pane.bundle", "Contents", "Info.plist"), "<plist/>\n", 0o644)
+
+	synth := filepath.Join(work, "synth.xml")
+	hostTool(t, "productbuild", "--quiet", "--synthesize", "--package", first, synth)
+
+	ours := filepath.Join(work, "ours.pkg")
+	theirs := filepath.Join(work, "theirs.pkg")
+	mustRun(t, "product", ours, "--distribution", synth, "--package-path", work,
+		"--scripts", scripts, "--plugins", plugins, "--source-date-epoch", epoch)
+	runIn(t, work, "productbuild", "--quiet", "--distribution", synth, "--package-path", work,
+		"--scripts", scripts, "--plugins", plugins, theirs)
+
+	// Both carry the same entries, under Apple's names.
+	sortedEntries := func(pkg string) []string {
+		e := nonEmptyLines(hostTool(t, "xar", "-tf", pkg))
+		sort.Strings(e)
+		return e
+	}
+	assert.Equal(t, sortedEntries(theirs), sortedEntries(ours))
+	assert.Contains(t, sortedEntries(ours), "Scripts")
+	assert.Contains(t, sortedEntries(ours), "PlugIns")
+
+	// Both archives hold the same paths with the same modes. Unlike a
+	// component's Scripts, these keep the modes they had on disk: a
+	// product's scripts directory holds data as well as anything runnable.
+	assert.Equal(t, archiveListing(t, theirs, "Scripts"), archiveListing(t, ours, "Scripts"))
+	assert.Equal(t, archiveListing(t, theirs, "PlugIns"), archiveListing(t, ours, "PlugIns"))
+	attest(t, "product Scripts and PlugIns match productbuild's, path and mode")
+}
+
+// archiveListing lists a gzip cpio entry as path and mode pairs. Ownership
+// is left out on purpose: pkgbuild and productbuild record the uid of
+// whoever ran them, which cannot be reproduced and would stop a package
+// being the same on two machines. macospkg records root:wheel.
+func archiveListing(t *testing.T, pkg, entry string) []string {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, entry), xarEntry(t, pkg, entry), 0o644))
+	out := hostTool(t, "sh", "-c", `gunzip -c "$1" | cpio -itv 2>/dev/null`, "sh", filepath.Join(dir, entry))
+	var listing []string
+	for _, l := range nonEmptyLines(out) {
+		fields := strings.Fields(l)
+		if len(fields) < 2 {
+			continue
+		}
+		listing = append(listing, fields[0]+" "+fields[len(fields)-1])
+	}
+	sort.Strings(listing)
+	return listing
+}
+
+// TestProductUIMatchesProductbuild pins --ui, which does more than label the
+// outline: it namespaces every choice and reference with the interface's
+// name so two outlines can live in one document.
+func TestProductUIMatchesProductbuild(t *testing.T) {
+	requireTools(t, "pkgbuild", "productbuild")
+	first, _, work := twoComponents(t)
+
+	for _, ui := range []string{"mas", "custom"} {
+		t.Run(ui, func(t *testing.T) {
+			ours := filepath.Join(work, "ours-"+ui+".xml")
+			theirs := filepath.Join(work, "theirs-"+ui+".xml")
+			mustRun(t, "product", ours, "--package", first, "--ui", ui, "--synthesize")
+			hostTool(t, "productbuild", "--quiet", "--synthesize", "--ui", ui, "--package", first, theirs)
+
+			apple, err := os.ReadFile(theirs)
+			require.NoError(t, err)
+			mine, err := os.ReadFile(ours)
+			require.NoError(t, err)
+			require.Equal(t, string(apple), string(mine))
+			assert.Contains(t, string(mine), `<choices-outline ui="`+ui+`">`)
+			assert.Contains(t, string(mine), `<choice id="`+ui+`"/>`,
+				"the top choice takes the interface's own name")
+			assert.Contains(t, string(mine), `id="`+ui+`-com.deploymenttheory.acceptance.first"`,
+				"each package's choice is namespaced by the interface")
+		})
+	}
+}

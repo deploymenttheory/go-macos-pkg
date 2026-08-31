@@ -22,6 +22,9 @@ var (
 	productSynthesize   bool
 	productPackagePaths []string
 	productRequirements string
+	productScripts      string
+	productUI           string
+	productPlugins      string
 )
 
 var productCmd = &cobra.Command{
@@ -55,6 +58,9 @@ func init() {
 	f.StringVar(&productRequirements, "product", "", "pre-install requirements property list: the os, arch, ram, bundle, graphics and sysctl checks the Installer runs before it will install")
 	f.BoolVar(&productSynthesize, "synthesize", false, "write the synthesised Distribution to the output path instead of building an archive")
 	f.StringVar(&productResources, "resources", "", "directory to embed as Resources/")
+	f.StringVar(&productUI, "ui", "", "interface the synthesised choices-outline is for, as productbuild --ui; \"mas\" marks one meant for the Mac App Store")
+	f.StringVar(&productScripts, "scripts", "", "directory to embed as the Scripts entry, for the system.run() commands a Distribution invokes")
+	f.StringVar(&productPlugins, "plugins", "", "directory to embed as the PlugIns entry: InstallerSections.plist and the Installer plug-in bundles")
 	f.StringVar(&productTitle, "title", "", "title for the synthesised Distribution")
 	f.StringVar(&productMinOS, "min-os-version", "", "minimum macOS version for the synthesised Distribution")
 	f.StringVar(&productArchs, "host-architectures", "", "comma-separated hostArchitectures, e.g. arm64,x86_64")
@@ -105,6 +111,9 @@ func runProduct(cmd *cobra.Command, args []string) error {
 		Requirements:   requirements,
 		Packages:       productPackages,
 		Resources:      productResources,
+		Scripts:        productScripts,
+		Plugins:        productPlugins,
+		UI:             productUI,
 		Title:          productTitle,
 		MinOSVersion:   productMinOS,
 		ProductID:      productID,
@@ -184,8 +193,12 @@ func runSynthesize(out string) error {
 	if err != nil {
 		return err
 	}
+	if productUI != "" && productDistribution != "" {
+		return usageErrorf("--ui shapes a synthesised Distribution; it has no effect on one given with --distribution")
+	}
 	data, err := flatpkg.SynthesizeDistribution(flatpkg.ProductOptions{
 		Requirements:   requirements,
+		UI:             productUI,
 		Packages:       productPackages,
 		Title:          productTitle,
 		MinOSVersion:   productMinOS,

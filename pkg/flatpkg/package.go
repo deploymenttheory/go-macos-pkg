@@ -44,6 +44,9 @@ const (
 	EntryScripts      = "Scripts"
 	EntryDistribution = "Distribution"
 	EntryResources    = "Resources"
+	// EntryPlugins is what productbuild --plugins writes: a gzip cpio of
+	// the Installer plug-in bundles and their InstallerSections.plist.
+	EntryPlugins = "PlugIns"
 )
 
 // ErrNotPackage reports a xar archive that is not a flat package.

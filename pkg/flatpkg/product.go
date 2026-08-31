@@ -31,6 +31,24 @@ type ProductOptions struct {
 	// Distribution's architectures, domains, volume-check and
 	// installation-check.
 	Requirements *ProductRequirements
+	// UI names the interface a synthesised choices-outline is for, as
+	// productbuild --ui does. "mas" marks an outline meant for the Mac App
+	// Store. A distribution may carry several outlines and pick between
+	// them by this attribute.
+	//
+	// It renames as well as labels: the top choice becomes the interface's
+	// own name rather than "default", and every package's choice and
+	// reference is prefixed with it, so two outlines in one document do not
+	// collide.
+	UI string
+	// Scripts is a directory embedded as the archive's Scripts entry, for
+	// the system.run() commands a Distribution can invoke. It is not a
+	// component's scripts: nothing here runs at install time on its own.
+	Scripts string
+	// Plugins is a directory embedded as the archive's PlugIns entry, for
+	// the Installer's plug-in mechanism. It normally holds an
+	// InstallerSections.plist and one or more plug-in bundles.
+	Plugins string
 	// Resources is a directory whose contents are embedded under
 	// Resources/ (welcome, license, background files the Distribution
 	// refers to); optional.
@@ -93,6 +111,9 @@ func BuildProduct(o ProductOptions, out io.Writer) (*ProductResult, error) {
 		components = append(components, component{name: name, pkg: p})
 	}
 
+	// Scratch space for the Scripts and PlugIns archives, made only if
+	// there is something to put in it.
+	tmp := ""
 	res := &ProductResult{}
 	var refs []synthRef
 	for _, c := range components {
@@ -136,6 +157,35 @@ func BuildProduct(o ProductOptions, out io.Writer) (*ProductResult, error) {
 			return nil, err
 		}
 		res.Resources = names
+	}
+	for _, spec := range []struct{ dir, entry string }{
+		{o.Scripts, EntryScripts},
+		{o.Plugins, EntryPlugins},
+	} {
+		if spec.dir == "" {
+			continue
+		}
+		if tmp == "" {
+			scratch := o.TempDir
+			if scratch == "" {
+				scratch = os.TempDir()
+			}
+			tmp, err = os.MkdirTemp(scratch, "macospkg-product-*")
+			if err != nil {
+				return nil, err
+			}
+			defer func() { _ = os.RemoveAll(tmp) }()
+		}
+		archive := filepath.Join(tmp, spec.entry)
+		if err := writeArchivedDir(spec.dir, archive, ComponentOptions{}, archiveTime, false); err != nil {
+			return nil, err
+		}
+		if err := addFileEntry(w, spec.entry, hdr, xar.EncodingNone, archive); err != nil {
+			return nil, err
+		}
+		if o.Progress != nil {
+			o.Progress(spec.entry)
+		}
 	}
 	for _, c := range components {
 		if err := w.AddDir(c.name, dirHdr); err != nil {
@@ -259,6 +309,15 @@ func synthesiseDistribution(o ProductOptions, refs []synthRef, embedded bool) []
 	var b strings.Builder
 	attr := func(v string) string { return `"` + xmlEscape(v) + `"` }
 
+	// With --ui the ids are namespaced by the interface, so a document can
+	// carry an outline for each without their choices colliding.
+	topChoice := "default"
+	choiceID := func(id string) string { return id }
+	if o.UI != "" {
+		topChoice = o.UI
+		choiceID = func(id string) string { return o.UI + "-" + id }
+	}
+
 	if embedded {
 		b.WriteString(`<?xml version="1.0" encoding="utf-8" standalone="yes"?>` + "\n")
 	} else {
@@ -280,9 +339,9 @@ func synthesiseDistribution(o ProductOptions, refs []synthRef, embedded bool) []
 	// Embedding fills each one in with a bundle-version element.
 	for _, r := range refs {
 		if embedded {
-			fmt.Fprintf(&b, "    <pkg-ref id=%s>\n        <bundle-version/>\n    </pkg-ref>\n", attr(r.ID))
+			fmt.Fprintf(&b, "    <pkg-ref id=%s>\n        <bundle-version/>\n    </pkg-ref>\n", attr(choiceID(r.ID)))
 		} else {
-			fmt.Fprintf(&b, "    <pkg-ref id=%s/>\n", attr(r.ID))
+			fmt.Fprintf(&b, "    <pkg-ref id=%s/>\n", attr(choiceID(r.ID)))
 		}
 	}
 
@@ -304,19 +363,23 @@ func synthesiseDistribution(o ProductOptions, refs []synthRef, embedded bool) []
 	b.WriteString(o.Requirements.InstallationCheckElement())
 
 	// One default line wrapping every package, not one wrapper per package.
-	b.WriteString("    <choices-outline>\n        <line choice=\"default\">\n")
+	b.WriteString("    <choices-outline")
+	if o.UI != "" {
+		fmt.Fprintf(&b, " ui=%s", attr(o.UI))
+	}
+	fmt.Fprintf(&b, ">\n        <line choice=%s>\n", attr(topChoice))
 	for _, r := range refs {
-		fmt.Fprintf(&b, "            <line choice=%s/>\n", attr(r.ID))
+		fmt.Fprintf(&b, "            <line choice=%s/>\n", attr(choiceID(r.ID)))
 	}
 	b.WriteString("        </line>\n    </choices-outline>\n")
-	b.WriteString("    <choice id=\"default\"/>\n")
+	fmt.Fprintf(&b, "    <choice id=%s/>\n", attr(topChoice))
 
 	// Each choice is followed by its own pkg-ref, interleaved. Only an
 	// embedded document carries the sizes and the "#" that names an entry
 	// inside the archive; a synthesised file names the package itself.
 	for _, r := range refs {
-		fmt.Fprintf(&b, "    <choice id=%s visible=\"false\">\n        <pkg-ref id=%s/>\n    </choice>\n", attr(r.ID), attr(r.ID))
-		fmt.Fprintf(&b, "    <pkg-ref id=%s version=%s onConclusion=\"none\"", attr(r.ID), attr(r.Version))
+		fmt.Fprintf(&b, "    <choice id=%s visible=\"false\">\n        <pkg-ref id=%s/>\n    </choice>\n", attr(choiceID(r.ID)), attr(choiceID(r.ID)))
+		fmt.Fprintf(&b, "    <pkg-ref id=%s version=%s onConclusion=\"none\"", attr(choiceID(r.ID)), attr(r.Version))
 		if embedded {
 			fmt.Fprintf(&b, " installKBytes=%s updateKBytes=\"0\"", attr(strconv.Itoa(r.InstallKBytes)))
 			fmt.Fprintf(&b, ">#%s</pkg-ref>\n", xmlEscape(r.Path))
