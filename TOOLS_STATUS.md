@@ -31,6 +31,7 @@ macOS leg additionally checks the result against Apple's own tools.
 | `verify` (digest, signatures, chain to Apple's roots, timestamp, staple) | ✅⁹ | ✅⁹ | ✅⁹ |
 | `notarize` (submit, upload, wait, log) | ✅¹⁰ | ✅¹⁰ | ✅¹⁰ |
 | `staple`, `unstaple`, `verify --online` | ✅ | ✅ | ✅ |
+| `receipts` (pkgutil's receipt database, read only) | ✅¹² | ✅¹² | ✅¹² |
 
 ¹ The `Size64` tree, which records sizes over 4 GiB, is read on a
 best-effort basis: its layout is not documented anywhere and no fixture
@@ -128,3 +129,15 @@ archive a package arrives with records the uid of whoever built it, and
 `pkgutil --flatten` records the uid of whoever expanded it, while macospkg
 records root:wheel so the same directory gives the same package on any
 machine. The Installer runs scripts as root whatever the archive says.
+
+¹² Reads `<volume>/var/db/receipts`, so it works against a volume mounted
+anywhere rather than only the running system. Checked against `pkgutil`:
+`receipts info` agrees with `--pkg-info` field for field and `receipts
+files` with `--files` path for path, 8,704 of them for one package on the
+development machine. It sees less than `pkgutil --pkgs` does, and
+deliberately: macOS keeps its own packages in a sealed database reached
+through a private interface, which no directory lists. Every identifier
+here is one `pkgutil` reports; 32 of its 123 on that machine. The writes,
+`--forget` and `--learn`, are a non-goal: both change what the system
+believes it installed, and neither belongs to a tool that is not the
+Installer.

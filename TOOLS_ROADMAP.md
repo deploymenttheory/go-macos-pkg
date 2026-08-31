@@ -16,14 +16,14 @@ what is planned or under consideration, roughly in priority order.
   macOS cannot read either as a package Payload.
 - **Apple's roots embedded**: `verify` chains to G2, G3 and Platform
   without a system trust store.
+- **`pkgutil` parity**: `flatten`, the listing filters, and a reader for a
+  volume's receipt database.
 - **`pkgbuild` and `productbuild` parity**: every option either implemented
   or recorded as a non-goal, with the `PackageInfo` and `Distribution`
   documents compared byte for byte against Apple's own output.
 
 ## Near term
 
-- **`pkgutil` parity**: `flatten`, the inverse of `expand`, and listing
-  filters.
 - **`notarytool` parity**: `.dmg` and `.zip` submissions, webhooks,
   credential profiles, and multipart upload for anything over 5 GiB.
 - **`stapler` parity**: `.app` bundles and `.dmg` images. Disk images come
@@ -37,6 +37,5 @@ what is planned or under consideration, roughly in priority order.
 - **Apple Archive payloads**: the `--large-payload` / `--compression latest`
   format; detected and reported today.
 - **Multipart S3 upload** for packages over 5 GiB.
-- **Receipt inspection** of `/var/db/receipts`.
 
 Contributions and priority feedback are welcome via GitHub issues.

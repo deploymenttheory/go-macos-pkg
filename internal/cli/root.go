@@ -69,6 +69,9 @@ Signing and notarization:
   notarize  Submit a package to Apple's notary service; wait and staple
   staple    Attach a notarization ticket; unstaple removes one
 
+Receipts:
+  receipts  What a volume records about the packages installed on it
+
 Packages are auto-detected by content; every command takes the package as its
 first argument. Data goes to stdout, diagnostics and progress to stderr.
 
@@ -122,6 +125,7 @@ func init() {
 	rootCmd.AddCommand(notarizeCmd)
 	rootCmd.AddCommand(stapleCmd)
 	rootCmd.AddCommand(unstapleCmd)
+	rootCmd.AddCommand(receiptsCmd)
 }
 
 // resolveGlobalOptions binds flags into viper and resolves the effective

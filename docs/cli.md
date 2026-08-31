@@ -19,6 +19,7 @@ test.
 - [Building](#building): `build`, `product`
 - [Signing](#signing): `sign`, `verify`
 - [Notarizing](#notarizing): `notarize`, `staple`, `unstaple`
+- [Receipts](#receipts): `receipts list|info|files`
 - [Which command do I want?](#which-command-do-i-want)
 
 ---
@@ -537,6 +538,39 @@ and append it, so Gatekeeper can check it with no network.
 
 Staple after signing, never before: signing invalidates a ticket.
 
+## Receipts
+
+### `receipts list|info|files`
+
+What a volume records about the packages installed on it. A receipt is two
+files the Installer wrote under `var/db/receipts`: a property list of what
+was installed and when, and a bill of materials listing every path.
+
+| Command | What it does |
+|---|---|
+| `receipts list [--regexp RE]` | The package identifiers on the volume. |
+| `receipts info PKGID` | Version, install location, when it was installed and by what. |
+| `receipts files PKGID [--only-files\|--only-dirs]` | Every path the package installed. |
+
+`--volume PATH` picks the volume; the running system's root by default.
+
+**Why a directory and not the system.** This reads `var/db/receipts`
+directly, so it works against a volume mounted anywhere, from any operating
+system: point `--volume` at a disk and see what a Mac has installed on it.
+
+**What it cannot see.** On a running macOS, `pkgutil --pkgs` lists more
+than this. The packages that make up the system itself are held in a sealed
+database that pkgutil reaches through a private interface, and no directory
+on disk lists them. Everything here is a package pkgutil knows, but not the
+other way round: on this machine, 32 of the 123 pkgutil reports. What you
+see is what was installed onto the volume, which is the part worth
+auditing.
+
+**Nothing here writes.** `pkgutil` can forget a receipt (`--forget`) or
+relearn one (`--learn`). Both change what the system believes it installed
+and need root, and neither is something this tool should do behind the
+Installer's back.
+
 ---
 
 ## Which command do I want?
@@ -556,6 +590,7 @@ Staple after signing, never before: signing invalidates a ticket.
 | sign something already built | `sign` |
 | check something before shipping | `verify --require-developer-id --require-stapled --online` |
 | get it notarized | `notarize --wait --staple` |
+| know what a disk has installed on it | `receipts list --volume /Volumes/X` |
 | do the whole release in one run | `build ... --sign-p12 F --notarize` |
 
 ## See also
