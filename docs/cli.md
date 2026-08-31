@@ -508,7 +508,7 @@ optionally wait for the verdict and staple the ticket.
 | `--name N` | the file name | The submission name shown in App Store Connect. |
 | `--force` | off | Submit a file without checking it first. |
 | `--webhook URL` | none | A public URL for Apple to post the verdict to when notarization finishes, so a job need not sit and poll. |
-| `--s3-acceleration` | off | Upload through S3 transfer acceleration. |
+| `--no-s3-acceleration` | off | Send the upload straight to the region instead of through S3 transfer acceleration. |
 
 **What can be submitted.** Apple's service takes a flat package, a disk
 image or a zip archive. A package is opened and its signature checked
@@ -520,10 +520,12 @@ it first, which `notarize` says rather than letting the upload fail.
 
 `--force` skips the check entirely.
 
-**On `--s3-acceleration`.** `notarytool` turns this on by default. It is
-off here: whether Apple's bucket has acceleration enabled cannot be checked
-from outside, and an upload that fails outright is a worse trade than one
-that takes longer. Turn it on if it is faster for you.
+**On acceleration.** Uploads go through S3 transfer acceleration by
+default, over Amazon's edge network rather than straight to the region.
+That is what `notarytool` does and what Apple's own documented example asks
+for, building its S3 client with `use_accelerate_endpoint: True`. Pass
+`--no-s3-acceleration` on a network that can reach the regional host but
+not the edge one.
 
 **Large files.** There is no size limit. A file over 5 GiB, which is what
 S3 will take in one request, is uploaded in parts, and a failure aborts the

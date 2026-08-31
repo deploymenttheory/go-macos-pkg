@@ -120,10 +120,11 @@ Root CA. No revocation checking.
 the S3 upload, polling and log download are here. A file over 5 GiB, which
 is S3's limit for one request, goes up in parts, and a failed upload is
 aborted rather than left incomplete in Apple's bucket. `--webhook` asks
-Apple to post the verdict rather than being polled for it. Two deliberate
-differences from `notarytool`: S3 transfer acceleration is off by default,
-since whether Apple's bucket allows it cannot be checked from outside, and
-authentication is by App Store Connect API key only. `notarytool` also
+Apple to post the verdict rather than being polled for it. Uploads go through S3
+transfer acceleration, as `notarytool` and Apple's own documented example
+both do; `--no-s3-acceleration` sends them to the region instead. One
+deliberate difference from `notarytool`: authentication is by App Store
+Connect API key only. `notarytool` also
 accepts an Apple ID with an app-specific password, which is not part of the
 documented Notary REST API, and guessing at an undocumented endpoint that
 handles credentials is not a trade worth making. The end-to-end job needs

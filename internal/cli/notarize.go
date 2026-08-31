@@ -17,15 +17,15 @@ import (
 )
 
 var (
-	notarizeWait       bool
-	notarizeTimeout    time.Duration
-	notarizeInterval   time.Duration
-	notarizeStaple     bool
-	notarizeLog        bool
-	notarizeName       string
-	notarizeForce      bool
-	notarizeWebhook    string
-	notarizeAccelerate bool
+	notarizeWait         bool
+	notarizeTimeout      time.Duration
+	notarizeInterval     time.Duration
+	notarizeStaple       bool
+	notarizeLog          bool
+	notarizeName         string
+	notarizeForce        bool
+	notarizeWebhook      string
+	notarizeNoAccelerate bool
 )
 
 var notarizeCmd = &cobra.Command{
@@ -156,7 +156,7 @@ func init() {
 	f.BoolVar(&notarizeLog, "log", false, "print the developer log once finished (always printed on rejection)")
 	f.StringVar(&notarizeName, "name", "", "submission name shown in App Store Connect (default: the file name)")
 	f.BoolVar(&notarizeForce, "force", false, "submit even if the file is not signed")
-	f.BoolVar(&notarizeAccelerate, "s3-acceleration", false, "upload through S3 transfer acceleration, over Amazon's edge network rather than straight to the region. notarytool turns this on by default; it is off here because whether Apple's bucket allows it cannot be checked from outside, and a failed upload is a worse trade than a slower one")
+	f.BoolVar(&notarizeNoAccelerate, "no-s3-acceleration", false, "send the upload straight to the region instead of through S3 transfer acceleration, which is the default and is what Apple's own example and notarytool both ask for")
 	f.StringVar(&notarizeWebhook, "webhook", "", "public URL for Apple to post the verdict to when notarization finishes, so a job need not sit and poll; best effort, so keep --wait or a later status check as the answer you rely on")
 	for _, c := range []*cobra.Command{notarizeCmd, notarizeStatusCmd, notarizeLogCmd, notarizeWaitCmd, notarizeListCmd} {
 		addNotaryFlags(c)
@@ -206,7 +206,7 @@ func notarizeFile(svc notary.Service, path, name string, wait, doStaple, printLo
 	progressf("submitting %s to Apple's notary service", path)
 	var lastPct int64 = -1
 	uploader := notary.NewS3Uploader()
-	uploader.Accelerate = notarizeAccelerate
+	uploader.NoAccelerate = notarizeNoAccelerate
 	sub, sum, err := notary.Submit(ctx, svc, uploader, path, name, o, func(written, total int64) {
 		if total > 0 {
 			if pct := written * 100 / total; pct/10 != lastPct/10 {
