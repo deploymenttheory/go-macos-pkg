@@ -11,7 +11,7 @@ import (
 // that decodes to aa-raw.aar. That family was produced on another machine
 // and its tree cannot be recreated byte for byte here, because macOS
 // stamps files with a com.apple.provenance attribute that cannot be
-// removed. A self-contained pair is just as good an oracle: both halves
+// removed. A self-contained pair is just as good an reference: both halves
 // come from Apple's aa, from one tree, in one run.
 const (
 	appleCompressed = "../../testdata/aa/aa-lzbitmap.aar"

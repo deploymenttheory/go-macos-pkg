@@ -18,7 +18,7 @@ type PackageInfo struct {
 	// Field order is the order pkgbuild writes the attributes in, because
 	// encoding/xml emits attributes in field order and the documents are
 	// compared byte for byte against pkgbuild's. Every fixture in
-	// testdata/cli and both real-world oracles agree on it, across
+	// testdata/cli and both real-world references agree on it, across
 	// InstallCmds 834, 860.14 and 864.12.
 	OverwritePermissions *bool  `xml:"overwrite-permissions,attr,omitempty"`
 	Relocatable          *bool  `xml:"relocatable,attr,omitempty"`

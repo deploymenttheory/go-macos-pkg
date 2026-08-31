@@ -118,7 +118,7 @@ func TestLinksRoundTrip(t *testing.T) {
 	attest(t, "links package: %d files, %d KB", rep.NumberOfFiles, rep.InstallKBytes)
 }
 
-// --- oracle tests -------------------------------------------------------
+// --- reference tests -------------------------------------------------------
 
 // TestBuildLinksAndXattrsParity builds the links tree with pkgbuild and
 // with macospkg, and compares Apple's reading of both, sidecars

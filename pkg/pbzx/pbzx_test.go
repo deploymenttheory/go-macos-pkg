@@ -196,7 +196,7 @@ func TestXZParity(t *testing.T) {
 	}
 }
 
-// TestDecodesAppleArchiveSamples uses aa's own output as the oracle: every
+// TestDecodesAppleArchiveSamples uses aa's own output as the reference: every
 // compressed variant must decode to exactly the bytes of the raw archive.
 func TestDecodesAppleArchiveSamples(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "aa", "aa-raw.aar"))

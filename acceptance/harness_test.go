@@ -282,7 +282,7 @@ func mustRunJSON(t *testing.T, out any, args ...string) {
 
 // mustRunOnlineJSON is mustRunJSON for a command that talks to Apple's
 // servers. A failure to reach them skips the test rather than failing it.
-// These oracles check what we send and how we read the answer back, not
+// These references check what we send and how we read the answer back, not
 // whether a shared runner can open a TLS connection to
 // api.apple-cloudkit.com; a build that goes red for a handshake timeout
 // only teaches people to press re-run without reading it. A refusal from
@@ -328,7 +328,7 @@ func decodeJSON(t *testing.T, stdout string, out any) {
 	}
 }
 
-// requireTools skips the test unless every named tool is on PATH. Oracle
+// requireTools skips the test unless every named tool is on PATH. reference
 // tests use it so a machine without Apple's tools skips rather than fails.
 func requireTools(t *testing.T, tools ...string) {
 	t.Helper()

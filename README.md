@@ -215,7 +215,7 @@ The format details are written down in [`docs/formats/`](docs/formats/).
 
 The binary never calls an Apple tool. Apple's `pkgbuild`, `pkgutil`,
 `lsbom`, `xar`, `installer`, `stapler` and `spctl` are used only by the
-acceptance suite on macOS, as independent oracles: the fixtures in
+acceptance suite on macOS, as independent references: the fixtures in
 `testdata/cli` were produced by Apple's tools once and are committed, so
 Linux and Windows test the reader against Apple's bytes; the macOS leg
 additionally builds the same tree with `pkgbuild` and with `macospkg` and
@@ -225,7 +225,7 @@ package with `installer`, checks our signature with `pkgutil
 validate` and `spctl`. A gated job signs and notarizes with a real
 Developer ID against Apple's services.
 
-Two real-world packages are the oracles on every platform: Google's Go
+Two real-world packages are the references on every platform: Google's Go
 installer (`go1.27.0.darwin-arm64.pkg`, stapled, no bundles) and
 PowerShell (`powershell-7.6.1-osx-arm64.pkg`, an app bundle with a symlink
 and a postinstall script). Each has its signature verified against Apple's

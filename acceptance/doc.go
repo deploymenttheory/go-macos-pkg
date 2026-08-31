@@ -33,7 +33,7 @@
 // deliberately not skippable: they are the proof the tool works end to end
 // where Apple's tools do not exist.
 //
-// Oracle tests hand what we built to the tools that come with macOS: pkgutil,
+// reference tests hand what we built to the tools that come with macOS: pkgutil,
 // lsbom, xar, installer, stapler and spctl. Each one skips if its tool is
 // missing, so passing these on a machine without them proves nothing: the
 // macOS CI runner is where they count. They never run in production code:
@@ -44,7 +44,7 @@
 //	MACOSPKG_ACCEPTANCE_PKG      path to a real, Apple-signed and stapled .pkg
 //	                             for the signature, staple and round-trip
 //	                             checks; unset skips
-//	MACOSPKG_ACCEPTANCE_INSTALL  set to run the installer oracles outside CI;
+//	MACOSPKG_ACCEPTANCE_INSTALL  set to run the installer references outside CI;
 //	                             they need passwordless sudo and run a
 //	                             package's scripts as root
 //

@@ -227,7 +227,7 @@ func TestBuildSignsInline(t *testing.T) {
 	}
 }
 
-// --- oracle tests -------------------------------------------------------
+// --- reference tests -------------------------------------------------------
 
 // TestPkgutilReadsOurSignature: Apple's pkgutil parses the signature we
 // wrote and names the certificate. The fixture CA is not trusted by the

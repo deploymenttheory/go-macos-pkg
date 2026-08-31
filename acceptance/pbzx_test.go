@@ -169,7 +169,7 @@ func countPBZChunks(b []byte) int {
 	return n
 }
 
-// --- oracle tests -------------------------------------------------------
+// --- reference tests -------------------------------------------------------
 
 // TestBuildPBZXParityWithPkgbuild builds the same tree with pkgbuild
 // --compression latest and compares the containers and Apple's readings
@@ -353,7 +353,7 @@ func TestUninstallableContainersAreRefused(t *testing.T) {
 	}
 }
 
-// TestPkgutilReadsOurLZFSEPayload is the oracle behind --compression
+// TestPkgutilReadsOurLZFSEPayload is the reference behind --compression
 // lzfse: Apple's own reader, not ours, unpacking a pbze Payload.
 func TestPkgutilReadsOurLZFSEPayload(t *testing.T) {
 	for _, flag := range []string{"lzfse", "lzbitmap"} {

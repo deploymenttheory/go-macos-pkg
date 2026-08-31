@@ -319,7 +319,7 @@ func TestProduct(t *testing.T) {
 	}
 }
 
-// --- oracle tests -------------------------------------------------------
+// --- reference tests -------------------------------------------------------
 
 // TestBuildParityWithPkgbuild builds the same tree with pkgbuild and with
 // macospkg and compares what Apple's own readers say about each.
@@ -451,7 +451,7 @@ func isASCII(s string) bool {
 	return true
 }
 
-// TestInstallerInstallsOurPackage is the final oracle: macOS's installer
+// TestInstallerInstallsOurPackage is the final reference: macOS's installer
 // installs a package we built, onto a scratch volume, and the result
 // matches the source. It needs root (passwordless sudo, as on CI).
 func TestInstallerInstallsOurPackage(t *testing.T) {

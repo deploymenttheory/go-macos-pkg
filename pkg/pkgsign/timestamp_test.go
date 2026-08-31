@@ -31,7 +31,7 @@ func appleToken(t *testing.T) (token, signed []byte) {
 	return token, signed
 }
 
-// TestVerifyTimestampAcceptsApple is the oracle: Apple's own authority,
+// TestVerifyTimestampAcceptsApple is the reference: Apple's own authority,
 // its own token, checked against the roots we embed.
 func TestVerifyTimestampAcceptsApple(t *testing.T) {
 	token, signed := appleToken(t)

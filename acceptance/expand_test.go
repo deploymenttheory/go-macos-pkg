@@ -221,7 +221,7 @@ func TestExpandLayout(t *testing.T) {
 	checkTree(t, filepath.Join(full, "component-basic.pkg", "Payload"), manifest.Packages["component-basic.pkg"].Files)
 }
 
-// TestExpandMatchesPkgutil is an oracle test: our expansion against
+// TestExpandMatchesPkgutil is an reference test: our expansion against
 // pkgutil's, file by file.
 func TestExpandMatchesPkgutil(t *testing.T) {
 	requireTools(t, "pkgutil")

@@ -7,7 +7,7 @@
 *.json text eol=lf
 *.sh text eol=lf
 
-# Committed package fixtures are byte-exact oracles; a CRLF conversion on a
+# Committed package fixtures are byte-exact references; a CRLF conversion on a
 # Windows checkout would corrupt them silently.
 *.pkg binary
 *.aar binary

@@ -387,7 +387,7 @@ func TestInspect(t *testing.T) {
 	}
 }
 
-// TestInspectBomMatchesLsbom is an oracle test: our bill-of-materials
+// TestInspectBomMatchesLsbom is an reference test: our bill-of-materials
 // reader against Apple's lsbom on the same Bom.
 func TestInspectBomMatchesLsbom(t *testing.T) {
 	requireTools(t, "lsbom", "pkgutil")
@@ -428,7 +428,7 @@ func TestInspectBomMatchesLsbom(t *testing.T) {
 	attest(t, "inspect bom agrees with lsbom on %d entries", len(w))
 }
 
-// TestListArchiveMatchesXar is an oracle test against xar -tf.
+// TestListArchiveMatchesXar is an reference test against xar -tf.
 func TestListArchiveMatchesXar(t *testing.T) {
 	requireTools(t, "xar")
 	path, _ := fixture(t, "product-basic.pkg")

@@ -20,7 +20,7 @@ changelog and the next version, so the prefix matters.
 
 - The binary never calls an Apple tool. `pkgbuild`, `productbuild`,
   `productsign`, `pkgutil`, `xar`, `lsbom`, `stapler`, `notarytool` and the
-  keychain appear only in `acceptance/` on macOS, as independent oracles.
+  keychain appear only in `acceptance/` on macOS, as independent references.
   CI fails a pull request that imports `os/exec` anywhere else.
 - Every command must work end to end on Linux and Windows. A feature that
   only works on macOS is a bug.
@@ -56,7 +56,7 @@ say so explicitly and describe which field moved and why.
 ## Regenerating the fixtures
 
 `testdata/cli` holds packages produced by Apple's own tools. They are the
-oracle the reader is tested against on every platform, so they are committed
+reference the reader is tested against on every platform, so they are committed
 rather than built during the test run. Regenerating them is a deliberate,
 macOS-only maintenance step:
 
