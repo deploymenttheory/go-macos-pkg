@@ -284,7 +284,13 @@ func Decode(b []byte) (*File, error) {
 			return nil, fmt.Errorf("appledouble: attribute %s value outside the file", name)
 		}
 		f.Attrs = append(f.Attrs, Attr{Name: name, Value: append([]byte(nil), b[valOff:valOff+valLen]...)})
-		off += entrySize(name)
+		// Advance by the length the record declared, not by the trimmed
+		// name. The two agree for anything this package or the kernel
+		// writes, since both store the name with a single NUL, but the
+		// format allows a longer padded name and the kernel steps over
+		// whatever nameLen says. Measuring from the trimmed name instead
+		// lands the cursor inside the next record and misreads it.
+		off += (11 + nameLen + 3) &^ 3
 	}
 	return f, nil
 }
