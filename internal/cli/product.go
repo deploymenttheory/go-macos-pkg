@@ -31,6 +31,7 @@ var (
 	productComponents   []string
 
 	productComponentCompression string
+	productLargePayload         bool
 	productPlugins              string
 )
 
@@ -80,6 +81,7 @@ func init() {
 	f.StringVar(&productRootInstall, "root-install-path", "", "default install location for --root; productbuild spells this as a second argument to --root")
 	f.StringVar(&productContent, "content", "", "directory whose contents are added as their own component package, for in-app content")
 	f.StringArrayVar(&productComponents, "component", nil, "bundle to add as its own component package; repeatable, and PATH:INSTALL_PATH gives it a default install location")
+	f.BoolVar(&productLargePayload, "large-payload", false, "build the components from --root, --content and --component with the payload format that carries files of 8 GiB and over; only macOS 12 and later can read one, which the Distribution then requires")
 	f.StringVar(&productComponentCompression, "component-compression", "", "payload container for the components built by --component: legacy or gzip (default), none for no compression at all, or pbzx, lzfse or lzbitmap. A package given with --package keeps whatever container it was built with")
 
 	// The Distribution: the document the Installer runs to decide what to
@@ -160,6 +162,7 @@ func runProduct(cmd *cobra.Command, args []string) error {
 		Content:              productContent,
 		Components:           inlineComponents,
 		ComponentCompression: componentCompression,
+		LargePayload:         productLargePayload,
 		Requirements:         requirements,
 		Packages:             productPackages,
 		Resources:            productResources,

@@ -1301,3 +1301,84 @@ func TestComponentCompressionNeedsAComponent(t *testing.T) {
 	assert.Equal(t, 2, code)
 	assert.Contains(t, stderr, "--component-compression applies to the components --component builds")
 }
+
+// TestProductLargePayloadMatchesProductbuild covers the version floor a
+// large payload forces on a product.
+//
+// It applies whether or not the build asked for the format: only macOS 12
+// and later can read one, so a product carrying such a component says so
+// even when the component came in ready made.
+func TestProductLargePayloadMatchesProductbuild(t *testing.T) {
+	requireTools(t, "pkgbuild", "productbuild", "xar")
+
+	t.Run("embedded_component_already_large", func(t *testing.T) {
+		root, _ := sourceTree(t)
+		stampTree(t, root)
+		work := t.TempDir()
+		component := filepath.Join(work, "large.pkg")
+		hostTool(t, "pkgbuild", "--quiet", "--root", root,
+			"--identifier", "com.deploymenttheory.large", "--version", "1.0",
+			"--install-location", "/", "--ownership", "recommended",
+			"--large-payload", "--min-os-version", "12.0", component)
+
+		ours := filepath.Join(work, "ours.pkg")
+		theirs := filepath.Join(work, "theirs.pkg")
+		mustRun(t, "product", ours, "--package", component, "--source-date-epoch", epoch)
+		runIn(t, work, "productbuild", "--quiet", "--package", component, theirs)
+
+		mine := xarEntry(t, ours, "Distribution")
+		requireSameBytes(t, "Distribution (large payload embedded)", xarEntry(t, theirs, "Distribution"), mine)
+		// Spelled with all three components, unlike the two-part versions
+		// productbuild writes elsewhere.
+		assert.Contains(t, string(mine), `<os-version min="12.0.0"/>`)
+		assert.Contains(t, string(mine), `minSpecVersion="2"`)
+	})
+
+	t.Run("built_here", func(t *testing.T) {
+		base := t.TempDir()
+		root := filepath.Join(base, "root")
+		writeFile(t, filepath.Join(root, "usr", "local", "bin", "tool"), "#!/bin/sh\n", 0o755)
+		stampTree(t, root)
+
+		theirs := filepath.Join(base, "theirs", "product.pkg")
+		ours := filepath.Join(base, "ours", "product.pkg")
+		require.NoError(t, os.MkdirAll(filepath.Dir(theirs), 0o755))
+		require.NoError(t, os.MkdirAll(filepath.Dir(ours), 0o755))
+		hostTool(t, "productbuild", "--quiet", "--root", root, "/", "--large-payload", theirs)
+		mustRun(t, "product", ours, "--root", root, "--root-install-path", "/",
+			"--large-payload", "--source-date-epoch", epoch)
+
+		requireSameBytes(t, "Distribution (large payload built here)",
+			xarEntry(t, theirs, "Distribution"), xarEntry(t, ours, "Distribution"))
+		assert.Contains(t, sortedXarEntries(t, ours), "root.pkg/LargeSegmentedPayload")
+		assert.Equal(t, sortedXarEntries(t, theirs), sortedXarEntries(t, ours))
+	})
+
+	t.Run("a_higher_declared_version_wins", func(t *testing.T) {
+		root, _ := sourceTree(t)
+		stampTree(t, root)
+		work := t.TempDir()
+		component := filepath.Join(work, "large.pkg")
+		hostTool(t, "pkgbuild", "--quiet", "--root", root,
+			"--identifier", "com.deploymenttheory.large", "--version", "1.0",
+			"--install-location", "/", "--ownership", "recommended",
+			"--large-payload", "--min-os-version", "12.0", component)
+		req := filepath.Join(work, "requirements.plist")
+		writeFile(t, req, `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict><key>os</key><array><string>13.0</string></array></dict>
+</plist>
+`, 0o644)
+
+		ours := filepath.Join(work, "ours.pkg")
+		theirs := filepath.Join(work, "theirs.pkg")
+		mustRun(t, "product", ours, "--package", component, "--product", req, "--source-date-epoch", epoch)
+		runIn(t, work, "productbuild", "--quiet", "--package", component, "--product", req, theirs)
+
+		mine := xarEntry(t, ours, "Distribution")
+		requireSameBytes(t, "Distribution (declared above the floor)", xarEntry(t, theirs, "Distribution"), mine)
+		assert.Contains(t, string(mine), `<os-version min="13.0"/>`)
+		assert.NotContains(t, string(mine), "12.0.0", "a declared version above the floor stands alone")
+	})
+}

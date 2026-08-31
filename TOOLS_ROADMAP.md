@@ -16,15 +16,21 @@ what is planned or under consideration, roughly in priority order.
   macOS cannot read either as a package Payload.
 - **Apple's roots embedded**: `verify` chains to G2, G3 and Platform
   without a system trust store.
+- **`pkgbuild` and `productbuild` parity**: every option either implemented
+  or recorded as a non-goal, with the `PackageInfo` and `Distribution`
+  documents compared byte for byte against Apple's own output.
 
 ## Near term
 
-- **`productbuild` parity**: `--product` (the pre-install requirements
-  property list), `--synthesize`, `--package-path`, `--scripts`,
-  `--plugins`, `--ui`, and the one-step `--component`, `--root` and
-  `--content` modes.
 - **`pkgutil` parity**: `flatten`, the inverse of `expand`, and listing
   filters.
+- **`notarytool` parity**: `.dmg` and `.zip` submissions, webhooks,
+  credential profiles, and multipart upload for anything over 5 GiB.
+- **`stapler` parity**: `.app` bundles and `.dmg` images. Disk images come
+  from `deploymenttheory/go-apfs-v2` rather than a second implementation
+  here.
+- **Revocation checking** in `verify`, which `pkgutil --check-signature`
+  does and we do not.
 
 ## Under consideration
 

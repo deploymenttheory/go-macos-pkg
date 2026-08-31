@@ -327,6 +327,7 @@ This is the form to distribute and the form notarization expects.
 | `--content DIR` | Package a directory's contents as their own component, for in-app content. |
 | `--component BUNDLE[:INSTALL_PATH]` | Package a bundle as its own component, reading its identity from `Info.plist`. Repeatable. |
 | `--component-compression MODE` | Payload container for what `--component` builds. A package given with `--package` keeps whatever container it was built with, which is productbuild's limit too. |
+| `--large-payload` | Build the components here with the format that carries files of 8 GiB and over. |
 | `--distribution FILE` | Use this Distribution instead of synthesising one, naming its packages by file name. |
 | `--package-path DIR` | Where to look for the packages a `--distribution` names. Repeatable; the working directory is searched too. |
 | `--synthesize` | Write the synthesised Distribution to the output path instead of building an archive. |
@@ -396,6 +397,12 @@ rather than after the archive, and gives it version `0` unless it can read
 one: `--component` takes the identifier, the version and the title from the
 bundle's `Info.plist`, and records the bundle's details in the Distribution
 so the Installer can version check without opening the payload.
+
+**Large payloads.** Only macOS 12 and later can read one, so a product
+carrying such a component requires it: the synthesised Distribution gets an
+`allowed-os-versions` floor of `12.0.0`. That happens whether the format
+was asked for with `--large-payload` or the component simply arrived with
+one already. A version you asked for that is higher stands alone.
 
 **On `--ui`.** It renames as well as labels. The top choice takes the
 interface's own name instead of `default`, and every package's choice and

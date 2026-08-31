@@ -78,9 +78,10 @@ func ParseProductRequirements(data []byte) (*ProductRequirements, error) {
 // allowed-os-versions, required-bundles, ram and required-graphics are not.
 //
 // minOSVersion covers --min-os-version, which productbuild has no flag for
-// and which reaches the same allowed-os-versions element.
-func (r *ProductRequirements) MinSpecVersion(minOSVersion string) string {
-	if minOSVersion != "" {
+// and which reaches the same allowed-os-versions element. payloadFloor is
+// the version a large payload forces, which reaches it too.
+func (r *ProductRequirements) MinSpecVersion(minOSVersion, payloadFloor string) string {
+	if minOSVersion != "" || payloadFloor != "" {
 		return "2"
 	}
 	if r == nil {
@@ -123,16 +124,25 @@ func (r *ProductRequirements) DomainsElement() string {
 // requirement is added afterwards, so it lands after the bundles, and where
 // there are no bundles it lands in a volume-check of its own at the very
 // end of the document. Both are productbuild's placements.
-func (r *ProductRequirements) VolumeCheckElement(minOSVersion string) (main, trailing string) {
-	declared := allowedOSVersions(r.osList(minOSVersion))
-	implied := ""
+func (r *ProductRequirements) VolumeCheckElement(minOSVersion, payloadFloor string) (main, trailing string) {
+	declared := allowedOSVersions(r.osList(minOSVersion, payloadFloor))
+	implied, trailingImplied := "", false
 	if len(declared) == 0 {
-		implied = r.versionFloor()
+		implied = payloadFloor
+		// A floor the payload forces is part of the document proper. One
+		// only a graphics requirement implies is written afterwards.
+		if floor := r.versionFloor(); floor != "" && compareVersions(floor, implied) > 0 {
+			implied, trailingImplied = floor, true
+		}
 	}
 	hasBundles := r != nil && len(r.Bundle) > 0
 
-	if implied != "" && !hasBundles {
+	if implied != "" && trailingImplied && !hasBundles {
 		return "", wrapVolumeCheck(osVersionLines([]osRange{{Min: implied}}))
+	}
+	if implied != "" && !trailingImplied {
+		declared = []osRange{{Min: implied}}
+		implied = ""
 	}
 
 	var body strings.Builder
@@ -279,7 +289,7 @@ func (r *ProductRequirements) versionFloor() string {
 // A version below the floor is dropped rather than raised: asking for
 // 10.13 and 12.0 with a Metal requirement leaves 12.0 alone and drops
 // 10.13 entirely, because there is no 10.13 that could run the check.
-func (r *ProductRequirements) osList(minOSVersion string) []string {
+func (r *ProductRequirements) osList(minOSVersion, payloadFloor string) []string {
 	declared := minOSVersion
 	var versions []string
 	switch {
@@ -289,6 +299,9 @@ func (r *ProductRequirements) osList(minOSVersion string) []string {
 		versions = []string{declared}
 	}
 	floor := r.versionFloor()
+	if payloadFloor != "" && (floor == "" || compareVersions(payloadFloor, floor) > 0) {
+		floor = payloadFloor
+	}
 	if floor == "" {
 		return versions
 	}

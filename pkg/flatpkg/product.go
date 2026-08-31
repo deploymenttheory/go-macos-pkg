@@ -46,6 +46,13 @@ type ProductOptions struct {
 	// Components are bundles to package as components and embed, as
 	// productbuild --component does.
 	Components []ProductComponent
+	// LargePayload builds the components from Root, Content and Components
+	// with the payload format that carries files of 8 GiB and over.
+	//
+	// Embedding a component that already uses it has the same effect on
+	// the Distribution as asking for it here: only macOS 12 and later can
+	// read one, so the synthesised document says so.
+	LargePayload bool
 	// ComponentCompression is the payload container for the components
 	// built from Components. productbuild applies it to --component alone,
 	// and says so: to choose a container for a package given with
@@ -159,9 +166,18 @@ func BuildProduct(o ProductOptions, out io.Writer) (*ProductResult, error) {
 		}
 		refs = append(refs, r)
 	}
+	// Only macOS 12 and later reads a large payload, so a product holding
+	// one says so whether or not this build asked for the format.
+	payloadFloor := ""
+	for _, c := range components {
+		if info := c.pkg.Components[0].Info; info.Payload != nil && info.Payload.LargeSegmented != "" {
+			payloadFloor = LargePayloadMinOSVersion
+		}
+	}
+
 	dist := o.Distribution
 	if dist == nil {
-		dist = synthesiseDistribution(o, refs, true)
+		dist = synthesiseDistribution(o, refs, true, payloadFloor)
 	} else {
 		// A distribution written for productbuild names its packages as
 		// files beside it; embedding rewrites those references to name
@@ -362,7 +378,7 @@ type synthRef struct {
 // Two attributes are deliberately absent because productbuild does not write
 // them either: auth, which every component's PackageInfo carries but which
 // never reaches the Distribution, and a trailing newline.
-func synthesiseDistribution(o ProductOptions, refs []synthRef, embedded bool) []byte {
+func synthesiseDistribution(o ProductOptions, refs []synthRef, embedded bool, payloadFloor string) []byte {
 	var b strings.Builder
 	attr := func(v string) string { return `"` + xmlEscape(v) + `"` }
 
@@ -380,7 +396,7 @@ func synthesiseDistribution(o ProductOptions, refs []synthRef, embedded bool) []
 	// --distribution path and is handled in embedDistribution. A document
 	// productbuild synthesises straight into an archive does not carry it.
 	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>` + "\n")
-	fmt.Fprintf(&b, "<installer-gui-script minSpecVersion=%s>\n", attr(o.Requirements.MinSpecVersion(o.MinOSVersion)))
+	fmt.Fprintf(&b, "<installer-gui-script minSpecVersion=%s>\n", attr(o.Requirements.MinSpecVersion(o.MinOSVersion, payloadFloor)))
 	// The stubs productbuild writes ahead of <options>, one per package.
 	// Embedding fills each one in with a bundle-version element.
 	for _, r := range refs {
@@ -446,7 +462,7 @@ func synthesiseDistribution(o ProductOptions, refs []synthRef, embedded bool) []
 	// productbuild's order: domains, then what the volume must be, then
 	// what the machine must have.
 	b.WriteString(o.Requirements.DomainsElement())
-	volumeCheck, trailingVolumeCheck := o.Requirements.VolumeCheckElement(o.MinOSVersion)
+	volumeCheck, trailingVolumeCheck := o.Requirements.VolumeCheckElement(o.MinOSVersion, payloadFloor)
 	b.WriteString(volumeCheck)
 	b.WriteString(o.Requirements.InstallationCheckElement())
 
@@ -538,7 +554,7 @@ func SynthesizeDistribution(o ProductOptions) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return synthesiseDistribution(o, refs, false), nil
+	return synthesiseDistribution(o, refs, false, ""), nil
 }
 
 // synthRefsFor reads the identity of each component package.
@@ -918,6 +934,8 @@ func buildInlineComponents(o *ProductOptions, archiveTime time.Time) (paths []st
 			Identifier:      name,
 			Version:         "0",
 			InstallLocation: m.installLocation,
+			LargePayload:    o.LargePayload,
+			MinOSVersion:    largePayloadMinOS(o.LargePayload),
 		}, name+".pkg", loc); err != nil {
 			return nil, nil, cleanup, err
 		}
@@ -953,9 +971,25 @@ func buildInlineComponents(o *ProductOptions, archiveTime time.Time) (paths []st
 			Version:         id.Version,
 			InstallLocation: c.InstallPath,
 			Compression:     o.ComponentCompression,
+			LargePayload:    o.LargePayload,
+			MinOSVersion:    largePayloadMinOS(o.LargePayload),
 		}, id.Identifier+".pkg", loc); err != nil {
 			return nil, nil, cleanup, err
 		}
 	}
 	return paths, locations, cleanup, nil
+}
+
+// LargePayloadMinOSVersion is the version a product holding a large payload
+// requires. productbuild spells it with all three components, unlike the
+// two-part versions it writes elsewhere.
+const LargePayloadMinOSVersion = "12.0.0"
+
+// largePayloadMinOS is the minimum version a component built with a large
+// payload needs, which BuildComponent insists on.
+func largePayloadMinOS(large bool) string {
+	if large {
+		return LargePayloadMinOSVersion
+	}
+	return ""
 }
