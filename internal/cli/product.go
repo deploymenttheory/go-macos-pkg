@@ -29,7 +29,9 @@ var (
 	productRootInstall  string
 	productContent      string
 	productComponents   []string
-	productPlugins      string
+
+	productComponentCompression string
+	productPlugins              string
 )
 
 var productCmd = &cobra.Command{
@@ -78,6 +80,7 @@ func init() {
 	f.StringVar(&productRootInstall, "root-install-path", "", "default install location for --root; productbuild spells this as a second argument to --root")
 	f.StringVar(&productContent, "content", "", "directory whose contents are added as their own component package, for in-app content")
 	f.StringArrayVar(&productComponents, "component", nil, "bundle to add as its own component package; repeatable, and PATH:INSTALL_PATH gives it a default install location")
+	f.StringVar(&productComponentCompression, "component-compression", "", "payload container for the components built by --component: legacy or gzip (default), none for no compression at all, or pbzx, lzfse or lzbitmap. A package given with --package keeps whatever container it was built with")
 
 	// The Distribution: the document the Installer runs to decide what to
 	// show and what to install. Supply one, or shape the synthesised one.
@@ -135,6 +138,13 @@ func runProduct(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	componentCompression, err := flatpkg.ParseCompression(productComponentCompression)
+	if err != nil {
+		return usageErrorf("--component-compression: %v", err)
+	}
+	if productComponentCompression != "" && len(inlineComponents) == 0 {
+		return usageErrorf("--component-compression applies to the components --component builds; a package given with --package keeps the container it was built with")
+	}
 	if len(productPackages) == 0 && productRoot == "" && productContent == "" && len(inlineComponents) == 0 {
 		return usageErrorf("at least one --package, --root, --content or --component is required (or a --distribution that names the packages)")
 	}
@@ -143,25 +153,26 @@ func runProduct(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	o := flatpkg.ProductOptions{
-		Output:           productOutput,
-		GeneratorVersion: "go-macos-pkg " + tools.Version(),
-		Root:             productRoot,
-		RootInstallPath:  productRootInstall,
-		Content:          productContent,
-		Components:       inlineComponents,
-		Requirements:     requirements,
-		Packages:         productPackages,
-		Resources:        productResources,
-		Scripts:          productScripts,
-		Plugins:          productPlugins,
-		UI:               productUI,
-		Title:            productTitle,
-		MinOSVersion:     productMinOS,
-		ProductID:        productID,
-		ProductVersion:   productVersion,
-		Epoch:            opts.SourceDateEpoch,
-		TempDir:          opts.TempDir,
-		Progress:         func(p string) { verbosef("packaged %s", p) },
+		Output:               productOutput,
+		GeneratorVersion:     "go-macos-pkg " + tools.Version(),
+		Root:                 productRoot,
+		RootInstallPath:      productRootInstall,
+		Content:              productContent,
+		Components:           inlineComponents,
+		ComponentCompression: componentCompression,
+		Requirements:         requirements,
+		Packages:             productPackages,
+		Resources:            productResources,
+		Scripts:              productScripts,
+		Plugins:              productPlugins,
+		UI:                   productUI,
+		Title:                productTitle,
+		MinOSVersion:         productMinOS,
+		ProductID:            productID,
+		ProductVersion:       productVersion,
+		Epoch:                opts.SourceDateEpoch,
+		TempDir:              opts.TempDir,
+		Progress:             func(p string) { verbosef("packaged %s", p) },
 	}
 	if productArchs != "" {
 		for _, a := range strings.Split(productArchs, ",") {

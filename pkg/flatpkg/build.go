@@ -106,9 +106,14 @@ const (
 	// The acceptance suite pins that.
 	CompressionLZFSE
 	CompressionLZBitmap
+	// CompressionNone stores the cpio with no container at all, which is
+	// what productbuild --component-compression none writes. It suits a
+	// payload that is already compressed, where a second pass buys little
+	// and costs installation time.
+	CompressionNone
 )
 
-// ParseCompression parses gzip, pbzx, latest, lzfse or lzbitmap.
+// ParseCompression parses gzip, none, pbzx, latest, lzfse or lzbitmap.
 //
 // The pbz* family also has pbz4 (Apple-framed LZ4) and pbzz (zlib), and
 // pkg/pbzx writes both: Apple's own aa reads what we produce. They are
@@ -127,6 +132,8 @@ func ParseCompression(s string) (Compression, error) {
 		return CompressionLZFSE, nil
 	case "lzbitmap", "pbzb":
 		return CompressionLZBitmap, nil
+	case "none":
+		return CompressionNone, nil
 	case "lz4", "pbz4", "zlib", "pbzz":
 		return 0, fmt.Errorf("compression %q writes a payload macOS cannot read: pkgutil refuses a pbz4 or pbzz Payload, so the package would not install (pkg/pbzx writes the container itself, if you need one outside a package)", s)
 	}
@@ -141,6 +148,8 @@ func (c Compression) String() string {
 		return "lzfse"
 	case CompressionLZBitmap:
 		return "lzbitmap"
+	case CompressionNone:
+		return "none"
 	}
 	return "gzip"
 }
@@ -163,6 +172,9 @@ func (c Compression) Algorithm() (pbzx.Algorithm, bool) {
 func (c Compression) Encoding() PayloadEncoding {
 	if a, ok := c.Algorithm(); ok {
 		return pbzEncoding(a)
+	}
+	if c == CompressionNone {
+		return PayloadCPIO
 	}
 	return PayloadGzip
 }
@@ -1168,6 +1180,12 @@ func permBits(fi os.FileInfo, rel string, o ComponentOptions, def uint32) uint32
 	return perm
 }
 
+// nopWriteCloser lets an uncompressed payload share the path a compressed
+// one takes, without the container closing the file underneath it.
+type nopWriteCloser struct{ io.Writer }
+
+func (nopWriteCloser) Close() error { return nil }
+
 // writePayloadAndBom streams the entries into an odc cpio inside the
 // chosen container and builds the bill of materials alongside.
 func writePayloadAndBom(entries []payloadEntry, payloadPath, bomPath string, compression Compression, blockSize uint64, progress func(string)) error {
@@ -1177,9 +1195,14 @@ func writePayloadAndBom(entries []payloadEntry, payloadPath, bomPath string, com
 	}
 	defer pf.Close()
 	var container io.WriteCloser
-	if algo, ok := compression.Algorithm(); ok {
+	switch algo, ok := compression.Algorithm(); {
+	case ok:
 		container, err = pbzx.NewWriter(pf, algo, blockSize)
-	} else {
+	case compression == CompressionNone:
+		// The cpio is the payload. Closing it must not close the file,
+		// which this function closes itself.
+		container = nopWriteCloser{pf}
+	default:
 		container, err = gzip.NewWriterLevel(pf, gzip.DefaultCompression)
 	}
 	if err != nil {

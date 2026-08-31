@@ -1225,3 +1225,79 @@ func sortedXarEntries(t *testing.T, pkg string) []string {
 	sort.Strings(e)
 	return e
 }
+
+// TestUncompressedPayload covers the container productbuild
+// --component-compression none writes: the cpio stored as the payload with
+// nothing wrapped round it, which suits content that is already compressed.
+func TestUncompressedPayload(t *testing.T) {
+	requireTools(t, "pkgbuild", "productbuild", "pkgutil", "xar")
+	base := t.TempDir()
+	app := filepath.Join(base, "App.app")
+	writeFile(t, filepath.Join(app, "Contents", "Info.plist"), infoPlist("com.example.App", "5.1", "510"), 0o644)
+	writeFile(t, filepath.Join(app, "Contents", "MacOS", "App"), "#!/bin/sh\n", 0o755)
+	stampTree(t, app)
+
+	payloadOf := func(pkg string) []byte {
+		return xarEntry(t, pkg, "com.example.App.pkg/Payload")
+	}
+
+	// The two containers, each built both ways.
+	for _, tc := range []struct {
+		mode  string
+		magic []byte
+		what  string
+	}{
+		{"none", []byte("070707"), "an odc cpio, stored as it stands"},
+		{"legacy", []byte{0x1f, 0x8b}, "a gzip cpio"},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			work := t.TempDir()
+			ours := filepath.Join(work, "ours.pkg")
+			theirs := filepath.Join(work, "theirs.pkg")
+			mustRun(t, "product", ours, "--component", app+":/Applications",
+				"--component-compression", tc.mode, "--source-date-epoch", epoch)
+			runIn(t, base, "productbuild", "--quiet", "--component", app, "/Applications",
+				"--component-compression", tc.mode, theirs)
+
+			mine := payloadOf(ours)
+			require.GreaterOrEqual(t, len(mine), len(tc.magic))
+			assert.Equalf(t, tc.magic, mine[:len(tc.magic)], "the payload should be %s", tc.what)
+			assert.Equal(t, payloadOf(theirs)[:len(tc.magic)], mine[:len(tc.magic)],
+				"productbuild should have chosen the same container")
+
+			// Apple's own reader takes ours either way.
+			assert.Equal(t, payloadPaths(t, theirs), payloadPaths(t, ours))
+		})
+	}
+	attest(t, "uncompressed and gzip payloads both match productbuild's choice of container")
+}
+
+// TestUncompressedBuildPayload covers the same container from build, where
+// it is spelled --compression none.
+func TestUncompressedBuildPayload(t *testing.T) {
+	requireTools(t, "pkgutil", "xar")
+	root, _ := sourceTree(t)
+	stampTree(t, root)
+
+	out := filepath.Join(t.TempDir(), "out.pkg")
+	mustRun(t, "build", root, out, "--identifier", "com.deploymenttheory.raw",
+		"--version", "1.0", "--compression", "none", "--source-date-epoch", epoch)
+
+	payload := xarEntry(t, out, "Payload")
+	assert.Equal(t, []byte("070707"), payload[:6], "the payload should be a bare odc cpio")
+	// pkgutil reads it, which is the point: an uncompressed payload is
+	// still a payload.
+	assert.NotEmpty(t, payloadPaths(t, out))
+}
+
+// TestComponentCompressionNeedsAComponent pins productbuild's own limit:
+// the flag chooses a container for the components it builds, and cannot
+// reach into a package that was built elsewhere.
+func TestComponentCompressionNeedsAComponent(t *testing.T) {
+	requireTools(t, "pkgbuild")
+	first, _, work := twoComponents(t)
+	_, stderr, code := run(t, "product", filepath.Join(work, "no.pkg"),
+		"--package", first, "--component-compression", "none")
+	assert.Equal(t, 2, code)
+	assert.Contains(t, stderr, "--component-compression applies to the components --component builds")
+}

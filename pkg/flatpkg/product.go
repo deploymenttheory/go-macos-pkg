@@ -46,6 +46,11 @@ type ProductOptions struct {
 	// Components are bundles to package as components and embed, as
 	// productbuild --component does.
 	Components []ProductComponent
+	// ComponentCompression is the payload container for the components
+	// built from Components. productbuild applies it to --component alone,
+	// and says so: to choose a container for a package given with
+	// --package, build that package with the container you want.
+	ComponentCompression Compression
 	// UI names the interface a synthesised choices-outline is for, as
 	// productbuild --ui does. "mas" marks an outline meant for the Mac App
 	// Store. A distribution may carry several outlines and pick between
@@ -947,6 +952,7 @@ func buildInlineComponents(o *ProductOptions, archiveTime time.Time) (paths []st
 			Identifier:      id.Identifier,
 			Version:         id.Version,
 			InstallLocation: c.InstallPath,
+			Compression:     o.ComponentCompression,
 		}, id.Identifier+".pkg", loc); err != nil {
 			return nil, nil, cleanup, err
 		}

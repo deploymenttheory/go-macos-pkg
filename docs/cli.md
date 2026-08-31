@@ -225,7 +225,7 @@ manifest supplies them.
 | `--filter RE` | the defaults below | Payload paths to leave out, as a regular expression on `./path`. Repeatable. Naming any filter replaces the defaults rather than adding to them, as pkgbuild does. |
 | `--exclude RE` | none | An alias for `--filter`. |
 | `--executable RE` | none | Paths to mark executable, for hosts with no execute bit. Repeatable, and the reason a Windows build can produce a working package. |
-| `--compression gzip\|pbzx\|latest\|lzfse\|lzbitmap` | `gzip` | The payload container. See below. |
+| `--compression gzip\|none\|pbzx\|latest\|lzfse\|lzbitmap` | `gzip` | The payload container. See below. |
 | `--pbzx-block-size N` | 16 MiB | Block size for any `pbz*` container. The default is pkgbuild's. |
 | `--xattrs fs\|none` | `fs` | Whether to read extended attributes from the tree, as pkgbuild does. |
 | `--exclude-xattr RE` | none | Attribute names to drop. Repeatable. Use it for host bookkeeping such as `com.apple.provenance`. |
@@ -308,7 +308,9 @@ forward onto the fresh list.
 
 **Choosing a compression.** `gzip` is pkgbuild's default and the only
 container every macOS can install, so it is the right answer unless you
-have a reason. `pbzx` (which pkgbuild spells `latest`) is smaller but
+have a reason. `none` stores the cpio as it stands, which is worth it only
+when the payload is already compressed and the second pass would buy little
+while costing installation time. `pbzx` (which pkgbuild spells `latest`) is smaller but
 needs macOS 12. `lzfse` and `lzbitmap` write containers macOS reads but
 pkgbuild never writes. The details are in
 [`formats/payload.md`](formats/payload.md).
@@ -324,6 +326,7 @@ This is the form to distribute and the form notarization expects.
 | `--root DIR`, `--root-install-path PATH` | Package a directory tree as its own component. productbuild spells the install path as a second argument to `--root`. |
 | `--content DIR` | Package a directory's contents as their own component, for in-app content. |
 | `--component BUNDLE[:INSTALL_PATH]` | Package a bundle as its own component, reading its identity from `Info.plist`. Repeatable. |
+| `--component-compression MODE` | Payload container for what `--component` builds. A package given with `--package` keeps whatever container it was built with, which is productbuild's limit too. |
 | `--distribution FILE` | Use this Distribution instead of synthesising one, naming its packages by file name. |
 | `--package-path DIR` | Where to look for the packages a `--distribution` names. Repeatable; the working directory is searched too. |
 | `--synthesize` | Write the synthesised Distribution to the output path instead of building an archive. |
