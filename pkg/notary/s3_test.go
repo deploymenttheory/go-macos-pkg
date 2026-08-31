@@ -249,17 +249,18 @@ func TestS3UploaderAbortsAFailedUpload(t *testing.T) {
 	}
 }
 
-// TestS3UploaderAccelerateEndpoint pins which host each setting reaches.
-//
-// Acceleration is the default: Apple's own documented example builds its S3
-// client with use_accelerate_endpoint: True, which is as good evidence as
-// there is that the bucket allows it.
-func TestS3UploaderAccelerateEndpoint(t *testing.T) {
+// TestS3UploaderUsesTheAccelerateEndpoint pins the host every upload goes
+// to. Apple's own documented example asks for transfer acceleration, so
+// there is no setting: the endpoint is the endpoint.
+func TestS3UploaderUsesTheAccelerateEndpoint(t *testing.T) {
 	creds := S3Credentials{Bucket: "bucket", Object: "key"}
 	if got := (&S3Uploader{}).targetURL(creds); got != "https://bucket.s3-accelerate.amazonaws.com/key" {
-		t.Errorf("default endpoint = %s, want the accelerated one", got)
+		t.Errorf("endpoint = %s", got)
 	}
-	if got := (&S3Uploader{NoAccelerate: true}).targetURL(creds); got != "https://bucket.s3.us-west-2.amazonaws.com/key" {
-		t.Errorf("regional endpoint = %s", got)
+	// A test endpoint carries the bucket in the path, since it has no
+	// bucket in its host.
+	u := &S3Uploader{Endpoint: "http://127.0.0.1:1"}
+	if got := u.targetURL(creds); got != "http://127.0.0.1:1/bucket/key" {
+		t.Errorf("test endpoint = %s", got)
 	}
 }

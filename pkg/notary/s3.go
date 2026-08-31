@@ -44,6 +44,11 @@ const minPartSize = 5 << 20
 
 // accelerateHost is S3's transfer acceleration endpoint, which routes the
 // upload over Amazon's edge network rather than straight to the region.
+//
+// Every upload uses it, and there is no option not to. Apple's own
+// documented example asks for it, building its S3 client with
+// use_accelerate_endpoint: True, and notarytool turns it on as well. A
+// setting whose right answer is always the same is a constant.
 const accelerateHost = ".s3-accelerate.amazonaws.com"
 
 // S3Credentials are the temporary credentials a submission returns.
@@ -67,16 +72,6 @@ type S3Uploader struct {
 	Endpoint string
 	// Now overrides the clock (tests).
 	Now func() time.Time
-	// NoAccelerate sends the upload straight to the region instead of
-	// through S3 transfer acceleration.
-	//
-	// Acceleration is the default because Apple's own documented example
-	// asks for it: the sample in "Submitting software for notarization
-	// over the web" builds its S3 client with
-	// use_accelerate_endpoint: True, and notarytool turns it on too. Turn
-	// it off where the edge endpoint is unreachable, on a network that
-	// allows the regional host and not that one.
-	NoAccelerate bool
 	// PartSize is how much each part of a split upload carries. Zero
 	// means DefaultPartSize.
 	PartSize int64
@@ -304,18 +299,14 @@ func hmacSHA256(key []byte, data string) []byte {
 // targetURL is where the object goes.
 //
 // A real upload uses a virtual-hosted URL, where the bucket is part of the
-// host: either the regional endpoint or, with acceleration, Amazon's edge
-// one. A test endpoint has no bucket in its host, so the bucket goes in the
-// path instead.
+// host: S3's transfer acceleration endpoint, for the reason accelerateHost
+// gives. A test endpoint has no bucket in its host, so the bucket goes in
+// the path instead.
 func (u *S3Uploader) targetURL(creds S3Credentials) string {
 	if u.Endpoint != "" {
 		return u.Endpoint + "/" + creds.Bucket + "/" + escapePath(creds.Object)
 	}
-	host := creds.Bucket + accelerateHost
-	if u.NoAccelerate {
-		host = creds.Bucket + ".s3." + S3Region + ".amazonaws.com"
-	}
-	return "https://" + host + "/" + escapePath(creds.Object)
+	return "https://" + creds.Bucket + accelerateHost + "/" + escapePath(creds.Object)
 }
 
 // partSize is how much of the file each part carries.

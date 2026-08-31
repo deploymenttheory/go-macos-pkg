@@ -122,7 +122,7 @@ is S3's limit for one request, goes up in parts, and a failed upload is
 aborted rather than left incomplete in Apple's bucket. `--webhook` asks
 Apple to post the verdict rather than being polled for it. Uploads go through S3
 transfer acceleration, as `notarytool` and Apple's own documented example
-both do; `--no-s3-acceleration` sends them to the region instead. `notarize store-credentials`
+both do, and there is no setting to turn it off. `notarize store-credentials`
 remembers a set of credentials under a name, as `notarytool
 store-credentials` does, but writes a 0600 file rather than a Keychain item
 and stores the path to the `.p8` rather than a copy of it: one copy of a

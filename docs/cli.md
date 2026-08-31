@@ -523,7 +523,6 @@ optionally wait for the verdict and staple the ticket.
 | `--force` | off | Submit a file without checking it first. |
 | `-p, --profile NAME` | none | Credentials stored earlier under this name. |
 | `--webhook URL` | none | A public URL for Apple to post the verdict to when notarization finishes, so a job need not sit and poll. |
-| `--no-s3-acceleration` | off | Send the upload straight to the region instead of through S3 transfer acceleration. |
 
 **What can be submitted.** Apple's service takes a flat package, a disk
 image or a zip archive. A package is opened and its signature checked
@@ -535,12 +534,11 @@ it first, which `notarize` says rather than letting the upload fail.
 
 `--force` skips the check entirely.
 
-**On acceleration.** Uploads go through S3 transfer acceleration by
-default, over Amazon's edge network rather than straight to the region.
-That is what `notarytool` does and what Apple's own documented example asks
-for, building its S3 client with `use_accelerate_endpoint: True`. Pass
-`--no-s3-acceleration` on a network that can reach the regional host but
-not the edge one.
+**On acceleration.** Uploads go through S3 transfer acceleration, over
+Amazon's edge network rather than straight to the region. There is no
+setting for it: Apple's own documented example asks for it, building its S3
+client with `use_accelerate_endpoint: True`, and `notarytool` turns it on
+too.
 
 **Large files.** There is no size limit. A file over 5 GiB, which is what
 S3 will take in one request, is uploaded in parts, and a failure aborts the
