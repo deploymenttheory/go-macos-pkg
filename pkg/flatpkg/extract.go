@@ -145,11 +145,20 @@ type ExtractResult struct {
 	// Mismatched lists files whose content did not match the bill of
 	// materials, when checksums were supplied.
 	Mismatched []string
+	// Unlisted lists regular files the payload carried that the bill of
+	// materials does not describe, and Absent the files it describes that
+	// the payload never delivered. Both are set only when checksums were
+	// supplied. A checksum can only be compared for a file named in both,
+	// so without these two a payload could deliver entirely different
+	// files and satisfy every comparison that was made.
+	Unlisted []string
+	Absent   []string
 }
 
 // Partial reports whether anything was skipped or failed verification.
 func (r *ExtractResult) Partial() bool {
-	return len(r.Skipped) > 0 || len(r.Mismatched) > 0
+	return len(r.Skipped) > 0 || len(r.Mismatched) > 0 ||
+		len(r.Unlisted) > 0 || len(r.Absent) > 0
 }
 
 // ExtractCPIO writes the entries of a cpio stream under dir. Entries are
@@ -186,6 +195,37 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 	autoXattrs := o.Xattrs == XattrDefault
 	// The first extracted path of each hard-link set, by cpio inode.
 	linked := map[uint64]string{}
+	// Which of the bill of materials' files the payload delivered. Only
+	// meaningful over a whole payload, so it is skipped when a pattern
+	// selects part of one.
+	var seen map[string]bool
+	if o.Checksums != nil && o.Pattern == nil {
+		seen = make(map[string]bool, len(o.Checksums))
+	}
+	// verify compares one extracted file against the bill of materials.
+	// A file the Bom does not name is recorded rather than passed over:
+	// silently skipping it is how a payload could deliver entirely
+	// different files and still satisfy every comparison that was made.
+	// Sidecars are exempt because pkgbuild records them with no checksum.
+	// sum is nil for a later member of a hard-link set, whose bytes are
+	// never read: it shares the first member's inode and content, and that
+	// member was compared when it was written.
+	verify := func(name string, sum *uint32) {
+		if o.Checksums == nil || appledouble.IsSidecarName(name) {
+			return
+		}
+		want, ok := o.Checksums[name]
+		if !ok {
+			res.Unlisted = append(res.Unlisted, name)
+			return
+		}
+		if seen != nil {
+			seen[name] = true
+		}
+		if sum != nil && *sum != want {
+			res.Mismatched = append(res.Mismatched, name)
+		}
+	}
 
 	for {
 		h, err := cr.Next()
@@ -226,9 +266,7 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 			if err != nil {
 				return res, fmt.Errorf("unable to write %s: %w", rel, err)
 			}
-			if want, ok := o.Checksums[h.Name]; ok && sum != want {
-				res.Mismatched = append(res.Mismatched, h.Name)
-			}
+			verify(h.Name, &sum)
 			res.Files++
 		case h.IsRegular() && !o.NoHardLinks && h.NLink > 1 && !appledouble.IsSidecarName(h.Name) && linked[h.Inode] != "":
 			// A later member of a hard-link set: link it to the first.
@@ -240,6 +278,7 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 				if _, err := io.Copy(io.Discard, cr); err != nil {
 					return res, fmt.Errorf("unable to read %s: %w", rel, err)
 				}
+				verify(h.Name, nil)
 				res.HardLinks++
 				res.Files++
 				break
@@ -249,9 +288,7 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 			if err != nil {
 				return res, fmt.Errorf("unable to write %s: %w", rel, err)
 			}
-			if want, ok := o.Checksums[h.Name]; ok && sum != want {
-				res.Mismatched = append(res.Mismatched, h.Name)
-			}
+			verify(h.Name, &sum)
 			res.Files++
 		case h.IsDir():
 			if rel != "." {
@@ -270,9 +307,7 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 			if err != nil {
 				return res, fmt.Errorf("unable to write %s: %w", rel, err)
 			}
-			if want, ok := o.Checksums[h.Name]; ok && sum != want {
-				res.Mismatched = append(res.Mismatched, h.Name)
-			}
+			verify(h.Name, &sum)
 			res.Files++
 			if h.NLink > 1 && !appledouble.IsSidecarName(h.Name) {
 				linked[h.Inode] = target
@@ -306,6 +341,17 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 			_ = root.Chtimes(dirTimes[i].path, dirTimes[i].t, dirTimes[i].t)
 		}
 	}
+	// Files the bill of materials describes that the payload never
+	// delivered. Sorted so the report is stable.
+	if seen != nil {
+		for name := range o.Checksums {
+			if !seen[name] {
+				res.Absent = append(res.Absent, name)
+			}
+		}
+		sort.Strings(res.Absent)
+	}
+	sort.Strings(res.Unlisted)
 	return res, nil
 }
 
