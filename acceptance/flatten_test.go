@@ -201,3 +201,84 @@ func scriptListing(t *testing.T, args []string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// TestListFilters checks the two halves of a listing against lsbom, which
+// can make the same split, and pins that they are halves: every entry is in
+// exactly one of them.
+func TestListFilters(t *testing.T) {
+	pkg, _ := fixture(t, "component-basic.pkg")
+
+	all := listPaths(t, pkg)
+	files := listPaths(t, pkg, "--only-files")
+	dirs := listPaths(t, pkg, "--only-dirs")
+
+	assert.Len(t, all, len(files)+len(dirs), "every entry should be a file or a directory, and not both")
+	assert.NotEmpty(t, files)
+	assert.NotEmpty(t, dirs)
+	for _, d := range dirs {
+		assert.NotContains(t, files, d)
+	}
+
+	// A regular expression narrows the listing to what it matches.
+	matched := listPaths(t, pkg, "--regexp", `bin/`)
+	assert.NotEmpty(t, matched)
+	for _, p := range matched {
+		assert.Contains(t, p, "bin/")
+	}
+
+	// Asking for both halves at once is a usage error rather than an
+	// empty listing, since it can only be a mistake.
+	_, stderr, code := run(t, "list", "--only-files", "--only-dirs", pkg)
+	assert.Equal(t, 2, code)
+	assert.Contains(t, stderr, "--only-files and --only-dirs")
+}
+
+// TestListDirsMatchLsbom compares the directory half against Apple's own
+// reader, which is the independent check.
+func TestListDirsMatchLsbom(t *testing.T) {
+	requireTools(t, "lsbom", "xar")
+	pkg, _ := fixture(t, "component-basic.pkg")
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "Bom"), xarEntry(t, pkg, "Bom"), 0o644))
+	theirs := nonEmptyLines(hostTool(t, "lsbom", "-d", "-p", "f", filepath.Join(dir, "Bom")))
+	sort.Strings(theirs)
+
+	ours := listPaths(t, pkg, "--only-dirs")
+	assert.Equal(t, theirs, ours)
+	attest(t, "--only-dirs agrees with lsbom -d on %d directories", len(ours))
+}
+
+// listPaths lists a package's payload paths, in a stable order.
+func listPaths(t *testing.T, pkg string, extra ...string) []string {
+	t.Helper()
+	args := append(append([]string{"-o", "json", "list"}, extra...), pkg)
+	var out []string
+	for _, l := range nonEmptyLines(mustRun(t, args...)) {
+		var e struct {
+			Path string `json:"path"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(l), &e))
+		out = append(out, e.Path)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// TestCatBomFeedsLsbom pins the documented stand-in for pkgutil --bom:
+// there is no command whose only job is to write the bill of materials to a
+// file, because cat already does it. Not with --raw, which would write the
+// gzip the entry is stored as.
+func TestCatBomFeedsLsbom(t *testing.T) {
+	requireTools(t, "lsbom", "xar")
+	pkg, _ := fixture(t, "component-basic.pkg")
+	dir := t.TempDir()
+
+	written := filepath.Join(dir, "Bom")
+	require.NoError(t, os.WriteFile(written, []byte(mustRun(t, "cat", pkg, "Bom")), 0o644))
+	extracted := filepath.Join(dir, "Bom-xar")
+	require.NoError(t, os.WriteFile(extracted, xarEntry(t, pkg, "Bom"), 0o644))
+
+	assert.Equal(t, hostTool(t, "lsbom", extracted), hostTool(t, "lsbom", written),
+		"lsbom should read what cat writes")
+}

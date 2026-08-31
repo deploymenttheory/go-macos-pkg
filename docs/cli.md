@@ -120,10 +120,25 @@ so it is fast on a multi-gigabyte package.
 | `--component NAME` | Only this component of a product archive, for example `foo.pkg`. |
 | `-l, --long` | Mode, uid/gid, size and modification time as well as the path. |
 | `--scripts` | List the Scripts archive entries instead of the payload. |
+| `--only-files` | Leave out directories. |
+| `--only-dirs` | Leave out files. |
+| `--regexp RE` | Only paths matching this regular expression. |
 
 Use `list` to answer "what does this install"; use `--archive` to answer
 "what is in the container", which is a different question and a common
 source of confusion.
+
+`--only-files` and `--only-dirs` are pkgutil's flags, where they narrow a
+receipt's listing; they mean the same here for a package that is not
+installed yet. `--regexp` is pkgutil's name too, though pkgutil matches
+package identifiers with it and this matches paths.
+
+**Getting a `Bom` out for `lsbom`.** `pkgutil --bom` writes the bill of
+materials to a temporary file so you can run `lsbom` on it. There is no
+separate command for that here, because `list` already prints what `lsbom`
+prints. To get the file itself, `cat` it:
+`macospkg cat Foo.pkg Bom > Bom && lsbom Bom`. Not `--raw`: that writes the
+entry's stored bytes, which for a `Bom` is the gzip it is stored as.
 
 ### `cat PKG ENTRY [--raw]` and `cat PKG --payload PATH`
 
