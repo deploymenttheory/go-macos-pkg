@@ -195,6 +195,13 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 	autoXattrs := o.Xattrs == XattrDefault
 	// The first extracted path of each hard-link set, by cpio inode.
 	linked := map[uint64]string{}
+	// Directories that are really symbolic links we wrote. A payload can
+	// name a link and then name entries beneath it, which would write
+	// through the link and out of the destination. os.Root refuses that,
+	// but it refuses it as a hard error, which would abandon the rest of
+	// a payload over one hostile entry. Tracking the links lets those
+	// entries be skipped and reported like any other unsafe path.
+	links := map[string]bool{}
 	// Which of the bill of materials' files the payload delivered. Only
 	// meaningful over a whole payload, so it is skipped when a pattern
 	// selects part of one.
@@ -247,6 +254,13 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 			res.Renamed = append(res.Renamed, Skip{Path: renamedFrom, Reason: "renamed to " + rel})
 		}
 		target := filepath.FromSlash(rel)
+		if parent := linkAncestor(links, rel); parent != "" {
+			res.Skipped = append(res.Skipped, Skip{
+				Path:   h.Name,
+				Reason: "would be written through the symbolic link " + parent,
+			})
+			continue
+		}
 
 		switch {
 		case h.IsRegular() && appledouble.IsSidecarName(h.Name) && xattrMode != XattrFile:
@@ -327,6 +341,7 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 				}
 				return res, fmt.Errorf("unable to create link %s: %w", rel, err)
 			}
+			links[rel] = true
 			res.Symlinks++
 		default:
 			res.Skipped = append(res.Skipped, Skip{Path: h.Name, Reason: fmt.Sprintf("%s entries are not extracted", typeName(h))})
@@ -356,6 +371,24 @@ func ExtractCPIO(cr *cpio.Reader, dir string, o ExtractOptions) (*ExtractResult,
 }
 
 var errSymlinkRefused = errors.New("host refused")
+
+// linkAncestor reports the nearest ancestor of rel that was extracted as a
+// symbolic link, or "" when none was. Writing under such a path follows the
+// link, which is how a payload reaches outside the directory it was given.
+func linkAncestor(links map[string]bool, rel string) string {
+	if len(links) == 0 {
+		return ""
+	}
+	for i := 0; i < len(rel); i++ {
+		if rel[i] != '/' {
+			continue
+		}
+		if prefix := rel[:i]; links[prefix] {
+			return prefix
+		}
+	}
+	return ""
+}
 
 // applySidecar reads a "._" entry and applies its attributes to the
 // entry's owner. It reports false, and the bytes it read, when the entry
