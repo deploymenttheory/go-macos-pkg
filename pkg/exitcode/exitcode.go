@@ -22,8 +22,8 @@ const (
 	// credentials Apple rejected.
 	Auth = 4
 	// Unsupported indicates the requested feature is not supported on this
-	// platform or for this package, for example an Apple Archive payload or
-	// preserving ownership on Windows.
+	// platform or for this package, for example a payload container macOS
+	// cannot install or preserving ownership on Windows.
 	Unsupported = 5
 	// Partial indicates the operation completed partially, for example an
 	// extraction in which some entries were skipped.

@@ -114,7 +114,7 @@ Distinct codes exist so a script can branch without parsing text.
 | 2 | usage error | A flag is wrong or missing. Not retryable. |
 | 3 | not a flat package | Missing, not a xar, or a xar with no `PackageInfo` or `Distribution`. |
 | 4 | credentials missing or rejected | A password, key or API key is absent or wrong. Not retryable without new secrets. |
-| 5 | unsupported | An Apple Archive payload, ownership on Windows, a non-RSA key. |
+| 5 | unsupported | A payload container macOS cannot install, ownership on Windows, a non-RSA key. |
 | 6 | partial result | Some entries were skipped. The output is usable but incomplete. |
 | 7 | signature or ticket check failed | Treat as a hard failure in a release job. |
 | 8 | notarization rejected | Apple refused the package. The log prints the issues. Not retryable unchanged. |
@@ -280,7 +280,7 @@ manifest supplies them.
 | `--install-location PATH` | Where the payload is installed. Left out of the document when unset, which the Installer reads as `/`. |
 | `--scripts DIR` | Directory of install scripts. `preinstall` and `postinstall` run as the package's own scripts; anything else is available for them to call. |
 | `--nopayload` | A scripts-only package with no payload. |
-| `--large-payload` | Name the payload entry `LargeSegmentedPayload`, for payloads holding files of 8 GiB or more. Needs `--min-os-version 12.0` or later. |
+| `--large-payload` | Carry files of 8 GiB or more. A file that size cannot be described by a cpio header, so it is written as consecutive 1 GiB segments under one path and the entry is named `LargeSegmentedPayload`. Smaller files are unaffected. Needs `--min-os-version 12.0` or later, since only macOS 12 reads it. |
 | `--component BUNDLE` | Package the named bundle rather than a directory. Repeatable. With exactly one, the identifier, version and install location are read out of its `Info.plist`. In this mode the first argument is the output path, not a source. |
 | `--prior PKG` | Take the identifier and install location from a previous build of the same package, and increment its version. |
 

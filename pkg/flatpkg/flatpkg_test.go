@@ -228,8 +228,6 @@ func TestSniffPayload(t *testing.T) {
 		{"pbzb\x00\x00", PayloadPBZB},
 		{"070707000", PayloadCPIO},
 		{"070701000", PayloadCPIO},
-		{"AA01\x00", PayloadAppleArchive},
-		{"YAA1\x00", PayloadAppleArchive},
 		{"nope", PayloadUnknown},
 	}
 	for _, tc := range cases {

@@ -70,8 +70,16 @@ gzip use, which is what bomutils documents.
 numberOfEntries u32, entries × 16 bytes`; `mkbom` writes one entry whose
 third word is the total size of all files. `HLIndex` (see below) carries one entry
 per path whose value is an empty 64-byte tree of its own; `VIndex` and
-`Size64` are empty trees, the latter holding sizes over 4 GiB keyed by
-path id when there are any.
+`Size64` are empty trees until they are needed. When a file is larger than
+the path record's 32-bit size field can hold, `Size64` carries its true
+size: a 4-byte key block holding the **block index of the path's record**,
+and an 8-byte value block holding the size, big-endian.
+
+The key is the record block, not the path id. `HLIndex` below is keyed the
+same way. Reading it as a path id yields nothing for the file that has an
+entry, so the truncated 32-bit size in the record stands and a 9 GiB file
+reports as 1 GiB, its size modulo 2^32. This was established by building a
+9 GiB payload with `pkgbuild` and comparing against `lsbom`.
 
 ## HLIndex and hard links
 

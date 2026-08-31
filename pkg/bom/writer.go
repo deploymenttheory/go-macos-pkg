@@ -287,7 +287,10 @@ func (b *Builder) Build(w io.Writer) error {
 	binary.BigEndian.PutUint32(vindex[4:], vTree)
 	vIdx := bw.add(vindex)
 
-	// Size64: sizes over 4 GiB, keyed by path id.
+	// Size64: sizes over 4 GiB, keyed by the entry's record block, the way
+	// HLIndex is keyed and the way pkgbuild writes it. Not by path id:
+	// lsbom resolves the key against the record, so a Bom keyed by id
+	// reads back with the truncated 32-bit size from the record itself.
 	var big []pathsEntry
 	for _, i := range order {
 		e := b.entries[i]
@@ -295,7 +298,7 @@ func (b *Builder) Build(w io.Writer) error {
 			val := make([]byte, 8)
 			binary.BigEndian.PutUint64(val, uint64(e.Size))
 			key := make([]byte, 4)
-			binary.BigEndian.PutUint32(key, e.ID)
+			binary.BigEndian.PutUint32(key, place[i].record)
 			big = append(big, pathsEntry{Index0: bw.add(val), Index1: bw.add(key)})
 		}
 	}

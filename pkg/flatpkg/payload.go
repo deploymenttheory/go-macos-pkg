@@ -5,10 +5,8 @@
 // reads) or a pbz* block-compression container (--compression latest,
 // which has meant pbzx (xz chunks) on every macOS from 12 to 26).
 // --large-payload keeps gzip but names the entry LargeSegmentedPayload.
-// Apple Archive is recognized so that an .aar handed to the tool is named
-// correctly; the Installer itself never reads it. Every pbz* container is
-// decoded, LZBITMAP included (see pkg/lzbitmap). The first bytes tell
-// them apart.
+// Every pbz* container is decoded, LZBITMAP included (see pkg/lzbitmap).
+// The first bytes tell them apart; anything else is unsupported.
 package flatpkg
 
 import (
@@ -31,15 +29,14 @@ type PayloadEncoding string
 // the container's algorithm letter: pbzx is xz, pbze LZFSE, pbz4 LZ4,
 // pbzz zlib, pbzb LZBITMAP.
 const (
-	PayloadGzip         PayloadEncoding = "gzip-cpio"
-	PayloadPBZX         PayloadEncoding = "pbzx-cpio"
-	PayloadPBZE         PayloadEncoding = "pbze-cpio"
-	PayloadPBZ4         PayloadEncoding = "pbz4-cpio"
-	PayloadPBZZ         PayloadEncoding = "pbzz-cpio"
-	PayloadPBZB         PayloadEncoding = "pbzb-cpio"
-	PayloadCPIO         PayloadEncoding = "cpio"
-	PayloadAppleArchive PayloadEncoding = "apple-archive"
-	PayloadUnknown      PayloadEncoding = "unknown"
+	PayloadGzip    PayloadEncoding = "gzip-cpio"
+	PayloadPBZX    PayloadEncoding = "pbzx-cpio"
+	PayloadPBZE    PayloadEncoding = "pbze-cpio"
+	PayloadPBZ4    PayloadEncoding = "pbz4-cpio"
+	PayloadPBZZ    PayloadEncoding = "pbzz-cpio"
+	PayloadPBZB    PayloadEncoding = "pbzb-cpio"
+	PayloadCPIO    PayloadEncoding = "cpio"
+	PayloadUnknown PayloadEncoding = "unknown"
 )
 
 // IsPBZ reports whether the encoding is one of the pbz* containers.
@@ -53,14 +50,11 @@ func pbzEncoding(a pbzx.Algorithm) PayloadEncoding {
 }
 
 // ErrUnsupportedPayload reports a payload container this tool cannot
-// decode: Apple Archive, which the Installer does not read either, and
-// anything unrecognized. Every pbz* container is decoded.
+// decode. Every container macOS will install is decoded, so in practice
+// this means a Payload no packaging tool produces.
 var ErrUnsupportedPayload = errors.New("flatpkg: unsupported payload encoding")
 
-var (
-	gzipMagic         = []byte{0x1f, 0x8b, 0x08}
-	appleArchiveMagic = [][]byte{[]byte("AA01"), []byte("YAA1"), []byte("AEA1")}
-)
+var gzipMagic = []byte{0x1f, 0x8b, 0x08}
 
 // SniffPayload identifies the container from the first bytes.
 func SniffPayload(head []byte) PayloadEncoding {
@@ -74,11 +68,6 @@ func SniffPayload(head []byte) PayloadEncoding {
 		bytes.HasPrefix(head, []byte(cpio.MagicNewc)),
 		bytes.HasPrefix(head, []byte(cpio.MagicNewcCRC)):
 		return PayloadCPIO
-	}
-	for _, m := range appleArchiveMagic {
-		if bytes.HasPrefix(head, m) {
-			return PayloadAppleArchive
-		}
 	}
 	return PayloadUnknown
 }
@@ -116,7 +105,7 @@ func sniffEntry(p *Package, path string) (PayloadEncoding, error) {
 }
 
 // OpenCPIO unwraps a Payload or Scripts stream to its cpio entries,
-// whatever container it is in. Apple Archive returns ErrUnsupportedPayload.
+// whatever container it is in.
 func OpenCPIO(r io.Reader) (*cpio.Reader, PayloadEncoding, error) {
 	br := bufio.NewReaderSize(r, 64<<10)
 	head, err := br.Peek(8)
@@ -145,14 +134,21 @@ func OpenCPIO(r io.Reader) (*cpio.Reader, PayloadEncoding, error) {
 		if err != nil {
 			return nil, enc, err
 		}
-		return cpio.NewReader(pr), enc, nil
+		return joined(cpio.NewReader(pr)), enc, nil
 	case PayloadCPIO:
-		return cpio.NewReader(br), enc, nil
-	case PayloadAppleArchive:
-		return nil, enc, fmt.Errorf("%w: Apple Archive (the Installer does not read it either)", ErrUnsupportedPayload)
+		return joined(cpio.NewReader(br)), enc, nil
 	default:
 		return nil, enc, fmt.Errorf("%w: unrecognized payload container", ErrUnsupportedPayload)
 	}
+}
+
+// joined turns on segment joining, so a file a --large-payload package
+// split across consecutive entries reads back as the one file it is. A
+// payload that carries no segments is unaffected, since the joining only
+// takes effect where two entries in a row share a name.
+func joined(cr *cpio.Reader) *cpio.Reader {
+	cr.JoinSegments(true)
+	return cr
 }
 
 // OpenPayloadCPIO opens the component's Payload as cpio entries.
