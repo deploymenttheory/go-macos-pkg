@@ -101,7 +101,8 @@ func Open(r io.ReaderAt, size int64) (*Reader, error) {
 	// TOC itself; trust it, but bound it, so a hostile TOC cannot make us
 	// read arbitrary file ranges as a digest.
 	if c := toc.Checksum; c != nil {
-		if c.Size < 0 || c.Size > 128 || c.Offset < 0 || x.heapOffset+c.Offset+c.Size > size {
+		heapSize := size - x.heapOffset
+		if c.Size < 0 || c.Size > 128 || c.Offset < 0 || c.Offset > heapSize || c.Size > heapSize-c.Offset {
 			return nil, fmt.Errorf("xar: table of contents checksum record is out of range")
 		}
 		x.storedDigest = make([]byte, c.Size)
@@ -250,8 +251,16 @@ func (x *Reader) HeapSection(offset, length int64) (*io.SectionReader, error) {
 }
 
 // heapSection returns a reader over a heap range, bounds-checked.
+//
+// The bound is expressed by subtraction rather than by adding the two
+// together. Both come from the table of contents, so both are chosen by
+// whoever made the file, and heapOffset+offset+length overflows int64 for
+// large values and wraps to a negative number that passes any upper-bound
+// test. Open has already established that heapOffset is within the file,
+// so heapSize below cannot be negative.
 func (x *Reader) heapSection(offset, length int64) (*io.SectionReader, error) {
-	if offset < 0 || length < 0 || x.heapOffset+offset+length > x.size {
+	heapSize := x.size - x.heapOffset
+	if offset < 0 || length < 0 || offset > heapSize || length > heapSize-offset {
 		return nil, fmt.Errorf("xar: entry data (offset %d, length %d) is outside the file", offset, length)
 	}
 	return io.NewSectionReader(x.r, x.heapOffset+offset, length), nil
