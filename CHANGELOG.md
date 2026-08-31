@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.4.0...v1.0.0) (2026-08-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** several flags are renamed or removed with no alias. build --exclude is gone, use --filter. sign --no-timestamp is gone, use --timestamp none (likewise --sign-no-timestamp). product --product-id and --product-version are now --identifier and --version. product --root-install-path is gone, use --root DIR:INSTALL_PATH. extract --pattern is now --regexp. expand/extract --hard-links=false is now --hard-links copy. notarize status and notarize list are now notarize info and notarize history. On notarize, --private-key and --issuer-id are now --key and --issuer; on build and product the same credentials are --notary-key, --notary-key-id, --notary-issuer and --notary-profile. In a build-info manifest the exclude key is now filter, and the old key is a loud error rather than a silent no-op.
+
+### Code Refactoring
+
+* **cli:** align flags, help text and docs with Apple's tools ([157f24a](https://github.com/deploymenttheory/go-macos-pkg/commit/157f24ac7cd77bb06abcd955738feb79789acf6e))
+
 ## [0.4.0](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.3.2...v0.4.0) (2026-08-31)
 
 
