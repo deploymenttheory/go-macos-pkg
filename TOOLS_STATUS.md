@@ -114,7 +114,11 @@ No keychain is used; the identity comes from a PKCS#12 or PEM files.
 ⁹ Validated against Google's Go installer (Apple-signed, notarized,
 stapled): the BER-encoded CMS Apple writes is normalised, Apple's critical
 marker extensions are accepted, and the chain reaches the built-in Apple
-Root CA. No revocation checking.
+Root CA. `--revocation` asks the responder the signing certificate names
+whether the authority has withdrawn it since, which chain verification
+cannot tell you and which `pkgutil --check-signature` consults too. It
+needs the network, so it happens only when asked for; a certificate naming
+no responder is reported as unchecked rather than as good.
 
 ¹⁰ The four notary API calls go through `deploymenttheory/go-sdk-appleservices`;
 the S3 upload, polling and log download are here. A file over 5 GiB, which

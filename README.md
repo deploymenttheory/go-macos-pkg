@@ -220,12 +220,14 @@ not to. The PKCS#12 password comes from `--p12-password-stdin`,
 `MACOSPKG_P12_PASSWORD` or `--p12-password`. A stapled ticket is removed,
 since re-signing invalidates it.
 
-### `verify PKG [--team-id ID] [--trust-anchors PEM] [--allow-untrusted] [--require-developer-id] [--require-stapled] [--online]`
+### `verify PKG [--team-id ID] [--trust-anchors PEM] [--allow-untrusted] [--require-developer-id] [--require-stapled] [--online] [--revocation]`
 
 `pkgutil --check-signature`, with every finding reported separately:
 digest, RSA, CMS, chain to Apple's roots (built in), team, timestamp,
-staple, and with `--online` whether Apple's ticket database has a ticket
-for this exact package. Exit 7 on any failure.
+staple, with `--online` whether Apple's ticket database has a ticket
+for this exact package, and with `--revocation` whether the authority has
+withdrawn the signing certificate since it was issued. Exit 7 on any
+failure.
 
 ### `notarize PKG [--wait] [--staple] [--timeout 30m] [--poll-interval 30s] [--log]`
 

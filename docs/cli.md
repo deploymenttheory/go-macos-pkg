@@ -498,12 +498,22 @@ timestamp and staple.
 | `--require-developer-id` | Fail unless the signer is a Developer ID Installer certificate. |
 | `--require-stapled` | Fail unless a notarization ticket is stapled. |
 | `--online` | Ask Apple whether this exact package was notarized. Needs network. |
+| `--revocation` | Ask the certificate authority whether the signing certificate has been withdrawn since it was issued. Needs network. |
 | `--trust-anchors PEM` | Trust these roots instead of Apple's. For testing with your own CA. |
 | `--allow-untrusted` | Report an untrusted chain without failing. |
 
 Exit 7 on any failure. The release-gate form is
-`macospkg verify --require-developer-id --require-stapled --online PKG`,
-which checks everything that matters before you ship.
+`macospkg verify --require-developer-id --require-stapled --online
+--revocation PKG`, which checks everything that matters before you ship.
+
+**On `--revocation`.** Verifying the chain says a certificate was validly
+issued and has not expired. It says nothing about whether the authority has
+since withdrawn it, which is what happens when a Developer ID key is lost
+or abused. `pkgutil --check-signature` notices, because Security.framework
+consults the responder; this did not until you ask it to.
+
+A certificate that names no responder is reported as unchecked rather than
+as good, and is not a failure: plenty of certificates carry none.
 
 ## Notarizing
 
