@@ -30,7 +30,7 @@ macOS leg additionally checks the result against Apple's own tools.
 | `sign` (RSA + CMS, Apple timestamp) | ✅⁸ | ✅⁸ | ✅⁸ |
 | `verify` (digest, signatures, chain to Apple's roots, timestamp, staple) | ✅⁹ | ✅⁹ | ✅⁹ |
 | `notarize` (submit, upload, wait, log) | ✅¹⁰ | ✅¹⁰ | ✅¹⁰ |
-| `staple`, `unstaple`, `verify --online` | ✅ | ✅ | ✅ |
+| `staple`, `unstaple`, `verify --online` | ✅¹³ | ✅¹³ | ✅¹³ |
 | `receipts` (pkgutil's receipt database, read only) | ✅¹² | ✅¹² | ✅¹² |
 
 ¹ The `Size64` tree, which records sizes over 4 GiB, is read on a
@@ -157,3 +157,9 @@ here is one `pkgutil` reports; 32 of its 123 on that machine. The writes,
 `--forget` and `--learn`, are a non-goal: both change what the system
 believes it installed, and neither belongs to a tool that is not the
 Installer.
+
+¹³ Flat packages only. `stapler` also staples `.app` bundles and UDIF disk
+images, which this does not: a bundle's ticket is keyed on the CDHash of
+its Mach-O code signature, which needs a reader this tool does not have,
+and a disk image is `go-apfs-v2`'s domain. The design for bundles is worked
+out and proven against a stapled application; see issue #30.
