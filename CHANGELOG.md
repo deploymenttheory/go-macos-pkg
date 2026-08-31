@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.4.0...v0.4.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* correct Size64 keying and large payload segmentation ([5d43ac3](https://github.com/deploymenttheory/go-macos-pkg/commit/5d43ac3f540fa8350b2dbca7c1103b0f37281366))
+* correct Size64 keying and large payload segmentation ([10bc850](https://github.com/deploymenttheory/go-macos-pkg/commit/10bc85083ac81f4c9b1317546fc8ed50456109cc))
+
 ## [0.4.0](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.3.2...v0.4.0) (2026-08-31)
 
 
