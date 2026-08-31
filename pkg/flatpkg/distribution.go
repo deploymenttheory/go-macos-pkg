@@ -2,7 +2,7 @@
 // runs to decide what to show and what to install.
 //
 // The document is parsed into a model for inspection, but the raw bytes are
-// kept alongside: a Distribution carries JavaScript, localisations and
+// kept alongside: a Distribution carries JavaScript, localizations and
 // elements this model does not enumerate, and everything that copies one
 // must copy it whole.
 package flatpkg
@@ -114,7 +114,7 @@ type OSVersion struct {
 }
 
 // ChoicesOutline is <choices-outline>: the tree of lines the Installer
-// shows on its customise pane.
+// shows on its customize pane.
 type ChoicesOutline struct {
 	Lines []OutlineLine `xml:"line"`
 }
@@ -210,7 +210,7 @@ func (d *Distribution) ChoiceIDs() []string {
 }
 
 // Marshal encodes the Distribution with an XML declaration and four-space
-// indentation, for documents this tool synthesises.
+// indentation, for documents this tool synthesizes.
 func (d *Distribution) Marshal() ([]byte, error) {
 	body, err := xml.MarshalIndent(d, "", "    ")
 	if err != nil {

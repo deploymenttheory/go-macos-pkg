@@ -27,7 +27,6 @@ var (
 	buildRelocatable        bool
 	buildNoBundleRelocation bool
 	buildPreserveXattr      bool
-	buildExclude            []string
 	buildFilter             []string
 	buildAnalyze            bool
 	buildComponentPlist     string
@@ -45,47 +44,66 @@ var (
 
 var buildCmd = &cobra.Command{
 	Use:   "build SRC [OUT.pkg]",
-	Short: "Build a component package from a directory",
-	Long: `Build a component package (what pkgbuild makes) from SRC, the directory
-whose contents are to be installed at --install-location.
+	Short: "Build a component package from a destination root",
+	Long: `Build a macOS Installer component package from on-disk files.
+
+A component package holds the payload to be installed, along with the scripts
+that run around the installation. It can be installed on its own, but it is
+usually incorporated into a product archive, together with a distribution and
+localized resources, by the product command.
+
+build has three modes:
+
+  1. Package a destination root. SRC is a directory tree whose entire contents
+     become the payload, installed at --install-location.
+
+  2. Package one or more bundles. --component names a bundle to package in
+     place of a source directory. With exactly one, the identifier, version
+     and install location are read from its Info.plist.
+
+  3. Write a template component property list (--analyze). Instead of a
+     package, build writes the bundles found under SRC and how the Installer
+     should treat each. Edit it and pass it back with --component-plist.
 
 SRC may instead be a project directory holding a build-info.yaml (or .json,
-.plist) in munkipkg's format next to payload/ and scripts/ directories; the
-manifest supplies identifier, version and the other options, and flags
-given here override it. --manifest names such a file explicitly.
+.plist) next to payload/ and scripts/ directories; the manifest supplies the
+identifier, version and the other options, and flags given here override it.
+--manifest names such a file explicitly. OUT.pkg may be omitted for a project
+whose manifest names the package; it is then written to the project's build/
+directory.
+
+--filter leaves paths out of the payload. Naming even one replaces the default
+filters (.svn, CVS, .DS_Store) rather than adding to them.
+
+--compression pbzx, also spelled latest, writes the payload as xz chunks
+instead of gzip: smaller, but only macOS 12 and later can install it, so the
+package's minimum system version is set to 12.0 unless a higher one is given.
+
+Extended attributes travel as "._" AppleDouble sidecar entries beside their
+owners, read from the tree on macOS (all of them) and Linux (user.*), and from
+the "._" files an extraction leaves on a host that cannot store them. Whatever
+the tree carries is packaged again by default, so unpacking a package and
+building it back reproduces it. A manifest's file_xattrs overrides that per
+file, or per folder with a trailing "/", and can replace or strip what a path
+carries. A macOS host stamps com.apple.provenance on files it creates;
+--exclude-xattr '^com\.apple\.(provenance|quarantine)$' keeps such host
+bookkeeping out of the package. Hard links are packaged as one inode carrying
+the members' link count; Windows exposes no inode, so links become copies.
+
+On Windows the file system records no execute bits; --executable names the
+payload paths (regular expressions) that should be 0755. Ownership other than
+"recommended" (root:wheel) needs a uid and gid, and is not available there.
 
 The package is reproducible: with --source-date-epoch (or SOURCE_DATE_EPOCH)
 set, the same input produces byte-identical output on every platform.
-
---compression pbzx (or latest, what pkgbuild --compression latest means)
-writes the payload as xz chunks instead of gzip: smaller, but only macOS 12
-and later can install it, so the package's minimum system version is set
-to 12.0 unless a higher one is given.
-
-Extended attributes travel as pkgbuild carries them: as "._" AppleDouble
-sidecar entries beside their owners, read from the tree on macOS (all of
-them) and Linux (user.*), and from the "._" files an extraction leaves on
-a host that cannot store them. Whatever the tree carries is packaged
-again by default, so unpacking a package and building it back reproduces
-it. A manifest's file_xattrs overrides that per file, or per folder with
-a trailing "/", and can replace or strip what a path carries. A macOS
-host stamps com.apple.provenance on files it creates; --exclude-xattr
-'^com\.apple\.(provenance|quarantine)$' keeps such host bookkeeping out of
-the package. Hard links are packaged as one inode with the members' link
-count, as pkgbuild does; Windows exposes no inode, so links become copies.
-
-On Windows the file system records no execute bits; --executable names the
-payload paths (regular expressions) that should be 0755. Ownership other
-than "recommended" (root:wheel) needs uid/gid and is not available there.
-
-OUT.pkg may be omitted for a project whose manifest names the package; it
-is then written to the project's build/ directory.
 
 Examples:
   macospkg build ./root Foo.pkg --identifier com.example.foo --version 1.2.0
   macospkg build ./root Foo.pkg --identifier com.example.foo --version 1.2.0 \
       --install-location /usr/local --scripts ./scripts
   macospkg build ./project                     # project/build-info.yaml
+  macospkg build Foo.pkg --component ./Foo.app
+  macospkg build ./root ./components.plist --analyze
   macospkg build ./root Foo.pkg --identifier com.example.foo --version 1 \
       --executable '^\./usr/local/bin/'`,
 	Args: rangeArgs(1, 2, "SRC [OUT.pkg]"),
@@ -108,18 +126,17 @@ func init() {
 	f.BoolVar(&buildNoBundleRelocation, "no-bundle-relocation", false, "always install bundles at their packaged paths")
 	f.BoolVar(&buildPreserveXattr, "preserve-xattr", false, "set preserve-xattr on the package")
 	f.StringArrayVar(&buildFilter, "filter", nil, "regular expression matched against each \"./path\" in the payload; anything matching is left out. Repeatable, and naming even one replaces the default filters (.svn, CVS, .DS_Store) rather than adding to them")
-	f.StringArrayVar(&buildExclude, "exclude", nil, "another spelling of --filter; repeatable")
 	f.StringArrayVar(&buildExecutable, "executable", nil, "payload paths that are executable, for hosts without execute bits (regular expression); repeatable")
 	f.StringArrayVar(&buildComponents, "component", nil, "bundle to package, in place of a source directory; repeatable, and with exactly one the identifier, version and install location are read from its Info.plist")
 	f.StringVar(&buildPrior, "prior", "", "a previous build of this package to take the identifier and install location from; its version is read as an integer and incremented")
 	f.BoolVar(&buildAnalyze, "analyze", false, "write a template component property list for the bundles in SRC instead of building a package; the second argument is where it goes")
 	f.StringVar(&buildComponentPlist, "component-plist", "", "component property list naming the bundles in SRC and how the Installer should treat each; with --analyze, the earlier list whose settings are carried forward")
 	f.StringVar(&buildManifest, "manifest", "", "build-info.yaml/.json/.plist to read options from")
-	f.StringVar(&buildCompression, "compression", "", "payload container: gzip (default, every macOS), pbzx/latest (smaller; macOS 12 or later) or lzfse/lzbitmap (pbze/pbzb; macOS reads them, pkgbuild writes neither)")
-	f.Uint64Var(&buildBlockSize, "pbzx-block-size", 0, "block size in bytes for any pbz* container (default 16 MiB, as pkgbuild)")
-	f.StringVar(&buildXattrs, "xattrs", "", "extended attributes: fs (read from the tree, as pkgbuild does; default) or none")
+	f.StringVar(&buildCompression, "compression", "", "payload container: gzip or legacy (default, installable by every macOS), pbzx or latest (smaller; macOS 12 or later), lzfse or lzbitmap (macOS reads both), or none")
+	f.Uint64Var(&buildBlockSize, "pbzx-block-size", 0, "block size in bytes for any pbz* container (default 16 MiB)")
+	f.StringVar(&buildXattrs, "xattrs", "", "extended attributes: fs (read them from the tree, the default) or none")
 	f.StringArrayVar(&buildExcludeXattr, "exclude-xattr", nil, "extended attribute names to leave out (regular expression); repeatable")
-	f.StringVar(&buildHardLinks, "hard-links", "", "hard links: auto (package as links, as pkgbuild does; default) or copy")
+	f.StringVar(&buildHardLinks, "hard-links", "", "hard links: auto (package each set as one inode, the default) or copy")
 	addSigningFlags(buildCmd, "sign-")
 	addNotarizeFlags(buildCmd)
 }
@@ -279,8 +296,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	// names none of its own, so a filter list is a replacement and not an
 	// addition. To keep everything, pass a pattern that cannot match, such
 	// as --filter 'a^'.
-	filters := append(append([]string{}, buildFilter...), buildExclude...)
-	filters = append(filters, m.Exclude...)
+	filters := append(append([]string{}, buildFilter...), m.Filter...)
 	if len(filters) == 0 {
 		filters = flatpkg.DefaultFilters
 	}

@@ -166,7 +166,7 @@ func TestOpenProduct(t *testing.T) {
 	}
 	defer p.Close()
 	if p.Kind != KindProduct || p.Distribution == nil {
-		t.Fatal("not recognised as a product archive")
+		t.Fatal("not recognized as a product archive")
 	}
 	d := p.Distribution
 	if d.Title != "Fixture Custom" || d.MinSpecVersion != "2" {

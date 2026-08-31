@@ -66,9 +66,14 @@ is judged at the current time and an expired one fails.
 
 ## What `verify` does not check
 
-- **Revocation.** No CRL or OCSP is consulted. A revoked but unexpired
-  certificate verifies. Use `verify --online` to ask Apple's ticket database
-  whether the package was notarized, which is a different question.
+- **Revocation, unless asked.** By default no OCSP responder is consulted, so a
+  revoked but unexpired certificate verifies. `verify --revocation` asks the
+  responder the certificate names, and needs the network to do it. A responder
+  that answers "revoked" fails verification; one that cannot be reached also
+  fails, rather than passing unchecked. A certificate naming no responder is
+  reported as unchecked and is not a failure, since plenty carry none. No CRL is
+  ever fetched. `verify --online` is a different question again: it asks Apple's
+  ticket database whether the package was notarized.
 - **Whether Apple would install it.** `verify` reports on the signature.
   Gatekeeper and the Installer apply policies of their own.
 

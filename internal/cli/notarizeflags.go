@@ -10,10 +10,12 @@ import (
 
 var buildNotarize bool
 
-// addNotarizeFlags registers --notarize and the credential flags.
+// addNotarizeFlags registers --notarize and the credential flags. The
+// credentials take the notary- prefix here, beside the sign- prefix the
+// signing flags already use.
 func addNotarizeFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&buildNotarize, "notarize", false, "after building and signing, submit to Apple's notary service, wait for acceptance and staple the ticket")
-	addNotaryFlags(cmd)
+	addNotaryFlags(cmd, "notary-")
 }
 
 // notarizeAfterBuild runs notarization for a freshly built package when

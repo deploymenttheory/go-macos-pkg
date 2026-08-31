@@ -170,7 +170,7 @@ func TestCredentialsFromEnvAcceptsBuilderNames(t *testing.T) {
 			want: pem,
 		},
 		{
-			// Pasted in as-is rather than encoded. Recognisable, and the
+			// Pasted in as-is rather than encoded. Recognizable, and the
 			// intent is obvious, so it is taken rather than refused.
 			name: "electron-builder names, key pasted unencoded",
 			env: map[string]string{

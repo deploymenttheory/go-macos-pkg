@@ -354,7 +354,7 @@ func TestBuildParityWithPkgbuild(t *testing.T) {
 			// file's own entry precomposed, so the two halves of
 			// pkgbuild's own bill of materials disagree: an installer
 			// restoring it would put "._e<U+0301>" beside "é" on a
-			// normalisation-preserving volume. We name a sidecar after
+			// normalization-preserving volume. We name a sidecar after
 			// its owner, byte for byte. Compare that the entry is there,
 			// not how pkgbuild spelled it.
 			if len(cols) >= 4 && !isASCII(cols[0]) {

@@ -335,7 +335,7 @@ func TestWriterRoundTrip(t *testing.T) {
 	}
 }
 
-// fakeSigner reserves space and writes recognisable bytes, to prove the
+// fakeSigner reserves space and writes recognizable bytes, to prove the
 // writer lays signatures out where the TOC says they are.
 type fakeSigner struct{ digest []byte }
 

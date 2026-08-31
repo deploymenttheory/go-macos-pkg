@@ -66,10 +66,21 @@ scratch file is about the size of the finished package.
 
 ## Configuration and environment
 
-Precedence is flag, then `MACOSPKG_<FLAG>` environment variable, then
-`~/.config/macospkg/config.yaml`. A flag name becomes a variable name by
-upper-casing it and replacing dashes with underscores, so `--temp-dir`
-reads `MACOSPKG_TEMP_DIR`.
+Precedence is flag, then environment variable, then
+`~/.config/macospkg/config.yaml`. Only the five global flags above are bound
+this way, each under its name upper-cased with dashes turned to underscores:
+
+| Flag | Variable and config key |
+|---|---|
+| `-o, --output` | `MACOSPKG_OUTPUT` |
+| `-q, --quiet` | `MACOSPKG_QUIET` |
+| `--verbose` | `MACOSPKG_VERBOSE` |
+| `--source-date-epoch` | `MACOSPKG_SOURCE_DATE_EPOCH` |
+| `--temp-dir` | `MACOSPKG_TEMP_DIR` |
+
+A per-command flag such as `--identifier` has no variable of its own. The
+credentials below are read from the environment directly, not through this
+mechanism.
 
 `SOURCE_DATE_EPOCH` is the one exception: the bare variable is the
 ecosystem standard, so it outranks `MACOSPKG_SOURCE_DATE_EPOCH`. The full
@@ -107,7 +118,7 @@ Distinct codes exist so a script can branch without parsing text.
 | 6 | partial result | Some entries were skipped. The output is usable but incomplete. |
 | 7 | signature or ticket check failed | Treat as a hard failure in a release job. |
 | 8 | notarization rejected | Apple refused the package. The log prints the issues. Not retryable unchanged. |
-| 9 | wait timed out | Apple is still processing. Retry with `notarize status ID`. |
+| 9 | wait timed out | Apple is still processing. Retry with `notarize info ID`. |
 
 The contract lives in [`pkg/exitcode`](../pkg/exitcode/exitcode.go). Codes
 8 and 9 are deliberately different: 9 says nothing about the verdict, so a
@@ -203,7 +214,7 @@ to `pkgutil`'s.
 | `--verify` | off | Verify every archive entry against its stored checksums. |
 | `--symlinks auto\|real\|file` | `auto` | How to recreate symbolic links. |
 | `--xattrs auto\|apply\|file\|skip` | `auto` | What to do with `._` AppleDouble sidecars. |
-| `--hard-links` | `true` | Recreate hard links; `--hard-links=false` writes copies. |
+| `--hard-links auto\|copy` | `auto` | `auto` recreates hard links; `copy` writes each member as its own file. |
 
 Use `expand` when you want to inspect or edit the package's own parts.
 Use `extract` when you want the files it installs.
@@ -236,7 +247,7 @@ modes and times.
 |---|---|---|
 | `--component NAME` | all | Only this component of a product archive. |
 | `--scripts` | off | Extract the Scripts archives instead of the payloads. |
-| `--pattern RE` | all | Only payload paths matching this regular expression. |
+| `--regexp RE` | all | Only payload paths matching this regular expression. |
 | `--symlinks auto\|real\|file` | `auto` | `real` fails where the host refuses links; `file` writes the target as a file. |
 | `--xattrs auto\|apply\|file\|skip` | `auto` | `apply` sets attributes on the owner, `file` keeps `._` files, `skip` drops them. |
 | `--hard-links` | `true` | Recreate hard links, or write copies. |
@@ -279,7 +290,6 @@ manifest supplies them.
 |---|---|---|
 | `--ownership recommended\|preserve\|preserve-other` | `recommended` | `recommended` records everything as `root:wheel`, which is what an installer package should carry. `preserve` records the tree's real owners and is refused on Windows. |
 | `--filter RE` | the defaults below | Payload paths to leave out, as a regular expression on `./path`. Repeatable. Naming any filter replaces the defaults rather than adding to them, as pkgbuild does. |
-| `--exclude RE` | none | An alias for `--filter`. |
 | `--executable RE` | none | Paths to mark executable, for hosts with no execute bit. Repeatable, and the reason a Windows build can produce a working package. |
 | `--compression gzip\|none\|pbzx\|latest\|lzfse\|lzbitmap` | `gzip` | The payload container. See below. |
 | `--pbzx-block-size N` | 16 MiB | Block size for any `pbz*` container. The default is pkgbuild's. |
@@ -292,7 +302,7 @@ manifest supplies them.
 | Flag | Default | What it does |
 |---|---|---|
 | `--min-os-version V` | unset | Minimum macOS version. Set automatically to 12.0 by `--compression pbzx`, since older systems cannot install it. |
-| `--auth root\|none` | `root` | Whether the Installer needs authorisation. |
+| `--auth root\|none` | `root` | Whether the Installer needs authorization. |
 | `--postinstall-action none\|logout\|restart\|shutdown` | `none` | What the Installer does when it finishes. |
 | `--relocatable` | off | Mark the package relocatable. |
 | `--no-bundle-relocation` | off | Always install bundles at their packaged paths, instead of following one the user moved. |
@@ -305,8 +315,9 @@ manifest supplies them.
 | `--analyze` | Write a component property list describing the bundles in `SRC` instead of building a package. The second argument is the plist path. |
 | `--component-plist FILE` | Per-bundle rules. With `--analyze`, the prior list whose settings are carried forward. |
 | `--manifest FILE` | Read options from a `build-info.yaml`, `.json` or `.plist`. |
-| `--sign-*` | Sign in the same run. Same flags as `sign`, prefixed `sign-`. |
+| `--sign-*` | Sign in the same run. The flags of `sign`, prefixed `sign-`. |
 | `--notarize` | Notarize and staple in the same run. Requires a signing identity. |
+| `--notary-*` | Credentials for `--notarize`. The flags of `notarize`, prefixed `notary-`: `--notary-key`, `--notary-key-id`, `--notary-issuer`, `--notary-profile`. The prefix keeps `--notary-key` (the App Store Connect `.p8`) apart from `--sign-key` (the PEM signing key), which would otherwise be two key files under one obvious name. |
 
 **Default filters.** With no `--filter`, `build` leaves out any path
 component named exactly `.svn`, `CVS` or `.DS_Store`, whether it is a file
@@ -323,7 +334,7 @@ fidelity rather than source-tree hygiene.
 **Three ways to say what the package is.** `--identifier` and `--version`
 are the usual answer. `--component Foo.app` reads all three out of the
 bundle: the identifier from `CFBundleIdentifier`, the version from
-`CFBundleShortVersionString` normalised to three numbers (`4` and `4.0`
+`CFBundleShortVersionString` normalized to three numbers (`4` and `4.0`
 both become `4.0.0`, `4.0.1.2` becomes `4.0.1`), and the install location
 from the directory holding the bundle, which is an absolute build path and
 almost never what you want to ship, so pass `--install-location` as well.
@@ -379,28 +390,28 @@ This is the form to distribute and the form notarization expects.
 | Flag | What it does |
 |---|---|
 | `--package PKG` | A component package to add. Repeatable. |
-| `--root DIR`, `--root-install-path PATH` | Package a directory tree as its own component. productbuild spells the install path as a second argument to `--root`. |
+| `--root DIR[:INSTALL_PATH]` | Package a destination root as its own component package. `productbuild` spells the install path as a second argument to `--root`; here it follows a colon, as `--component` does. |
 | `--content DIR` | Package a directory's contents as their own component, for in-app content. |
 | `--component BUNDLE[:INSTALL_PATH]` | Package a bundle as its own component, reading its identity from `Info.plist`. Repeatable. |
 | `--component-compression MODE` | Payload container for what `--component` builds. A package given with `--package` keeps whatever container it was built with, which is productbuild's limit too. |
 | `--large-payload` | Build the components here with the format that carries files of 8 GiB and over. |
-| `--distribution FILE` | Use this Distribution instead of synthesising one, naming its packages by file name. |
+| `--distribution FILE` | Use this Distribution instead of synthesizing one, naming its packages by file name. |
 | `--package-path DIR` | Where to look for the packages a `--distribution` names. Repeatable; the working directory is searched too. |
-| `--synthesize` | Write the synthesised Distribution to the output path instead of building an archive. |
+| `--synthesize` | Write the synthesized Distribution to the output path instead of building an archive. |
 | `--scripts DIR` | Embed a directory as the `Scripts` entry, for the `system.run()` commands a Distribution invokes. Not a component's install scripts: nothing here runs on its own. |
 | `--plugins DIR` | Embed a directory as the `PlugIns` entry: an `InstallerSections.plist` and the Installer plug-in bundles. |
-| `--ui NAME` | The interface the synthesised `choices-outline` is for. `mas` marks one meant for the Mac App Store. |
-| `--resources DIR` | Embed a directory as `Resources/`, for the welcome, licence and background files the Distribution names. |
-| `--title T` | Title for the synthesised Distribution. |
-| `--product-id ID`, `--product-version V` | Identity for the synthesised Distribution. |
+| `--ui NAME` | The interface the synthesized `choices-outline` is for. `mas` marks one meant for the Mac App Store. |
+| `--resources DIR` | Embed a directory as `Resources/`, for the welcome, license and background files the Distribution names. |
+| `--title T` | Title for the synthesized Distribution. |
+| `--identifier ID`, `--version V` | Identity for the synthesized Distribution. `productbuild` spells these the same way. |
 | `--product FILE` | Pre-install requirements property list: what the machine must have before the Installer will proceed. See below. |
 | `--min-os-version V` | Adds a `volume-check` with an `allowed-os-versions` floor. A shorthand for a `--product` list carrying only `os`. |
 | `--host-architectures A,B` | Comma-separated `hostArchitectures`. Defaults to `x86_64,arm64`, which is what productbuild writes. |
-| `--sign-*`, `--notarize` | As for `build`. |
+| `--sign-*`, `--notarize`, `--notary-*` | As for `build`. |
 
-Without `--distribution` the synthesised document installs every package
-with no customisation, byte for byte as productbuild writes it. Supply
-your own when you need choices, localisation or scripts.
+Without `--distribution` the synthesized document installs every package
+with no customization, byte for byte as productbuild writes it. Supply
+your own when you need choices, localization or scripts.
 
 **Pre-install requirements.** `--product` takes the property list
 `productbuild --product` takes, and each key drives one part of the
@@ -439,8 +450,8 @@ name its packages as plain file names:
 | sizes | none | `installKBytes`, `updateKBytes` |
 | per-package stub | `<pkg-ref id="X"/>` | `<pkg-ref id="X"><bundle-version/></pkg-ref>` |
 
-A document handed to `--distribution` is re-serialised rather than edited,
-which additionally declares `standalone="yes"` on it. One synthesised
+A document handed to `--distribution` is re-serialized rather than edited,
+which additionally declares `standalone="yes"` on it. One synthesized
 straight into a package does not, so the two routes to a package differ by
 that one attribute. Both match productbuild.
 
@@ -455,7 +466,7 @@ bundle's `Info.plist`, and records the bundle's details in the Distribution
 so the Installer can version check without opening the payload.
 
 **Large payloads.** Only macOS 12 and later can read one, so a product
-carrying such a component requires it: the synthesised Distribution gets an
+carrying such a component requires it: the synthesized Distribution gets an
 `allowed-os-versions` floor of `12.0.0`. That happens whether the format
 was asked for with `--large-payload` or the component simply arrived with
 one already. A version you asked for that is higher stands alone.
@@ -463,11 +474,11 @@ one already. A version you asked for that is higher stands alone.
 **On `--ui`.** It renames as well as labels. The top choice takes the
 interface's own name instead of `default`, and every package's choice and
 reference is prefixed with it, so a document can carry an outline per
-interface without their ids colliding. It shapes a synthesised document
+interface without their ids colliding. It shapes a synthesized document
 only, so passing it with `--distribution` is refused rather than ignored.
 
 The usual route is `product --synthesize dist.xml --package A.pkg`, edit
-`dist.xml` to add choices or a licence, then
+`dist.xml` to add choices or a license, then
 `product Out.pkg --distribution dist.xml --package-path .`.
 
 ## Signing
@@ -487,7 +498,7 @@ anywhere.
 | `--cert PEM`, `--key PEM` | A PEM certificate and its key, instead of a PKCS#12. |
 | `--chain PEM` | Intermediates to embed. |
 | `--timestamp URL` | A different RFC 3161 server. Apple's is the default. |
-| `--no-timestamp` | Do not timestamp. Only for an air-gapped build; a Developer ID signature should be timestamped so it outlives the certificate. |
+| `--timestamp none` | Do not timestamp. Only for an air-gapped build; a Developer ID signature should be timestamped so it outlives the certificate. `productsign` spells it the same way. |
 | `--digest sha256\|sha1` | The table-of-contents digest. `sha256` unless you must match something old. |
 
 A stapled ticket is removed on signing, because re-signing invalidates
@@ -561,7 +572,7 @@ too.
 S3 will take in one request, is uploaded in parts, and a failure aborts the
 upload rather than leaving an incomplete one in Apple's bucket.
 
-Credentials come from `--key-id`, `--issuer-id` and `--private-key`
+Credentials come from `--key-id`, `--issuer` and `--key`
 (an App Store Connect `AuthKey.p8`), or from `APPLE_KEY_ID`,
 `APPLE_ISSUER_ID` and `APPLE_PRIVATE_KEY_PEM` or
 `APPLE_PRIVATE_KEY_PATH`.
@@ -570,10 +581,10 @@ Subcommands, all taking the same credential flags:
 
 | Command | What it does |
 |---|---|
-| `notarize status ID` | The verdict for one submission. |
+| `notarize info ID` | The verdict for one submission. |
 | `notarize wait ID` | Poll an existing submission. Takes `--timeout` and `--poll-interval`. |
 | `notarize log ID` | The developer log for one submission. |
-| `notarize list` | Recent submissions for the team. |
+| `notarize history` | Recent submissions for the team. |
 | `notarize store-credentials NAME` | Remember a set of credentials under a name. |
 
 **On profiles.** `notarytool` keeps credentials in the Keychain, which does
@@ -587,7 +598,7 @@ of the secret rather than two. That does mean the `.p8` has to stay put,
 unlike a notarytool profile which is self-contained.
 
 Rejections are code 8 and timeouts are code 9 for a reason: a timeout
-says nothing about the verdict, so retry it with `notarize status`
+says nothing about the verdict, so retry it with `notarize info`
 rather than failing the build.
 
 ### `staple PKG [OUT.pkg]` and `unstaple PKG [OUT.pkg]`

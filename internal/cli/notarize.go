@@ -30,14 +30,15 @@ var (
 var notarizeCmd = &cobra.Command{
 	Use:   "notarize PKG",
 	Short: "Submit a package to Apple's notary service; wait and staple",
-	Long: `Submit a signed package to Apple's notary service, the way notarytool
-submit does, from any platform. With --wait the command polls until Apple
-has a verdict and exits 0 for Accepted, 8 for Invalid or Rejected (printing
-the developer log's issues), or 9 if --timeout passes first. With --staple
-the ticket is fetched and stapled to the package once accepted.
+	Long: `Submit an archive to Apple's notary service, from any platform.
 
-Credentials are an App Store Connect API key: --key-id, --issuer-id and
---private-key (the .p8 file), or the environment variables APPLE_KEY_ID,
+With --wait the command polls until Apple has a verdict and exits 0 for
+Accepted, 8 for Invalid or Rejected (printing the developer log's issues), or
+9 if --timeout passes first. With --staple the ticket is fetched and attached
+to the package once accepted.
+
+Credentials are an App Store Connect API key: --key-id, --issuer and
+--key (the .p8 file), or the environment variables APPLE_KEY_ID,
 APPLE_ISSUER_ID and APPLE_PRIVATE_KEY_PEM (its content) or
 APPLE_PRIVATE_KEY_PATH.
 
@@ -45,22 +46,31 @@ The package must already be signed with a Developer ID Installer
 certificate; Apple rejects unsigned submissions, so this refuses them
 unless --force is given.
 
-Subcommands: notarize status ID, notarize log ID, notarize wait ID,
-notarize list.
+Subcommands: notarize info ID, notarize log ID, notarize wait ID,
+notarize history.
 
 Examples:
   macospkg notarize Foo.pkg --wait --staple
   macospkg notarize Foo.pkg                    # prints the submission id
-  macospkg notarize status 2efe2717-52ef-43a5-96dc-0797e4ca1041
+  macospkg notarize info 2efe2717-52ef-43a5-96dc-0797e4ca1041
   macospkg notarize log 2efe2717-52ef-43a5-96dc-0797e4ca1041`,
 	Args: exactArgs(1, "PKG"),
 	RunE: runNotarize,
 }
 
-var notarizeStatusCmd = &cobra.Command{
-	Use:   "status ID",
+var notarizeInfoCmd = &cobra.Command{
+	Use:   "info ID",
 	Short: "Show a submission's status",
-	Args:  exactArgs(1, "ID"),
+	Long: `Get status information for a submission.
+
+One line: the submission id, its status, when it was created and the name it
+was submitted under. A submission Apple is still working on reads In Progress;
+the verdict is Accepted, Invalid or Rejected.
+
+Examples:
+  macospkg notarize info 2efe2717-52ef-43a5-96dc-0797e4ca1041
+  macospkg notarize info -o json 2efe2717-52ef-43a5-96dc-0797e4ca1041`,
+	Args: exactArgs(1, "ID"),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := notaryService(cmd, nil)
 		if err != nil {
@@ -81,7 +91,16 @@ var notarizeStatusCmd = &cobra.Command{
 var notarizeLogCmd = &cobra.Command{
 	Use:   "log ID",
 	Short: "Fetch a submission's developer log (JSON)",
-	Args:  exactArgs(1, "ID"),
+	Long: `Retrieve the notarization log for a single completed submission.
+
+The log is Apple's account of what it found, as JSON, and is where the reason
+for an Invalid or Rejected verdict is written. It exists only once the
+submission has finished.
+
+Examples:
+  macospkg notarize log 2efe2717-52ef-43a5-96dc-0797e4ca1041
+  macospkg notarize log 2efe2717-52ef-43a5-96dc-0797e4ca1041 > issues.json`,
+	Args: exactArgs(1, "ID"),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := notaryService(cmd, nil)
 		if err != nil {
@@ -102,7 +121,16 @@ var notarizeLogCmd = &cobra.Command{
 var notarizeWaitCmd = &cobra.Command{
 	Use:   "wait ID",
 	Short: "Wait for a submission to finish",
-	Args:  exactArgs(1, "ID"),
+	Long: `Wait for completion of a previous submission.
+
+Polls until Apple has a verdict, then exits 0 for Accepted, 8 for Invalid or
+Rejected, or 9 if --timeout passes first. Apple keeps working either way: a
+timeout here ends the waiting, not the notarization.
+
+Examples:
+  macospkg notarize wait 2efe2717-52ef-43a5-96dc-0797e4ca1041
+  macospkg notarize wait 2efe2717-52ef-43a5-96dc-0797e4ca1041 --timeout 1h`,
+	Args: exactArgs(1, "ID"),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := notaryService(cmd, nil)
 		if err != nil {
@@ -118,10 +146,18 @@ var notarizeWaitCmd = &cobra.Command{
 	},
 }
 
-var notarizeListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List recent submissions",
-	Args:  exactArgs(0, "no arguments"),
+var notarizeHistoryCmd = &cobra.Command{
+	Use:   "history",
+	Short: "List recent submissions for the team",
+	Long: `Get a list of previous submissions for your team.
+
+One line per submission, newest first, in the same columns as info. This is
+the way to find a submission id you did not keep.
+
+Examples:
+  macospkg notarize history
+  macospkg notarize history --profile release`,
+	Args: exactArgs(0, "no arguments"),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := notaryService(cmd, nil)
 		if err != nil {
@@ -154,13 +190,13 @@ later commands can say --profile NAME instead of repeating all three.
 
 The private key is not copied. The profile holds the path to it, so the
 key stays wherever you keep it and there is one copy of the secret rather
-than two. notarytool stores its profiles in the Keychain, which does not
-exist off macOS; this is a file, readable only by you, under the
-directory the operating system gives for application configuration.
+than two. The profile is a file readable only by you, under the directory the
+operating system gives for application configuration, since the Keychain a Mac
+would use does not exist elsewhere.
 
 Examples:
   macospkg notarize store-credentials release \
-      --key-id ABC123 --issuer-id 1234-5678 --private-key ~/keys/AuthKey.p8
+      --key-id ABC123 --issuer 1234-5678 --key ~/keys/AuthKey.p8
   macospkg notarize Foo.pkg --profile release --wait --staple`,
 	Args: exactArgs(1, "NAME"),
 	RunE: runNotarizeStore,
@@ -170,7 +206,7 @@ Examples:
 func runNotarizeStore(cmd *cobra.Command, args []string) error {
 	nf := notaryByCommand[cmd]
 	if nf == nil || nf.keyID == "" || nf.issuerID == "" || nf.privateKey == "" {
-		return usageErrorf("store-credentials needs --key-id, --issuer-id and --private-key")
+		return usageErrorf("store-credentials needs --key-id, --issuer and --key")
 	}
 	// Resolve the key path now, so a profile written from one directory
 	// still works from another, and fail here rather than at the first
@@ -180,7 +216,7 @@ func runNotarizeStore(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if _, err := os.Stat(keyPath); err != nil {
-		return withCode(ExitAuth, fmt.Errorf("unable to read --private-key: %w", err))
+		return withCode(ExitAuth, fmt.Errorf("unable to read --key: %w", err))
 	}
 	path, err := saveNotaryProfile(args[0], notaryProfile{
 		KeyID: nf.keyID, IssuerID: nf.issuerID, PrivateKeyPath: keyPath,
@@ -211,12 +247,12 @@ func init() {
 	f.StringVar(&notarizeName, "name", "", "submission name shown in App Store Connect (default: the file name)")
 	f.BoolVar(&notarizeForce, "force", false, "submit even if the file is not signed")
 	f.StringVar(&notarizeWebhook, "webhook", "", "public URL for Apple to post the verdict to when notarization finishes, so a job need not sit and poll; best effort, so keep --wait or a later status check as the answer you rely on")
-	for _, c := range []*cobra.Command{notarizeCmd, notarizeStatusCmd, notarizeLogCmd, notarizeWaitCmd, notarizeListCmd, notarizeStoreCmd} {
-		addNotaryFlags(c)
+	for _, c := range []*cobra.Command{notarizeCmd, notarizeInfoCmd, notarizeLogCmd, notarizeWaitCmd, notarizeHistoryCmd, notarizeStoreCmd} {
+		addNotaryFlags(c, "")
 	}
 	notarizeWaitCmd.Flags().DurationVar(&notarizeTimeout, "timeout", 30*time.Minute, "how long to wait before exiting 9")
 	notarizeWaitCmd.Flags().DurationVar(&notarizeInterval, "poll-interval", 30*time.Second, "how often to poll")
-	notarizeCmd.AddCommand(notarizeStatusCmd, notarizeLogCmd, notarizeWaitCmd, notarizeListCmd, notarizeStoreCmd)
+	notarizeCmd.AddCommand(notarizeInfoCmd, notarizeLogCmd, notarizeWaitCmd, notarizeHistoryCmd, notarizeStoreCmd)
 }
 
 // notarizeReport is the JSON schema for macospkg notarize.

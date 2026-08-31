@@ -27,7 +27,7 @@ Attributes: `identifier`, `version`, `format-version` (2),
 `install-location`, `auth` (`root`|`none`), `overwrite-permissions`,
 `relocatable`, `generator-version`, `postinstall-action`
 (`none`|`logout`|`restart`|`shutdown`), `minimumSystemVersion`,
-`preserve-xattr`, `useHFSPlusCompression`. Recognised scripts:
+`preserve-xattr`, `useHFSPlusCompression`. Recognized scripts:
 `preflight`, `preinstall`, `preupgrade`, `postinstall`, `postupgrade`,
 `postflight`. Every bundle found in the payload is listed in `bundle-version`, and in
 `relocate` unless bundle relocation is suppressed. A bundle is a directory
@@ -60,5 +60,5 @@ archive (`#Foo.pkg`). Other elements: `domains`, `product`, `welcome`,
 (each with a `file` in `Resources/`), `installation-check`, `locator`,
 and `script` holding JavaScript. The model in `pkg/flatpkg` reads the
 common parts and keeps the raw document, which `expand` writes unchanged.
-`macospkg product` synthesises the shape above when no Distribution is
+`macospkg product` synthesizes the shape above when no Distribution is
 given, as `productbuild --synthesize` does.

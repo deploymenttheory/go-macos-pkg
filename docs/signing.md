@@ -25,7 +25,7 @@ The RSA one is PKCS#1 v1.5 over the digest itself. The CMS one is a
 detached SignedData whose content is the digest, with `contentType`,
 `signingTime` and `messageDigest` signed attributes and, when
 timestamped, an RFC 3161 token as an unsigned attribute. Apple writes the
-CMS blob as BER with indefinite lengths; `verify` normalises it to DER
+CMS blob as BER with indefinite lengths; `verify` normalizes it to DER
 before parsing. Certificates are base64 DER in 72-column lines, leaf
 first.
 
@@ -44,7 +44,7 @@ A Developer ID Installer certificate and its RSA key, from
 self-signed root is embedded if supplied, as `productsign` does.
 
 Timestamps come from `http://timestamp.apple.com/ts01` by default
-(`--timestamp URL` to change, `--no-timestamp` to skip). A timestamped
+(`--timestamp URL` to change, `--timestamp none` to skip). A timestamped
 signature stays valid after the certificate expires; Apple's notary
 service requires one.
 
@@ -56,7 +56,12 @@ evaluated against Apple's root certificates built in (`pkg/pkgsign/roots`,
 exported from macOS's system roots), or `--trust-anchors file.pem` for a
 private CA. Apple marks its certificate extensions critical; those are
 accepted. Validity is judged at the timestamp's time when there is one.
-There is no revocation checking.
+
+Revocation is not checked unless `--revocation` asks for it. Chain
+verification says a certificate was validly issued and has not expired; it
+says nothing about whether the issuer has since withdrawn it, which is what
+happens when a Developer ID key is lost or abused. `--revocation` asks the
+OCSP responder the certificate itself names, so it needs the network.
 
 `--online` also asks Apple's ticket database whether this exact package
 was notarized; `--require-stapled` insists on a stapled ticket;

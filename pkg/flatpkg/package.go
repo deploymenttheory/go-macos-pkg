@@ -104,7 +104,7 @@ func Open(path string) (*Package, error) {
 func FromXAR(x *xar.Reader) (*Package, error) {
 	p := &Package{XAR: x}
 
-	// A product archive is recognised by its Distribution; anything else
+	// A product archive is recognized by its Distribution; anything else
 	// must be a component package with a PackageInfo at the root.
 	if dist := x.Lookup(EntryDistribution); dist != nil && !dist.IsDir() {
 		p.Kind = KindProduct

@@ -43,7 +43,7 @@ func TestReaderHandMade(t *testing.T) {
 	c := bytes.Repeat([]byte("z"), 100000)
 	data := buildPBZX(t, [][]byte{a, b, c}, []bool{true, false, true})
 	if !IsPBZX(data) {
-		t.Fatal("magic not recognised")
+		t.Fatal("magic not recognized")
 	}
 	r, err := NewReader(bytes.NewReader(data))
 	if err != nil {

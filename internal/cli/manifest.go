@@ -45,8 +45,12 @@ type manifestFile struct {
 
 	// Added by macospkg: payload paths and their modes, for trees that
 	// come from hosts without execute bits.
-	Exclude      []string `yaml:"exclude" json:"exclude" plist:"exclude"`
+	Filter       []string `yaml:"filter" json:"filter" plist:"filter"`
 	ExcludeXattr []string `yaml:"exclude_xattr" json:"exclude_xattr" plist:"exclude_xattr"`
+	// LegacyExclude catches the old spelling of Filter. Unknown keys are
+	// ignored by every decoder here, so without this a manifest written
+	// against the old name would quietly stop filtering anything.
+	LegacyExclude []string `yaml:"exclude" json:"exclude" plist:"exclude"`
 	// FileXattrs overrides extended attributes by payload path (a folder
 	// when it ends in "/"); values are base64 (added).
 	FileXattrs         []manifestXattrs `yaml:"file_xattrs" json:"file_xattrs" plist:"file_xattrs"`
@@ -155,6 +159,9 @@ func loadManifestFor(src, explicit string) (*manifestFile, error) {
 	}
 	if err != nil {
 		return nil, usageErrorf("manifest %s: %v", path, err)
+	}
+	if len(m.LegacyExclude) > 0 {
+		return nil, usageErrorf("manifest %s: the exclude key is now named filter", path)
 	}
 	m.dir = filepath.Dir(path)
 	if explicit != "" {

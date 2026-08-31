@@ -12,6 +12,7 @@ import (
 )
 
 type notaryFlags struct {
+	prefix     string
 	keyID      string
 	issuerID   string
 	privateKey string
@@ -20,15 +21,25 @@ type notaryFlags struct {
 
 var notaryByCommand = map[*cobra.Command]*notaryFlags{}
 
-// addNotaryFlags registers --key-id, --issuer-id and --private-key.
-func addNotaryFlags(cmd *cobra.Command) {
-	nf := &notaryFlags{}
+// addNotaryFlags registers the App Store Connect credentials.
+//
+// prefix is empty on notarize, where the flags are the whole point of the
+// command, and "notary-" on build and product, where they sit beside the
+// signing flags. Without it --key would be a second key file next to
+// --sign-key on the same command, and passing one for the other would fail
+// as an authentication error rather than as a signing error.
+func addNotaryFlags(cmd *cobra.Command, prefix string) {
+	nf := &notaryFlags{prefix: prefix}
 	notaryByCommand[cmd] = nf
 	f := cmd.Flags()
-	f.StringVar(&nf.keyID, "key-id", "", "App Store Connect API key ID (or "+notary.EnvKeyID+")")
-	f.StringVar(&nf.issuerID, "issuer-id", "", "App Store Connect API issuer ID (or "+notary.EnvIssuerID+")")
-	f.StringVar(&nf.privateKey, "private-key", "", "App Store Connect API private key file, .p8 (or "+notary.EnvPrivateKeyPEM+" / "+notary.EnvPrivateKeyPath+")")
-	f.StringVarP(&nf.profile, "profile", "p", "", "credentials stored earlier under this name by notarize store-credentials")
+	f.StringVar(&nf.keyID, prefix+"key-id", "", "App Store Connect API key ID (or "+notary.EnvKeyID+")")
+	f.StringVar(&nf.issuerID, prefix+"issuer", "", "App Store Connect API issuer ID, a UUID (or "+notary.EnvIssuerID+")")
+	f.StringVar(&nf.privateKey, prefix+"key", "", "App Store Connect API private key file, .p8 (or "+notary.EnvPrivateKeyPEM+" / "+notary.EnvPrivateKeyPath+")")
+	if prefix == "" {
+		f.StringVarP(&nf.profile, "profile", "p", "", "credentials stored earlier under this name by notarize store-credentials")
+	} else {
+		f.StringVar(&nf.profile, prefix+"profile", "", "credentials stored earlier under this name by notarize store-credentials")
+	}
 }
 
 // notaryService resolves credentials from flags, then the manifest, then
@@ -56,9 +67,9 @@ func notaryService(cmd *cobra.Command, m *manifestFile) (notary.Service, error) 
 		}
 		c.KeyID, c.IssuerID = nf.keyID, nf.issuerID
 		if nf.privateKey != "" {
-			data, err := os.ReadFile(nf.privateKey) //nolint:gosec // --private-key names the key file on purpose
+			data, err := os.ReadFile(nf.privateKey) //nolint:gosec // the key flag names the key file on purpose
 			if err != nil {
-				return nil, withCode(ExitAuth, fmt.Errorf("unable to read --private-key: %w", err))
+				return nil, withCode(ExitAuth, fmt.Errorf("unable to read --%skey: %w", nf.prefix, err))
 			}
 			c.PrivateKey = data
 		}

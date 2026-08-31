@@ -30,8 +30,10 @@ var (
 var verifyCmd = &cobra.Command{
 	Use:   "verify PKG",
 	Short: "Verify a package signature and, optionally, its stapled ticket",
-	Long: `Check a package's signature the way pkgutil --check-signature does, and
-say exactly what was found: whether the table-of-contents digest is intact,
+	Long: `Check the validity and trust of the signature on a package.
+
+Every finding is reported separately: whether the table-of-contents digest is
+intact,
 whether the RSA and CMS signatures verify, who signed, whether the chain
 leads to an Apple root, and whether a notarization ticket is stapled.
 

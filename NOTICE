@@ -10,7 +10,7 @@ implementations. This file records what was read and what was taken from it,
 so the provenance of every package is stated rather than guessed. Nothing
 below is imported or vendored; each entry is a reference that informed a
 design, and none of its expression was copied, with one stated exception:
-entry 16, whose C is translated into Go and whose licence travels with it.
+entry 14, whose C is translated into Go and whose license travels with it.
 
 1. xar (Apple): https://github.com/apple-oss-distributions/xar
    Copyright (c) 2005-2007 Rob Braun; BSD-3-Clause.
@@ -65,41 +65,33 @@ entry 16, whose C is translated into Go and whose licence travels with it.
     The build-info manifest schema that `macospkg build --manifest` accepts
     is compatible with it by design.
 
-11. libarchive: https://github.com/libarchive/libarchive
-    Copyright (c) 2010-2012 Michihiro NAKAJIMA; BSD-2-Clause.
-    The only complete standalone C xar writer; its table-of-contents
-    construction was cross-checked against Apple's. Informed pkg/xar.
+11. lzfse (go-compressions): https://github.com/go-compressions/lzfse
+    Copyright (c) the go-compressions authors; MIT (a Go port of Apple's
+    LZFSE, https://github.com/lzfse/lzfse, BSD-3-Clause).
+    Imported as a dependency: the LZFSE codec behind pbze containers and
+    Apple Archive.
 
-12. Kaitai Struct xar.ksy: https://github.com/kaitai-io/kaitai_struct_formats
-    CC0-1.0. Formal header specification.
+12. lz4 (pierrec): https://github.com/pierrec/lz4
+    Copyright (c) 2015 Pierre Curto; BSD-3-Clause.
+    Imported as a dependency: the LZ4 block codec inside Apple's bv41
+    frames (pbz4 containers and Apple Archive).
 
-Third-party Go modules this project depends on are listed in go.mod; each
-carries its own licence. Apple's root certificates in pkg/pkgsign/roots
-were exported from macOS's system root store and are Apple's.
+13. xnu: https://github.com/apple-oss-distributions/xnu
+    Copyright (c) Apple Inc.; APSL-2.0.
+    osfmk/vm/lz4.h documents Apple's LZ4 frame tags (bv41, bv4-, bv4$) and
+    bsd/vfs/vfs_xattr.c the AppleDouble ATTR layout. Read for the formats;
+    no code taken.
 
-13. lzfse (go-compressions): https://github.com/go-compressions/lzfse
-   Copyright (c) the go-compressions authors; MIT (a Go port of Apple's
-   LZFSE, https://github.com/lzfse/lzfse, BSD-3-Clause).
-   Imported as a dependency: the LZFSE codec behind pbze containers and
-   Apple Archive.
-
-14. lz4 (pierrec): https://github.com/pierrec/lz4
-   Copyright (c) 2015 Pierre Curto; BSD-3-Clause.
-   Imported as a dependency: the LZ4 block codec inside Apple's bv41
-   frames (pbz4 containers and Apple Archive).
-
-15. xnu: https://github.com/apple-oss-distributions/xnu
-   Copyright (c) Apple Inc.; APSL-2.0.
-   osfmk/vm/lz4.h documents Apple's LZ4 frame tags (bv41, bv4-, bv4$) and
-   bsd/vfs/vfs_xattr.c the AppleDouble ATTR layout. Read for the formats;
-   no code taken.
-
-16. libzbitmap: https://github.com/eafer/libzbitmap
+14. libzbitmap: https://github.com/eafer/libzbitmap
     Copyright (c) 2022 Corellium LLC; author Ernesto A. Fernandez; MIT.
     Apple publishes no specification for LZBITMAP, and this is the only
     implementation of it: the format was reverse-engineered there by black
     box testing. pkg/lzbitmap is a translation of that C into Go, not a
-    reference that informed our own design, so the MIT licence above
+    reference that informed our own design, so the MIT license above
     applies to it and this notice carries the copyright. The two are kept
     honest by Apple's own aa: pkg/lzbitmap decodes what aa writes, and aa
     extracts what pkg/lzbitmap writes.
+
+Third-party Go modules this project depends on are listed in go.mod; each
+carries its own license. Apple's root certificates in pkg/pkgsign/roots
+were exported from macOS's system root store and are Apple's.
