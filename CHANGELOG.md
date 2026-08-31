@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.3](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.4.2...v0.4.3) (2026-08-31)
+
+
+### Bug Fixes
+
+* **security:** harden untrusted-input parsers and revocation checks ([cb61dd1](https://github.com/deploymenttheory/go-macos-pkg/commit/cb61dd1dbf3a9d5a25278ac527b14c57011e6505))
+* **security:** harden untrusted-input parsers and revocation checks ([6654ca4](https://github.com/deploymenttheory/go-macos-pkg/commit/6654ca49732d28ac5f71a1a9d0c2a336ce0c6d17))
+
 ## [0.4.2](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.4.1...v0.4.2) (2026-08-31)
 
 
