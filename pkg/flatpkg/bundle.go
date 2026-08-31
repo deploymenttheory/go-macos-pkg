@@ -48,11 +48,11 @@ func findBundles(root string) ([]Bundle, error) {
 		if !d.IsDir() || !isBundleDir(d.Name()) {
 			return nil
 		}
-		info, ok := readBundleInfo(p)
+		info, bundleRoot, ok := readBundleInfo(p)
 		if !ok || info.CFBundleIdentifier == "" {
 			return nil
 		}
-		rel, err := filepath.Rel(root, p)
+		rel, err := filepath.Rel(root, bundleRoot)
 		if err != nil {
 			return err
 		}
@@ -75,19 +75,28 @@ func findBundles(root string) ([]Bundle, error) {
 	return out, nil
 }
 
-// readBundleInfo finds and parses a bundle's Info.plist. Applications keep
-// it in Contents/; frameworks in Versions/Current/Resources/ or Resources/;
-// flat bundles at the top level.
-func readBundleInfo(dir string) (bundleInfo, bool) {
-	candidates := []string{
-		filepath.Join(dir, "Contents", "Info.plist"),
-		filepath.Join(dir, "Resources", "Info.plist"),
-		filepath.Join(dir, "Versions", "Current", "Resources", "Info.plist"),
-		filepath.Join(dir, "Versions", "A", "Resources", "Info.plist"),
-		filepath.Join(dir, "Info.plist"),
+// readBundleInfo finds and parses a bundle's Info.plist and reports the
+// directory pkgbuild treats as the bundle. Applications keep the plist in
+// Contents/; frameworks in Resources/, which in a well-formed framework is
+// a symbolic link to Versions/Current/Resources; flat bundles at the top
+// level.
+//
+// The order matters, and so does the root each candidate implies. A
+// well-formed framework is found through its top-level Resources link and
+// is reported as the framework itself, which is what pkgbuild reports. A
+// framework missing that link is found inside Versions instead, and
+// pkgbuild then names the version directory rather than the framework:
+// "Inner.framework/Versions/A", not "Inner.framework".
+func readBundleInfo(dir string) (bundleInfo, string, bool) {
+	candidates := []struct{ plistPath, bundleRoot string }{
+		{filepath.Join(dir, "Contents", "Info.plist"), dir},
+		{filepath.Join(dir, "Resources", "Info.plist"), dir},
+		{filepath.Join(dir, "Versions", "Current", "Resources", "Info.plist"), filepath.Join(dir, "Versions", "Current")},
+		{filepath.Join(dir, "Versions", "A", "Resources", "Info.plist"), filepath.Join(dir, "Versions", "A")},
+		{filepath.Join(dir, "Info.plist"), dir},
 	}
 	for _, c := range candidates {
-		data, err := os.ReadFile(c)
+		data, err := os.ReadFile(c.plistPath)
 		if err != nil {
 			continue
 		}
@@ -95,7 +104,47 @@ func readBundleInfo(dir string) (bundleInfo, bool) {
 		if _, err := plist.Unmarshal(data, &info); err != nil {
 			continue
 		}
-		return info, true
+		return info, c.bundleRoot, true
 	}
-	return bundleInfo{}, false
+	return bundleInfo{}, "", false
+}
+
+// isApplicationBundle reports whether a bundle is an application, which is
+// the only kind pkgbuild treats as relocatable.
+//
+// pkgbuild --analyze writes BundleIsRelocatable and BundleHasStrictIdentifier
+// for a .app and omits both, which is to say false, for a .framework,
+// .bundle, .plugin, .kext, .appex, .xpc, .prefPane, .qlgenerator, .saver and
+// .mdimporter alike. That is the whole rule: only an application can be
+// moved by the user and then found again at its new home, so only an
+// application is relocated or matched on a strict identifier. Everything
+// else is installed where the package puts it.
+func isApplicationBundle(path string) bool {
+	return strings.HasSuffix(path, ".app")
+}
+
+// topLevelBundles returns the bundles that no other bundle contains.
+//
+// pkgbuild describes every bundle it finds in its own <bundle> element, but
+// references only the top-level ones from bundle-version, upgrade-bundle,
+// strict-identifier and relocate. A nested bundle, a framework inside an
+// application say, is installed and versioned as part of the bundle that
+// contains it, which is the same thing a component property list says by
+// putting it under the parent's ChildBundles rather than in the top-level
+// array.
+func topLevelBundles(all []Bundle) []Bundle {
+	var out []Bundle
+	for _, b := range all {
+		nested := false
+		for _, other := range all {
+			if other.Path != b.Path && strings.HasPrefix(b.Path, other.Path+"/") {
+				nested = true
+				break
+			}
+		}
+		if !nested {
+			out = append(out, b)
+		}
+	}
+	return out
 }

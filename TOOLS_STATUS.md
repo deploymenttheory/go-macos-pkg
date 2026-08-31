@@ -65,7 +65,16 @@ against the ones `pkgbuild` and `productbuild` write for the same input
 `generator-version`, which names the tool and which macospkg must not
 copy. That covers attribute order, script timeouts, the absence of a
 trailing newline, and the fact that `install-location` is written only
-when it is asked for. Beyond the documents, the same source tree built
+when it is asked for. It also covers which bundle list each kind of bundle
+is referenced from: every bundle is version-checked and upgraded, only an
+application is relocated and strictly identified, and a bundle nested
+inside another is described but never referenced. One deliberate
+difference: pkgbuild emits the `bundle` elements in its own hash order,
+which is deterministic for a given set of names but is neither the walk
+order nor a sort, so macospkg sorts them by path instead and the
+comparison sorts both sides. Matching Apple's order would mean
+reimplementing its hashing and would make the output depend on which macOS
+built the package. Beyond the documents, the same source tree built
 both ways gives identical `lsbom` output, identical
 `installKBytes`, identical `xar -tf` and `pkgutil --payload-files`, and
 `installer` installs the result, sidecars included: extended attributes

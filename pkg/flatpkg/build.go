@@ -492,14 +492,27 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 			return nil, fmt.Errorf("flatpkg: scanning for bundles: %w", err)
 		}
 		res.Bundles = bundles
+		// Every bundle is described; only the top-level ones are referenced.
+		referenced := map[string]bool{}
+		for _, b := range topLevelBundles(bundles) {
+			referenced[b.ID] = true
+		}
 		for _, b := range bundles {
 			// pkgbuild's layout: details once, at the top level, then id
 			// references in bundle-version (version checking),
 			// upgrade-bundle, strict-identifier and relocate.
 			info.Bundles = append(info.Bundles, b)
+			if !referenced[b.ID] {
+				continue
+			}
 			ref := BundleRef{ID: b.ID}
+			// Every bundle is version-checked and upgraded; only an
+			// application is relocated or strictly identified.
 			info.BundleVersion.Bundles = append(info.BundleVersion.Bundles, Bundle{ID: b.ID})
 			info.UpgradeBundle.Bundles = append(info.UpgradeBundle.Bundles, ref)
+			if !isApplicationBundle(b.Path) {
+				continue
+			}
 			info.StrictIdentifier.Bundles = append(info.StrictIdentifier.Bundles, ref)
 			if !o.NoBundleRelocation {
 				info.Relocate.Bundles = append(info.Relocate.Bundles, ref)

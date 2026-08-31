@@ -50,6 +50,38 @@ func xarEntry(t *testing.T, pkg, entry string) []byte {
 	return b
 }
 
+// sortBundleRuns sorts each run of sibling <bundle> lines.
+//
+// pkgbuild emits the bundle elements in the iteration order of one of its
+// own hash tables. The order is deterministic for a given set of names, and
+// independent of the order the tree was created in, but it is neither the
+// walk order nor any sort: four applications named alpha, beta, gamma and
+// delta come out alpha, delta, beta, gamma. Reproducing it would mean
+// reimplementing Apple's hashing, and it would cost the reproducible output
+// this tool promises, since the order would then be a property of whichever
+// macOS built the package.
+//
+// So macospkg sorts by path and the comparison sorts both sides before
+// looking. Everything outside these runs is still compared byte for byte,
+// and the Installer keys on the identifier rather than the order.
+func sortBundleRuns(b []byte) []byte {
+	lines := strings.Split(string(b), "\n")
+	isBundle := func(s string) bool { return strings.HasPrefix(strings.TrimSpace(s), "<bundle ") }
+	for i := 0; i < len(lines); i++ {
+		if !isBundle(lines[i]) {
+			continue
+		}
+		j := i
+		for j < len(lines) && isBundle(lines[j]) {
+			j++
+		}
+		run := lines[i:j]
+		sort.Strings(run)
+		i = j - 1
+	}
+	return []byte(strings.Join(lines, "\n"))
+}
+
 // requireSameBytes reports the two documents side by side when they differ,
 // which is the only useful way to read an attribute-order mismatch.
 func requireSameBytes(t *testing.T, what string, apple, ours []byte) {
@@ -298,4 +330,93 @@ func TestFilterInhibitsDefaults(t *testing.T) {
 		t.Error("--filter /keep$ should have dropped ./keep")
 	}
 	attest(t, "a named filter replaces the defaults, as pkgbuild does (%d entries)", len(a))
+}
+
+// writeBundle writes a minimal bundle whose Info.plist sits where that kind
+// of bundle keeps it.
+func writeBundle(t *testing.T, dir, id, plistRel string) {
+	t.Helper()
+	p := filepath.Join(dir, filepath.FromSlash(plistRel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key><string>` + id + `</string>
+	<key>CFBundleShortVersionString</key><string>1.0</string>
+	<key>CFBundleVersion</key><string>1</string>
+</dict>
+</plist>
+`
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestBundleKindsMatchPkgbuild covers the rules that decide which of the
+// bundle lists a bundle is referenced from. They are not uniform: an
+// application is relocated and strictly identified, every other kind is
+// only version-checked and upgraded, and a bundle nested inside another is
+// described but never referenced.
+func TestBundleKindsMatchPkgbuild(t *testing.T) {
+	requireTools(t, "pkgbuild", "xar")
+	base := t.TempDir()
+	root := filepath.Join(base, "root")
+
+	// An application: relocatable and strictly identified.
+	writeBundle(t, root, "com.example.app", "Applications/Thing.app/Contents/Info.plist")
+	// A well-formed framework, found through its top-level Resources link,
+	// so pkgbuild names the framework and not a version directory.
+	fw := filepath.Join(root, "Library", "Frameworks", "Solo.framework")
+	writeBundle(t, root, "com.example.solo", "Library/Frameworks/Solo.framework/Versions/A/Resources/Info.plist")
+	if err := os.Symlink("A", filepath.Join(fw, "Versions", "Current")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.FromSlash("Versions/Current/Resources"), filepath.Join(fw, "Resources")); err != nil {
+		t.Fatal(err)
+	}
+	// A plug-in: neither relocatable nor strictly identified.
+	writeBundle(t, root, "com.example.plug", "Library/Plug-Ins/P.plugin/Contents/Info.plist")
+	// A framework nested in an application: described, never referenced,
+	// and named by its version directory because it has no Resources link.
+	writeBundle(t, root, "com.example.inner", "Applications/Thing.app/Contents/Frameworks/Inner.framework/Versions/A/Resources/Info.plist")
+
+	hostTool(t, "sh", "-c", `find "$1" -exec touch -h -t 202401020304.05 {} +`, "sh", root)
+
+	work := t.TempDir()
+	ours := filepath.Join(work, "ours.pkg")
+	theirs := filepath.Join(work, "theirs.pkg")
+	mustRun(t, "build", root, ours, "--identifier", "com.deploymenttheory.kinds",
+		"--version", "1.0", "--install-location", "/", "--source-date-epoch", epoch)
+	hostTool(t, "pkgbuild", "--quiet", "--root", root,
+		"--identifier", "com.deploymenttheory.kinds", "--version", "1.0",
+		"--install-location", "/", "--ownership", "recommended", theirs)
+
+	pi := xarEntry(t, ours, "PackageInfo")
+	requireSameBytes(t, "PackageInfo (bundle kinds)",
+		sortBundleRuns(xarEntry(t, theirs, "PackageInfo")), sortBundleRuns(pi))
+
+	// Spelled out, so a regression says which rule broke rather than just
+	// dumping two documents.
+	got := string(pi)
+	for _, want := range []string{
+		`path="./Library/Frameworks/Solo.framework"`,
+		`path="./Applications/Thing.app/Contents/Frameworks/Inner.framework/Versions/A"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("PackageInfo is missing %s", want)
+		}
+	}
+	_, relocate, ok := strings.Cut(got, "<relocate>")
+	if !ok {
+		t.Fatal("PackageInfo has no <relocate> element")
+	}
+	if strings.Contains(relocate, "com.example.solo") || strings.Contains(relocate, "com.example.plug") {
+		t.Error("only an application should be relocated")
+	}
+	if strings.Contains(got, `<bundle id="com.example.inner"/>`) {
+		t.Error("a nested bundle should be described but never referenced")
+	}
 }
