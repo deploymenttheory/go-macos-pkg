@@ -23,6 +23,11 @@ import (
 	"github.com/deploymenttheory/go-macos-pkg/pkg/xar"
 )
 
+// LargePayloadMinOS is the macOS major version a large payload needs. The
+// format is not readable before macOS 12, and pkgbuild refuses to build one
+// without being told so explicitly.
+const LargePayloadMinOS = 12
+
 // DefaultFilters are the paths pkgbuild leaves out of a payload when it is
 // given no --filter of its own: any path component named exactly .svn, CVS
 // or .DS_Store, whether it is a file or a directory. A directory that
@@ -286,6 +291,12 @@ type ComponentOptions struct {
 	// children, are described. Empty means every bundle found takes the
 	// defaults.
 	ComponentPlist []ComponentBundle
+	// LargePayload names the payload entry LargeSegmentedPayload rather
+	// than Payload, as pkgbuild --large-payload does, and marks it in the
+	// PackageInfo. Only macOS 12 and later reads such a package, so
+	// MinOSVersion must be 12.0 or later, which is the precondition
+	// pkgbuild enforces too.
+	LargePayload bool
 	// Components are bundle paths to package in place of a Root, as
 	// pkgbuild --component does. They must share one directory, which
 	// becomes the root. With exactly one, the identifier, version and
@@ -484,6 +495,14 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 	if o.Root == "" && !o.NoPayload {
 		return nil, fmt.Errorf("flatpkg: a payload root is required (or NoPayload)")
 	}
+	if o.LargePayload {
+		// pkgbuild's own precondition, and it matters: the format is not
+		// readable before macOS 12, so a package that did not say so
+		// would fail to install rather than fail to build.
+		if !MinOSVersionAtLeast(o.MinOSVersion, LargePayloadMinOS) {
+			return nil, fmt.Errorf("flatpkg: a large payload needs --min-os-version 12.0 or later; macOS 11 and earlier cannot read one")
+		}
+	}
 	if o.Ownership != OwnershipRecommended && runtime.GOOS == "windows" {
 		return nil, fmt.Errorf("%w: preserving ownership (Windows has no uid or gid)", ErrUnsupportedOnPlatform)
 	}
@@ -575,6 +594,9 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 			res.NumberOfFiles, res.InstallKBytes = componentPayloadCounts(entries)
 		}
 		info.Payload = &Payload{NumberOfFiles: res.NumberOfFiles, InstallKBytes: res.InstallKBytes}
+		if o.LargePayload {
+			info.Payload.LargeSegmented = "true"
+		}
 
 		bundles, err := findBundles(o.Root)
 		if err != nil {
@@ -687,7 +709,11 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 		if err := addFileEntry(w, EntryBom, hdr, xar.EncodingGzip, bomPath); err != nil {
 			return nil, err
 		}
-		if err := addFileEntry(w, EntryPayload, hdr, xar.EncodingNone, payloadPath); err != nil {
+		payloadEntryName := EntryPayload
+		if o.LargePayload {
+			payloadEntryName = EntryLargePayload
+		}
+		if err := addFileEntry(w, payloadEntryName, hdr, xar.EncodingNone, payloadPath); err != nil {
 			return nil, err
 		}
 	}

@@ -746,3 +746,56 @@ func TestPriorMatchesPkgbuild(t *testing.T) {
 		})
 	}
 }
+
+// TestLargePayloadMatchesPkgbuild covers pkgbuild --large-payload, which is
+// not a different container at all on current macOS: the payload is the same
+// gzip cpio, carried under a different entry name and marked in the
+// PackageInfo, and only macOS 12 and later will read it.
+func TestLargePayloadMatchesPkgbuild(t *testing.T) {
+	requireTools(t, "pkgbuild", "xar", "pkgutil")
+	root, _ := sourceTree(t)
+	stampTree(t, root)
+
+	work := t.TempDir()
+	ours := filepath.Join(work, "ours.pkg")
+	theirs := filepath.Join(work, "theirs.pkg")
+	mustRun(t, "build", root, ours, "--identifier", "com.deploymenttheory.large",
+		"--version", "1.0", "--install-location", "/", "--large-payload",
+		"--min-os-version", "12.0", "--source-date-epoch", epoch)
+	hostTool(t, "pkgbuild", "--quiet", "--root", root,
+		"--identifier", "com.deploymenttheory.large", "--version", "1.0",
+		"--install-location", "/", "--ownership", "recommended",
+		"--large-payload", "--min-os-version", "12.0", theirs)
+
+	requireSameBytes(t, "PackageInfo (large payload)",
+		xarEntry(t, theirs, "PackageInfo"), xarEntry(t, ours, "PackageInfo"))
+
+	// The entry is renamed, and the content is still a gzip cpio.
+	entries := nonEmptyLines(hostTool(t, "xar", "-tf", ours))
+	assert.Contains(t, entries, "LargeSegmentedPayload")
+	assert.NotContains(t, entries, "Payload")
+	payload := xarEntry(t, ours, "LargeSegmentedPayload")
+	require.GreaterOrEqual(t, len(payload), 2)
+	assert.Equal(t, []byte{0x1f, 0x8b}, payload[:2], "the payload should still be gzip")
+
+	// Apple's own reader takes it.
+	assert.Equal(t, payloadPaths(t, theirs), payloadPaths(t, ours))
+}
+
+// TestLargePayloadNeedsMinOSVersion pins pkgbuild's precondition. Getting it
+// wrong would produce a package that builds and then fails to install on
+// macOS 11, so it is refused as a usage error rather than built.
+func TestLargePayloadNeedsMinOSVersion(t *testing.T) {
+	root, _ := sourceTree(t)
+	out := filepath.Join(t.TempDir(), "out.pkg")
+	for _, minOS := range []string{"", "11.0"} {
+		args := []string{"build", root, out, "--identifier", "com.deploymenttheory.large",
+			"--version", "1.0", "--large-payload"}
+		if minOS != "" {
+			args = append(args, "--min-os-version", minOS)
+		}
+		_, stderr, code := run(t, args...)
+		assert.Equalf(t, 2, code, "--large-payload with min-os-version %q should be a usage error", minOS)
+		assert.Contains(t, stderr, "--min-os-version 12.0 or later")
+	}
+}

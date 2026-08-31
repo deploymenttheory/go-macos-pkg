@@ -19,7 +19,12 @@ what is planned or under consideration, roughly in priority order.
 
 ## Near term
 
-- **`--component-plist`**: per-bundle relocation and version rules.
+- **`productbuild` parity**: `--product` (the pre-install requirements
+  property list), `--synthesize`, `--package-path`, `--scripts`,
+  `--plugins`, `--ui`, and the one-step `--component`, `--root` and
+  `--content` modes.
+- **`pkgutil` parity**: `flatten`, the inverse of `expand`, and listing
+  filters.
 
 ## Under consideration
 

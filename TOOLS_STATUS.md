@@ -85,8 +85,11 @@ pkgbuild's headers and bill-of-materials records; `--exclude-xattr` prunes
 host bookkeeping such as `com.apple.provenance`), and hard links are
 packaged as one inode. One deliberate difference: `--ownership preserve`
 is refused on Windows, and Windows exposes no inode, so hard links become
-copies there. `--large-payload`
-output is read but not written (its segmentation past 8 GiB is untested).
+copies there. `--large-payload` is read and written: on current macOS it is
+not a different container at all, but the same gzip cpio under a different
+entry name and marked in the PackageInfo, and both are byte-identical to
+pkgbuild's. What segmentation it does past 8 GiB is untested here, since no
+fixture that size can be committed.
 pbzx output matches pkgbuild's parameters (16 MiB blocks, one xz stream
 per chunk, no check, 8 MiB dictionary); pkgbuild has written pbzx for
 `--compression latest` on every macOS from 12 to 26, which the fixture

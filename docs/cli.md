@@ -213,6 +213,7 @@ manifest supplies them.
 | `--install-location PATH` | Where the payload is installed. Left out of the document when unset, which the Installer reads as `/`. |
 | `--scripts DIR` | Directory of install scripts. `preinstall` and `postinstall` run as the package's own scripts; anything else is available for them to call. |
 | `--nopayload` | A scripts-only package with no payload. |
+| `--large-payload` | Name the payload entry `LargeSegmentedPayload`, for payloads holding files of 8 GiB or more. Needs `--min-os-version 12.0` or later. |
 | `--component BUNDLE` | Package the named bundle rather than a directory. Repeatable. With exactly one, the identifier, version and install location are read out of its `Info.plist`. In this mode the first argument is the output path, not a source. |
 | `--prior PKG` | Take the identifier and install location from a previous build of the same package, and increment its version. |
 

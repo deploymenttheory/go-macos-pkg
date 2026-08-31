@@ -33,6 +33,7 @@ var (
 	buildComponentPlist     string
 	buildComponents         []string
 	buildPrior              string
+	buildLargePayload       bool
 	buildExecutable         []string
 	buildManifest           string
 	buildCompression        string
@@ -102,6 +103,7 @@ func init() {
 	f.StringVar(&buildPostinstallAction, "postinstall-action", "", "none, logout, restart or shutdown")
 	f.StringVar(&buildAuth, "auth", "", "root (default) or none")
 	f.BoolVar(&buildNoPayload, "nopayload", false, "build a scripts-only package with no payload")
+	f.BoolVar(&buildLargePayload, "large-payload", false, "name the payload entry LargeSegmentedPayload, as pkgbuild --large-payload does; needs --min-os-version 12.0 or later")
 	f.BoolVar(&buildRelocatable, "relocatable", false, "mark the package relocatable")
 	f.BoolVar(&buildNoBundleRelocation, "no-bundle-relocation", false, "always install bundles at their packaged paths")
 	f.BoolVar(&buildPreserveXattr, "preserve-xattr", false, "set preserve-xattr on the package")
@@ -176,6 +178,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		Root:               m.payloadRoot(src),
 		Scripts:            pick(buildScripts, m.scriptsDir(src)),
 		NoPayload:          buildNoPayload || m.NoPayload,
+		LargePayload:       buildLargePayload,
 		Identifier:         pick(buildIdentifier, m.Identifier),
 		Version:            pick(buildVersion, m.Version),
 		InstallLocation:    pick(buildInstallLocation, m.InstallLocation),
@@ -189,6 +192,11 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		TempDir:            opts.TempDir,
 		GeneratorVersion:   "go-macos-pkg " + tools.Version(),
 		Progress:           func(rel string) { verbosef("packaged %s", rel) },
+	}
+	if buildLargePayload && !flatpkg.MinOSVersionAtLeast(o.MinOSVersion, flatpkg.LargePayloadMinOS) {
+		// A flag combination, so it is a usage error rather than a build
+		// failure. flatpkg checks it again for a library caller.
+		return usageErrorf("--large-payload needs --min-os-version 12.0 or later; macOS 11 and earlier cannot read one")
 	}
 	if buildPrior != "" {
 		prior, err := flatpkg.InferFromPrior(buildPrior)

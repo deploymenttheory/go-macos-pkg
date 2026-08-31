@@ -154,3 +154,13 @@ func resolveComponents(components []string) (root string, keep func(string) bool
 	}
 	return dir, keep, nil
 }
+
+// MinOSVersionAtLeast reports whether a minimumSystemVersion string names a
+// major version of at least major. An empty or unparsable version is not
+// enough, which is what makes it usable as a precondition.
+func MinOSVersionAtLeast(version string, major int) bool {
+	if version == "" {
+		return false
+	}
+	return leadingInt(strings.SplitN(version, ".", 2)[0]) >= major
+}
