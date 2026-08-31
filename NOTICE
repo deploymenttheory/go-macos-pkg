@@ -68,13 +68,12 @@ entry 14, whose C is translated into Go and whose license travels with it.
 11. lzfse (go-compressions): https://github.com/go-compressions/lzfse
     Copyright (c) the go-compressions authors; MIT (a Go port of Apple's
     LZFSE, https://github.com/lzfse/lzfse, BSD-3-Clause).
-    Imported as a dependency: the LZFSE codec behind pbze containers and
-    Apple Archive.
+    Imported as a dependency: the LZFSE codec behind pbze containers.
 
 12. lz4 (pierrec): https://github.com/pierrec/lz4
     Copyright (c) 2015 Pierre Curto; BSD-3-Clause.
     Imported as a dependency: the LZ4 block codec inside Apple's bv41
-    frames (pbz4 containers and Apple Archive).
+    frames (pbz4 containers).
 
 13. xnu: https://github.com/apple-oss-distributions/xnu
     Copyright (c) Apple Inc.; APSL-2.0.

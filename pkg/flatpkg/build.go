@@ -608,7 +608,7 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 		}
 		payloadPath = filepath.Join(tmp, "Payload")
 		bomPath = filepath.Join(tmp, "Bom")
-		if err := writePayloadAndBom(entries, payloadPath, bomPath, o.Compression, o.PBZXBlockSize, o.Progress); err != nil {
+		if err := writePayloadAndBom(entries, payloadPath, bomPath, o.Compression, o.PBZXBlockSize, o.LargePayload, o.Progress); err != nil {
 			return nil, err
 		}
 		res.NumberOfFiles = len(entries)
@@ -1201,7 +1201,7 @@ func (nopWriteCloser) Close() error { return nil }
 
 // writePayloadAndBom streams the entries into an odc cpio inside the
 // chosen container and builds the bill of materials alongside.
-func writePayloadAndBom(entries []payloadEntry, payloadPath, bomPath string, compression Compression, blockSize uint64, progress func(string)) error {
+func writePayloadAndBom(entries []payloadEntry, payloadPath, bomPath string, compression Compression, blockSize uint64, large bool, progress func(string)) error {
 	pf, err := os.Create(payloadPath)
 	if err != nil {
 		return err
@@ -1223,7 +1223,7 @@ func writePayloadAndBom(entries []payloadEntry, payloadPath, bomPath string, com
 	}
 	cw := cpio.NewWriter(container)
 	b := bom.NewBuilder()
-	if err := writeEntries(cw, b, entries, progress); err != nil {
+	if err := writeEntries(cw, b, entries, large, progress); err != nil {
 		return err
 	}
 	if err := cw.Close(); err != nil {
@@ -1246,11 +1246,54 @@ func writePayloadAndBom(entries []payloadEntry, payloadPath, bomPath string, com
 	return bf.Close()
 }
 
+// odcMaxFileSize is the largest size an odc cpio header can express, its
+// file size being eleven octal digits. pkgbuild calls anything at or above
+// it a large file, which is the same 8 GiB the --large-payload
+// documentation names.
+var odcMaxFileSize int64 = 1<<33 - 1
+
+// payloadSegmentSize is the length of each piece a large file is split
+// into, measured from what pkgbuild writes.
+var payloadSegmentSize int64 = 1 << 30
+
+// segmentSizes returns the sizes of the cpio entries that carry a file.
+//
+// Ordinarily that is one entry. A file too large for an odc header is
+// split into payloadSegmentSize pieces written consecutively under the one
+// name, which is what a --large-payload package means by "segmented" and
+// what the Installer joins together again.
+func segmentSizes(size int64, large bool) []int64 {
+	if !large || size <= odcMaxFileSize {
+		return []int64{size}
+	}
+	var out []int64
+	for rest := size; rest > 0; {
+		n := payloadSegmentSize
+		if rest < n {
+			n = rest
+		}
+		out = append(out, n)
+		rest -= n
+	}
+	return out
+}
+
 // writeEntries streams entries into a cpio and, when b is set, records
 // them in the bill of materials. Inode numbers are assigned in order;
 // the members of a hard-link set share one, and so does the sidecar of a
 // hard-linked file (pkgbuild's layout).
-func writeEntries(cw *cpio.Writer, b *bom.Builder, entries []payloadEntry, progress func(string)) error {
+func writeEntries(cw *cpio.Writer, b *bom.Builder, entries []payloadEntry, large bool, progress func(string)) error {
+	// A large file occupies one cpio entry per segment, and each segment
+	// carries an inode of its own, so the segments are counted before the
+	// inodes are handed out.
+	segs := make([][]int64, len(entries))
+	for i, e := range entries {
+		if e.sidecar == nil && e.mode&cpio.ModeTypeMask != cpio.ModeDir && e.mode&cpio.ModeTypeMask != cpio.ModeSymlink {
+			segs[i] = segmentSizes(e.size, large)
+			continue
+		}
+		segs[i] = []int64{e.size}
+	}
 	nextIno := uint64(1)
 	setIno := map[uint64]uint64{}
 	inos := make([]uint64, len(entries))
@@ -1270,7 +1313,7 @@ func writeEntries(cw *cpio.Writer, b *bom.Builder, entries []payloadEntry, progr
 			setIno[e.linkKey] = nextIno
 		}
 		inos[i] = nextIno
-		nextIno++
+		nextIno += uint64(len(segs[i]))
 	}
 	for i, e := range entries {
 		hdr := &cpio.Header{
@@ -1296,6 +1339,11 @@ func writeEntries(cw *cpio.Writer, b *bom.Builder, entries []payloadEntry, progr
 			}
 		case e.linkKey != 0:
 			hdr.NLink = e.nlink
+		}
+		if len(segs[i]) > 1 {
+			hdr.Size = segs[i][0]
+		} else if hdr.Size > odcMaxFileSize {
+			return fmt.Errorf("flatpkg: %s is %d bytes, too large for a payload entry; build with --large-payload (and --min-os-version 12.0 or later)", e.rel, hdr.Size)
 		}
 		if err := cw.WriteHeader(hdr); err != nil {
 			return err
@@ -1350,7 +1398,28 @@ func writeEntries(cw *cpio.Writer, b *bom.Builder, entries []payloadEntry, progr
 				return err
 			}
 			ck := bom.NewCksum()
-			n, err := io.Copy(io.MultiWriter(cw, ck), f)
+			var n int64
+			for si, size := range segs[i] {
+				if si > 0 {
+					// A continuation of the same path: pkgbuild gives
+					// each segment an inode of its own and leaves the
+					// link count at one, so nothing reads them as a
+					// hard-link set.
+					seg := *hdr
+					seg.Size = size
+					seg.Inode = inos[i] + uint64(si)
+					if err = cw.WriteHeader(&seg); err != nil {
+						f.Close()
+						return err
+					}
+				}
+				var m int64
+				m, err = io.CopyN(io.MultiWriter(cw, ck), f, size)
+				n += m
+				if err != nil {
+					break
+				}
+			}
 			f.Close()
 			if err != nil {
 				return fmt.Errorf("flatpkg: %s: %w", e.rel, err)
@@ -1466,7 +1535,7 @@ func writeArchivedDir(dir, dst string, o ComponentOptions, epoch time.Time, forc
 	defer f.Close()
 	gz := gzip.NewWriter(f)
 	cw := cpio.NewWriter(gz)
-	if err := writeEntries(cw, nil, entries, nil); err != nil {
+	if err := writeEntries(cw, nil, entries, false, nil); err != nil {
 		return err
 	}
 	if err := cw.Close(); err != nil {

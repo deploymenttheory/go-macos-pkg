@@ -40,16 +40,36 @@ The first bytes of a Payload say how it is wrapped:
 | Bytes | Container | Written by |
 |---|---|---|
 | `1f 8b 08` | gzip | `pkgbuild` (default), `macospkg build` |
-| `pbzx` | pbz* with xz chunks | `pkgbuild --compression latest`, `macospkg build --compression pbzx` |
+| `pbzx` | pbz* with xz chunks | `pkgbuild --compression latest`, `aa archive -a lzma`, `macospkg build --compression pbzx` |
 | `pbze` | pbz* with LZFSE chunks | `aa archive -a lzfse`, `macospkg build --compression lzfse` |
 | `pbzb` | pbz* with LZBITMAP chunks | `aa archive -a lzbitmap`, `macospkg build --compression lzbitmap` |
-| `pbz4`, `pbzz` | pbz* with Apple-framed LZ4 or zlib chunks | `aa archive`, libParallelCompression; `pkg/pbzx` writes them, `macospkg build` refuses |
+| `pbz4`, `pbzz` | pbz* with Apple-framed LZ4 or zlib chunks | `aa archive -a lz4\|zlib`, libParallelCompression; `pkg/pbzx` writes them, `macospkg build` refuses |
 | `070707` / `07070` | bare cpio | unusual |
-| `AA01`, `YAA1`, `AEA1` | Apple Archive | recognized; the Installer does not read it either |
 
-`pkgbuild --large-payload` writes the gzip cpio under the entry name
+### Large payloads
+
+`pkgbuild --large-payload` writes the entry under the name
 `LargeSegmentedPayload` and sets `large-segmented="true"` on the
-PackageInfo's payload element; it is read like any other payload.
+PackageInfo's payload element. It is orthogonal to `--compression`: the
+container is still gzip by default, or pbzx with `--compression latest`.
+
+"Segmented" is literal. An odc header states a file's size in eleven octal
+digits, so it cannot express 8 GiB or more, which is exactly the threshold
+the `pkgbuild` documentation names. Without the flag such a file is
+refused outright:
+
+    pkgbuild: error: Cannot write package to "x.pkg".
+    (The operation couldn't be completed. File too large)
+
+With it, the file is written as consecutive entries under the one path,
+1 GiB each, the last holding the remainder. A 9 GiB file becomes nine
+entries named `./usr/local/huge`, each with an inode of its own and a link
+count of one, so nothing reads them as a hard-link set. The Installer
+concatenates them, and so must any reader: taking only the first entry
+truncates the file silently.
+
+Files that do fit an odc header are left whole even when the flag is
+given; a 5 GiB file is one entry. Measured on macOS 26.5.1.
 
 ### Which containers a package may use
 

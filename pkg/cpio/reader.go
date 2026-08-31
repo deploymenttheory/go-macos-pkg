@@ -17,7 +17,21 @@ type Reader struct {
 	pad    int64     // alignment padding after the current entry's data
 	format Format
 	done   bool
+
+	// join makes Read continue across consecutive entries that share a
+	// name, which is how a --large-payload package carries a file too
+	// large for an odc header: pkgbuild splits it into segments under the
+	// one path and the Installer joins them again.
+	join    bool
+	name    string  // the logical entry being read
+	pending *Header // read ahead while joining, not yet returned by Next
 }
+
+// JoinSegments makes the reader treat consecutive entries that share a
+// name as one file, concatenating their data. The header Next returns
+// describes the first segment, so its Size is that segment's, not the
+// whole file's; the bill of materials carries the true size.
+func (cr *Reader) JoinSegments(on bool) { cr.join = on }
 
 // NewReader returns a Reader over r. The format is detected from the first
 // header.
@@ -30,6 +44,31 @@ func (cr *Reader) Format() Format { return cr.format }
 
 // Next advances to the next entry. It returns io.EOF after the trailer.
 func (cr *Reader) Next() (*Header, error) {
+	if cr.pending != nil {
+		hdr := cr.pending
+		cr.pending = nil
+		cr.begin(hdr)
+		return hdr, nil
+	}
+	hdr, err := cr.nextHeader()
+	if err != nil {
+		return nil, err
+	}
+	cr.begin(hdr)
+	return hdr, nil
+}
+
+// begin makes hdr the current entry.
+func (cr *Reader) begin(hdr *Header) {
+	cr.remain = hdr.Size
+	cr.cur = io.LimitReader(cr.r, hdr.Size)
+	cr.format = hdr.Format
+	cr.name = hdr.Name
+}
+
+// nextHeader skips whatever is left of the current entry and reads the
+// header that follows. It returns io.EOF at the trailer.
+func (cr *Reader) nextHeader() (*Header, error) {
 	if cr.done {
 		return nil, io.EOF
 	}
@@ -68,26 +107,57 @@ func (cr *Reader) Next() (*Header, error) {
 		cr.done = true
 		return nil, io.EOF
 	}
-	cr.remain = hdr.Size
-	cr.cur = io.LimitReader(cr.r, hdr.Size)
-	cr.format = hdr.Format
 	return hdr, nil
 }
 
-// Read reads the current entry's data.
+// Read reads the current entry's data, continuing into the entries that
+// follow when they are segments of the same file and JoinSegments is on.
 func (cr *Reader) Read(p []byte) (int, error) {
-	if cr.cur == nil || cr.remain == 0 {
+	if cr.cur == nil {
 		return 0, io.EOF
+	}
+	if cr.remain == 0 {
+		if !cr.join {
+			return 0, io.EOF
+		}
+		if err := cr.nextSegment(); err != nil {
+			return 0, err
+		}
 	}
 	n, err := cr.cur.Read(p)
 	cr.remain -= int64(n)
-	if cr.remain == 0 && err == nil {
-		err = io.EOF
-	}
 	if err == io.EOF && cr.remain > 0 {
-		err = io.ErrUnexpectedEOF
+		return n, io.ErrUnexpectedEOF
+	}
+	if cr.remain == 0 {
+		// The segment is done. Without joining that is the end of the
+		// entry; with it, the next Read decides.
+		if cr.join {
+			if err == io.EOF {
+				err = nil
+			}
+		} else if err == nil {
+			err = io.EOF
+		}
 	}
 	return n, err
+}
+
+// nextSegment advances to the entry that follows when it continues the
+// current one. It returns io.EOF when the file is complete, keeping the
+// header it read for Next.
+func (cr *Reader) nextSegment() error {
+	hdr, err := cr.nextHeader()
+	if err != nil {
+		return io.EOF
+	}
+	if hdr.Name != cr.name {
+		cr.pending = hdr
+		return io.EOF
+	}
+	cr.remain = hdr.Size
+	cr.cur = io.LimitReader(cr.r, hdr.Size)
+	return nil
 }
 
 func (cr *Reader) readODC() (*Header, error) {

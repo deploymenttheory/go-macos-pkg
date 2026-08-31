@@ -47,6 +47,13 @@
 //	MACOSPKG_ACCEPTANCE_INSTALL  set to run the installer references outside CI;
 //	                             they need passwordless sudo and run a
 //	                             package's scripts as root
+//	MACOSPKG_ACCEPTANCE_LARGE    set to run the --large-payload references,
+//	                             which build a sparse 9 GiB file to cross the
+//	                             8 GiB a cpio header can describe. No fixture
+//	                             that size can be committed, so the only way
+//	                             to check segmentation against pkgbuild and
+//	                             pkgutil is to make one. Costs about a minute
+//	                             and no disk, the file being sparse
 //
 // # Recorded results
 //

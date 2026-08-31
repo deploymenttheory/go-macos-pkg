@@ -38,10 +38,4 @@ what is planned or under consideration, roughly in priority order.
   dependency on anything else here, and an SDK that stops before the upload
   leaves every consumer to write it. See issue #29.
 
-## Under consideration
-
-- **Apple Archive payloads**: recognized by their magic and reported today
-  (exit 5); nothing decodes one. The Installer does not read one as a package
-  Payload either, so this buys reading other people's archives, not building.
-
 Contributions and priority feedback are welcome via GitHub issues.

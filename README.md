@@ -61,12 +61,13 @@ The readers and writers are ordinary Go, so every platform behaves identically.
 | `pbzx` | xz chunks: smaller, but only macOS 12 and later installs it | read + write (`--compression pbzx`, also spelled `latest`) |
 | `pbze`, `pbzb` | the same container with LZFSE or LZBITMAP chunks. macOS reads both | read + write (`--compression lzfse\|lzbitmap`) |
 | `pbz4`, `pbzz` | the same container with Apple-framed LZ4 or zlib chunks | read only: macOS cannot install either, so `build` refuses to write one |
-| Apple Archive | a different format; the Installer does not read it either | detected, reported, exit 5 |
 
-`--large-payload` keeps the gzip cpio but names the entry
-`LargeSegmentedPayload`, which is what carries files of 8 GiB and over; only
-macOS 12 and later reads one. `--compression pbzx` likewise sets the package's
-minimum system version to 12.0 unless you ask for a higher one.
+`--large-payload` carries files of 8 GiB and over, which no cpio header can
+describe: the file is split into 1 GiB segments under one path and the entry
+is named `LargeSegmentedPayload`. The container is unchanged, so the two flags
+compose. Only macOS 12 and later reads one, and `--compression pbzx` likewise
+sets the package's minimum system version to 12.0 unless you ask for a higher
+one.
 
 LZBITMAP has no published specification. `pkg/lzbitmap` is a Go translation of
 Corellium's MIT-licensed `libzbitmap`; `NOTICE` carries the copyright. Both
@@ -164,7 +165,7 @@ is the exception: the bare variable outranks `MACOSPKG_SOURCE_DATE_EPOCH`.
 | 2 | usage error |
 | 3 | not a flat package (missing, not a xar, or a xar without PackageInfo/Distribution) |
 | 4 | credentials missing or rejected (PKCS#12 password, key mismatch, notary API key) |
-| 5 | unsupported (Apple Archive payload, ownership on Windows, non-RSA key) |
+| 5 | unsupported (a payload container macOS cannot install, ownership on Windows, non-RSA key) |
 | 6 | partial result (some entries skipped) |
 | 7 | signature or ticket check failed, or no ticket available |
 | 8 | notarization rejected |

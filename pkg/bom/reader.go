@@ -299,7 +299,7 @@ func (b *BOM) Paths() ([]Entry, error) {
 		if err := b.fillRecord(&e, recIndex); err != nil {
 			return nil, err
 		}
-		if s, ok := sizes64[id]; ok {
+		if s, ok := sizes64[recIndex]; ok {
 			e.Size = int64(s)
 		}
 		byID[id] = &raw{entry: e, name: name}
@@ -378,8 +378,8 @@ func (b *BOM) fillRecord(e *Entry, index uint32) error {
 }
 
 // size64 reads the Size64 tree, which records the sizes of files over
-// 4 GiB: each leaf's key block holds a path id and its value block a 64-bit
-// size. Absent or unreadable, it contributes nothing; the 32-bit size in
+// 4 GiB: each leaf's key block holds the block index of a path record, not
+// the path id, and its value block a 64-bit size. Absent or unreadable, it contributes nothing; the 32-bit size in
 // the path record stands.
 func (b *BOM) size64() map[uint32]uint64 {
 	out := map[uint32]uint64{}
