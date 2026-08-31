@@ -11,6 +11,7 @@ package notary
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -75,19 +76,61 @@ const (
 	EnvPrivateKeyPath = "APPLE_PRIVATE_KEY_PATH"
 )
 
+// The names electron-builder uses for the same three things, accepted as
+// well because a project that already notarizes has them set and should
+// not have to set them twice under different names. APPLE_API_KEY is the
+// .p8 base64-encoded, which is how a key survives being a CI secret.
+const (
+	EnvBuilderKeyID   = "APPLE_API_KEY_ID"
+	EnvBuilderIssuer  = "APPLE_API_ISSUER"
+	EnvBuilderKeyData = "APPLE_API_KEY"
+)
+
 // CredentialsFromEnv reads the APPLE_* variables.
+//
+// Where a name has an electron-builder equivalent, either will do, and the
+// name this tool documents wins if both are set.
 func CredentialsFromEnv() (*Credentials, error) {
-	c := &Credentials{KeyID: os.Getenv(EnvKeyID), IssuerID: os.Getenv(EnvIssuerID)}
-	if pem := os.Getenv(EnvPrivateKeyPEM); pem != "" {
-		c.PrivateKey = []byte(pem)
-	} else if path := os.Getenv(EnvPrivateKeyPath); path != "" {
+	c := &Credentials{
+		KeyID:    firstSet(EnvKeyID, EnvBuilderKeyID),
+		IssuerID: firstSet(EnvIssuerID, EnvBuilderIssuer),
+	}
+	switch {
+	case os.Getenv(EnvPrivateKeyPEM) != "":
+		c.PrivateKey = []byte(os.Getenv(EnvPrivateKeyPEM))
+	case os.Getenv(EnvPrivateKeyPath) != "":
+		path := os.Getenv(EnvPrivateKeyPath)
 		data, err := os.ReadFile(path) //nolint:gosec // the variable names the key file on purpose
 		if err != nil {
 			return nil, fmt.Errorf("%w: %s: %v", ErrCredentials, EnvPrivateKeyPath, err)
 		}
 		c.PrivateKey = data
+	case os.Getenv(EnvBuilderKeyData) != "":
+		// Base64, as electron-builder's documentation says to encode it.
+		// A key pasted in as-is is accepted too rather than rejected on a
+		// technicality: PEM is recognisable and the intent is obvious.
+		raw := os.Getenv(EnvBuilderKeyData)
+		if strings.Contains(raw, "-----BEGIN") {
+			c.PrivateKey = []byte(raw)
+			break
+		}
+		data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(raw))
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s is not base64: %v", ErrCredentials, EnvBuilderKeyData, err)
+		}
+		c.PrivateKey = data
 	}
 	return c, c.Validate()
+}
+
+// firstSet returns the value of the first variable that has one.
+func firstSet(names ...string) string {
+	for _, n := range names {
+		if v := os.Getenv(n); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // Validate checks that everything needed is present.

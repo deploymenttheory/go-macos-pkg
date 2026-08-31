@@ -84,6 +84,13 @@ process listing:
 | `MACOSPKG_P12_PASSWORD` | `sign`, `build --sign-*`, `product --sign-*` |
 | `APPLE_KEY_ID`, `APPLE_ISSUER_ID` | `notarize` |
 | `APPLE_PRIVATE_KEY_PEM` or `APPLE_PRIVATE_KEY_PATH` | `notarize` |
+| `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, `APPLE_API_KEY` | `notarize`, for interoperability |
+
+The second set is electron-builder's, accepted so a project that already
+notarizes does not have to set the same three things twice under different
+names. `APPLE_API_KEY` is the `.p8` base64-encoded, which is how a key
+survives being a CI secret; a key pasted in unencoded is taken as well. The
+names in the first set win where both are set.
 
 ## Exit codes
 
