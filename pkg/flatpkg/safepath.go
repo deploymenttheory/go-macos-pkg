@@ -27,9 +27,12 @@ func SafeRelPath(name string) (rel string, renamedFrom string, reason string) {
 	if strings.ContainsRune(name, 0) {
 		return "", "", "name contains a NUL byte"
 	}
-	// Payload entries are "./a/b"; archive entries "a/b". Normalize.
-	n := strings.ReplaceAll(name, "\\", "/")
-	n = strings.TrimPrefix(n, "./")
+	// Payload entries are "./a/b"; archive entries "a/b". Only "/" ever
+	// separates them: a backslash is an ordinary character in a macOS file
+	// name, and pkgutil extracts "back\\slash.txt" as the one file it is.
+	// Treating it as a separator turned that into a directory holding a
+	// file, silently, and did so on every platform.
+	n := strings.TrimPrefix(name, "./")
 	if strings.HasPrefix(n, "/") {
 		return "", "", "absolute path"
 	}
@@ -66,7 +69,7 @@ func sanitizeWindowsName(part string) string {
 	var b strings.Builder
 	for _, r := range part {
 		switch {
-		case r < 0x20, r == '<', r == '>', r == ':', r == '"', r == '|', r == '?', r == '*':
+		case r < 0x20, r == '<', r == '>', r == ':', r == '"', r == '|', r == '?', r == '*', r == '\\':
 			b.WriteRune('_')
 		default:
 			b.WriteRune(r)
