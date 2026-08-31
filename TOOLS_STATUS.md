@@ -122,9 +122,12 @@ is S3's limit for one request, goes up in parts, and a failed upload is
 aborted rather than left incomplete in Apple's bucket. `--webhook` asks
 Apple to post the verdict rather than being polled for it. Uploads go through S3
 transfer acceleration, as `notarytool` and Apple's own documented example
-both do; `--no-s3-acceleration` sends them to the region instead. One
-deliberate difference from `notarytool`: authentication is by App Store
-Connect API key only. `notarytool` also
+both do; `--no-s3-acceleration` sends them to the region instead. `notarize store-credentials`
+remembers a set of credentials under a name, as `notarytool
+store-credentials` does, but writes a 0600 file rather than a Keychain item
+and stores the path to the `.p8` rather than a copy of it: one copy of a
+secret is better than two. One deliberate difference from `notarytool`:
+authentication is by App Store Connect API key only. `notarytool` also
 accepts an Apple ID with an app-specific password, which is not part of the
 documented Notary REST API, and guessing at an undocumented endpoint that
 handles credentials is not a trade worth making. The end-to-end job needs

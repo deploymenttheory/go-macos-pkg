@@ -30,7 +30,7 @@ Accepted by every command.
 
 | Flag | Default | What it does |
 |---|---|---|
-| `-o, --output text\|json` | `text` | Output format. `json` gives one document, or one line per entry for listings. |
+| `-o, --output text\|json\|plist` | `text` | Output format. `json` gives one document, or one line per entry for listings; `plist` gives the property list macOS reads natively. |
 | `-q, --quiet` | off | Suppress progress and non-essential messages. Errors still go to stderr. |
 | `--verbose` | off | Diagnostics on stderr. Safe to combine with `-o json`, which writes only to stdout. |
 | `--source-date-epoch N` | unset | Pin every timestamp the package carries, in decimal seconds since 1970 UTC. |
@@ -40,6 +40,20 @@ Accepted by every command.
 the output. The text format is for humans and its layout may change; the
 JSON is a contract. In CI, prefer `macospkg verify -o json | jq -e
 '.status == "valid"'` over grepping prose.
+
+**When to use `-o plist`.** When the reader is a macOS tool: `plutil`,
+`PlistBuddy`, or anything that speaks property lists already. It carries
+the same fields as the JSON, so a script can move between them.
+
+The two differ in one way, because the formats do. JSON is a line per
+value, so a listing streams and stays greppable. A property list is one
+document, so a listing comes out as a single array once the command
+finishes:
+
+```console
+$ macospkg -o plist info Foo.pkg | plutil -extract packages.0.version raw -
+1.0.0
+```
 
 **When to use `--source-date-epoch`.** Whenever you want two builds of
 the same input to produce the same bytes, which is most of the time in
@@ -507,6 +521,7 @@ optionally wait for the verdict and staple the ticket.
 | `--log` | off | Print the developer log when finished. Always printed on rejection. |
 | `--name N` | the file name | The submission name shown in App Store Connect. |
 | `--force` | off | Submit a file without checking it first. |
+| `-p, --profile NAME` | none | Credentials stored earlier under this name. |
 | `--webhook URL` | none | A public URL for Apple to post the verdict to when notarization finishes, so a job need not sit and poll. |
 | `--no-s3-acceleration` | off | Send the upload straight to the region instead of through S3 transfer acceleration. |
 
@@ -544,6 +559,17 @@ Subcommands, all taking the same credential flags:
 | `notarize wait ID` | Poll an existing submission. Takes `--timeout` and `--poll-interval`. |
 | `notarize log ID` | The developer log for one submission. |
 | `notarize list` | Recent submissions for the team. |
+| `notarize store-credentials NAME` | Remember a set of credentials under a name. |
+
+**On profiles.** `notarytool` keeps credentials in the Keychain, which does
+not exist off macOS. `store-credentials` writes a small file instead, under
+the directory the operating system gives for configuration, readable only
+by you.
+
+It stores a **pointer, not a copy**: the key ID, the issuer ID and the path
+to the `.p8`. The private key stays where you keep it, so there is one copy
+of the secret rather than two. That does mean the `.p8` has to stay put,
+unlike a notarytool profile which is self-contained.
 
 Rejections are code 8 and timeouts are code 9 for a reason: a timeout
 says nothing about the verdict, so retry it with `notarize status`

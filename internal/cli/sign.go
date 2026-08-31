@@ -108,7 +108,7 @@ func runSign(cmd *cobra.Command, args []string) error {
 		report.Signer, report.TeamID = s.SignerName()
 	}
 	report.SHA256, _ = sha256File(args[1])
-	if opts.Output == "json" {
+	if structured() {
 		return jsonOut(report)
 	}
 	progressf("signed %s -> %s (%s%s)", p.Path, args[1], report.Signer, timestampLabel(report.Timestamped))

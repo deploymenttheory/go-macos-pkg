@@ -172,7 +172,7 @@ func runExtract(cmd *cobra.Command, args []string) error {
 		total += res.Files + res.Symlinks
 	}
 
-	if opts.Output == "json" {
+	if structured() {
 		if err := jsonOut(report); err != nil {
 			return err
 		}

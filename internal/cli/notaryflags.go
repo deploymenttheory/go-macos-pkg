@@ -15,6 +15,7 @@ type notaryFlags struct {
 	keyID      string
 	issuerID   string
 	privateKey string
+	profile    string
 }
 
 var notaryByCommand = map[*cobra.Command]*notaryFlags{}
@@ -27,6 +28,7 @@ func addNotaryFlags(cmd *cobra.Command) {
 	f.StringVar(&nf.keyID, "key-id", "", "App Store Connect API key ID (or "+notary.EnvKeyID+")")
 	f.StringVar(&nf.issuerID, "issuer-id", "", "App Store Connect API issuer ID (or "+notary.EnvIssuerID+")")
 	f.StringVar(&nf.privateKey, "private-key", "", "App Store Connect API private key file, .p8 (or "+notary.EnvPrivateKeyPEM+" / "+notary.EnvPrivateKeyPath+")")
+	f.StringVarP(&nf.profile, "profile", "p", "", "credentials stored earlier under this name by notarize store-credentials")
 }
 
 // notaryService resolves credentials from flags, then the manifest, then
@@ -35,6 +37,23 @@ func notaryService(cmd *cobra.Command, m *manifestFile) (notary.Service, error) 
 	nf := notaryByCommand[cmd]
 	c := &notary.Credentials{}
 	if nf != nil {
+		// A profile fills in what the flags left empty, so a stored
+		// profile can still have one part of it overridden.
+		if nf.profile != "" {
+			p, err := loadNotaryProfile(nf.profile)
+			if err != nil {
+				return nil, err
+			}
+			if nf.keyID == "" {
+				nf.keyID = p.KeyID
+			}
+			if nf.issuerID == "" {
+				nf.issuerID = p.IssuerID
+			}
+			if nf.privateKey == "" {
+				nf.privateKey = p.PrivateKeyPath
+			}
+		}
 		c.KeyID, c.IssuerID = nf.keyID, nf.issuerID
 		if nf.privateKey != "" {
 			data, err := os.ReadFile(nf.privateKey) //nolint:gosec // --private-key names the key file on purpose

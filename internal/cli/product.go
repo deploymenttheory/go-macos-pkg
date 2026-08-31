@@ -223,7 +223,7 @@ func runProduct(cmd *cobra.Command, args []string) error {
 		report.Size = st.Size()
 	}
 	report.SHA256, _ = sha256File(productOutput)
-	if opts.Output == "json" {
+	if structured() {
 		return jsonOut(report)
 	}
 	progressf("built %s: product archive with %d component(s)%s", productOutput, len(report.Components), signedLabel(signer != nil))
@@ -267,7 +267,7 @@ func runSynthesize(out string) error {
 		return buildError(err)
 	}
 	report := synthesizeReport{Output: out, Packages: productPackages}
-	if opts.Output == "json" {
+	if structured() {
 		return jsonOut(report)
 	}
 	progressf("wrote %s for %d package(s)", out, len(productPackages))

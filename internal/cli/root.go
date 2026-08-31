@@ -97,11 +97,17 @@ Exit codes:
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		return resolveGlobalOptions(cmd)
 	},
+	// A property list is one document, so what a command emitted is
+	// written when it finishes rather than as it goes. Nothing to do for
+	// the other formats.
+	PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+		return flushPlist()
+	},
 }
 
 func init() {
 	flags := rootCmd.PersistentFlags()
-	flags.StringP("output", "o", "text", "output format: text or json")
+	flags.StringP("output", "o", "text", "output format: text, json, or plist for the one macOS reads natively")
 	flags.BoolP("quiet", "q", false, "suppress progress and non-essential messages")
 	flags.Bool("verbose", false, "verbose diagnostics on stderr")
 	flags.String("source-date-epoch", "", "fixed build timestamp (decimal seconds since 1970 UTC) for reproducible output")
@@ -181,9 +187,9 @@ func resolveGlobalOptions(cmd *cobra.Command) error {
 	}
 
 	switch opts.Output {
-	case "text", "json":
+	case "text", "json", "plist":
 	default:
-		return usageErrorf("invalid --output %q: must be text or json", opts.Output)
+		return usageErrorf("invalid --output %q: must be text, json or plist", opts.Output)
 	}
 
 	return nil

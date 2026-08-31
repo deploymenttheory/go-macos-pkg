@@ -62,7 +62,7 @@ func runInspect(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		h := x.Header()
-		if opts.Output == "json" {
+		if structured() {
 			return jsonOut(map[string]any{
 				"magic": "xar!", "headerSize": h.Size, "version": h.Version,
 				"tocCompressedLength": h.TOCCompressed, "tocLength": h.TOCUncompressed,
@@ -177,7 +177,7 @@ func inspectBom(c *flatpkg.Component) error {
 	if err != nil {
 		return err
 	}
-	if opts.Output == "json" {
+	if structured() {
 		for _, e := range entries {
 			if err := jsonOut(payloadEntryOf(e, c, false)); err != nil {
 				return err
@@ -200,7 +200,7 @@ func inspectBom(c *flatpkg.Component) error {
 
 func inspectSignature(p *flatpkg.Package) error {
 	s := summariseSignature(p.XAR)
-	if opts.Output == "json" {
+	if structured() {
 		toc := p.XAR.TOC()
 		out := map[string]any{"signature": s}
 		if toc.Signature != nil {

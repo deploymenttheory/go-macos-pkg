@@ -151,7 +151,7 @@ func listPayload(p *flatpkg.Package, components []*flatpkg.Component) error {
 			if !listWanted(e.Path, e.Type == bom.TypeDirectory) {
 				continue
 			}
-			if opts.Output == "json" {
+			if structured() {
 				if err := jsonOut(payloadEntryOf(e, c, multi)); err != nil {
 					return err
 				}
@@ -222,7 +222,7 @@ func listArchiveEntries(p *flatpkg.Package) error {
 			ae.Length = f.Data.Length
 			ae.Offset = f.Data.Offset
 		}
-		if opts.Output == "json" {
+		if structured() {
 			if err := jsonOut(ae); err != nil {
 				return err
 			}
@@ -282,7 +282,7 @@ func listScriptEntries(p *flatpkg.Package, components []*flatpkg.Component) erro
 				if multi {
 					pe.Component = c.Name
 				}
-				if opts.Output == "json" {
+				if structured() {
 					if err := jsonOut(pe); err != nil {
 						return err
 					}

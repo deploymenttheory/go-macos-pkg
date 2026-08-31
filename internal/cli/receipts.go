@@ -110,7 +110,7 @@ func runReceiptsList(cmd *cobra.Command, args []string) error {
 		return usageErrorf("%v", err)
 	}
 	for _, id := range ids {
-		if opts.Output == "json" {
+		if structured() {
 			if err := jsonOut(struct {
 				PackageID string `json:"packageId"`
 			}{id}); err != nil {
@@ -144,7 +144,7 @@ func runReceiptsInfo(cmd *cobra.Command, args []string) error {
 	if !r.InstallDate.IsZero() {
 		out.InstallTime = r.InstallDate.Unix()
 	}
-	if opts.Output == "json" {
+	if structured() {
 		return jsonOut(out)
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
@@ -189,7 +189,7 @@ func runReceiptsFiles(cmd *cobra.Command, args []string) error {
 		if path == "." || path == "" {
 			continue
 		}
-		if opts.Output == "json" {
+		if structured() {
 			if err := jsonOut(struct {
 				Path string `json:"path"`
 				Type string `json:"type"`

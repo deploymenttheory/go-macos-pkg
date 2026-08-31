@@ -71,7 +71,7 @@ var notarizeStatusCmd = &cobra.Command{
 		if err != nil {
 			return notaryError(err)
 		}
-		if opts.Output == "json" {
+		if structured() {
 			return jsonOut(st)
 		}
 		fmt.Printf("%s\t%s\t%s\t%s\n", st.ID, st.Status, st.CreatedDate, st.Name)
@@ -110,7 +110,7 @@ var notarizeWaitCmd = &cobra.Command{
 			return err
 		}
 		st, err := waitFor(svc, args[0])
-		if opts.Output == "json" && st != nil {
+		if structured() && st != nil {
 			if jerr := jsonOut(st); jerr != nil {
 				return jerr
 			}
@@ -132,7 +132,7 @@ var notarizeListCmd = &cobra.Command{
 		if err != nil {
 			return notaryError(err)
 		}
-		if opts.Output == "json" {
+		if structured() {
 			for _, st := range list {
 				if err := jsonOut(st); err != nil {
 					return err
@@ -147,6 +147,61 @@ var notarizeListCmd = &cobra.Command{
 	},
 }
 
+var notarizeStoreCmd = &cobra.Command{
+	Use:   "store-credentials NAME",
+	Short: "Remember a set of notarization credentials under a name",
+	Long: `Write the key ID, the issuer ID and the path to the .p8 under a name, so
+later commands can say --profile NAME instead of repeating all three.
+
+The private key is not copied. The profile holds the path to it, so the
+key stays wherever you keep it and there is one copy of the secret rather
+than two. notarytool stores its profiles in the Keychain, which does not
+exist off macOS; this is a file, readable only by you, under the
+directory the operating system gives for application configuration.
+
+Examples:
+  macospkg notarize store-credentials release \
+      --key-id ABC123 --issuer-id 1234-5678 --private-key ~/keys/AuthKey.p8
+  macospkg notarize Foo.pkg --profile release --wait --staple`,
+	Args: exactArgs(1, "NAME"),
+	RunE: runNotarizeStore,
+}
+
+// runNotarizeStore writes a credential profile.
+func runNotarizeStore(cmd *cobra.Command, args []string) error {
+	nf := notaryByCommand[cmd]
+	if nf == nil || nf.keyID == "" || nf.issuerID == "" || nf.privateKey == "" {
+		return usageErrorf("store-credentials needs --key-id, --issuer-id and --private-key")
+	}
+	// Resolve the key path now, so a profile written from one directory
+	// still works from another, and fail here rather than at the first
+	// use if the file is not there.
+	keyPath, err := filepath.Abs(nf.privateKey)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(keyPath); err != nil {
+		return withCode(ExitAuth, fmt.Errorf("unable to read --private-key: %w", err))
+	}
+	path, err := saveNotaryProfile(args[0], notaryProfile{
+		KeyID: nf.keyID, IssuerID: nf.issuerID, PrivateKeyPath: keyPath,
+	})
+	if err != nil {
+		return err
+	}
+	if structured() {
+		return jsonOut(struct {
+			Profile        string `json:"profile"`
+			Path           string `json:"path"`
+			KeyID          string `json:"keyId"`
+			IssuerID       string `json:"issuerId"`
+			PrivateKeyPath string `json:"privateKeyPath"`
+		}{args[0], path, nf.keyID, nf.issuerID, keyPath})
+	}
+	progressf("wrote %s; the private key stays at %s", path, keyPath)
+	return nil
+}
+
 func init() {
 	f := notarizeCmd.Flags()
 	f.BoolVar(&notarizeWait, "wait", false, "wait for Apple's verdict")
@@ -158,12 +213,12 @@ func init() {
 	f.BoolVar(&notarizeForce, "force", false, "submit even if the file is not signed")
 	f.BoolVar(&notarizeNoAccelerate, "no-s3-acceleration", false, "send the upload straight to the region instead of through S3 transfer acceleration, which is the default and is what Apple's own example and notarytool both ask for")
 	f.StringVar(&notarizeWebhook, "webhook", "", "public URL for Apple to post the verdict to when notarization finishes, so a job need not sit and poll; best effort, so keep --wait or a later status check as the answer you rely on")
-	for _, c := range []*cobra.Command{notarizeCmd, notarizeStatusCmd, notarizeLogCmd, notarizeWaitCmd, notarizeListCmd} {
+	for _, c := range []*cobra.Command{notarizeCmd, notarizeStatusCmd, notarizeLogCmd, notarizeWaitCmd, notarizeListCmd, notarizeStoreCmd} {
 		addNotaryFlags(c)
 	}
 	notarizeWaitCmd.Flags().DurationVar(&notarizeTimeout, "timeout", 30*time.Minute, "how long to wait before exiting 9")
 	notarizeWaitCmd.Flags().DurationVar(&notarizeInterval, "poll-interval", 30*time.Second, "how often to poll")
-	notarizeCmd.AddCommand(notarizeStatusCmd, notarizeLogCmd, notarizeWaitCmd, notarizeListCmd)
+	notarizeCmd.AddCommand(notarizeStatusCmd, notarizeLogCmd, notarizeWaitCmd, notarizeListCmd, notarizeStoreCmd)
 }
 
 // notarizeReport is the JSON schema for macospkg notarize.
@@ -188,7 +243,7 @@ func runNotarize(cmd *cobra.Command, args []string) error {
 	}
 	report, err := notarizeFile(svc, args[0], notarizeName, notarizeWait || notarizeStaple, notarizeStaple, notarizeLog,
 		notary.SubmitOptions{Webhook: notarizeWebhook})
-	if opts.Output == "json" && report != nil {
+	if structured() && report != nil {
 		if jerr := jsonOut(report); jerr != nil {
 			return jerr
 		}
@@ -225,7 +280,7 @@ func notarizeFile(svc notary.Service, path, name string, wait, doStaple, printLo
 	progressf("submission id %s", sub.ID)
 	if !wait {
 		report.Status = notary.StatusInProgress
-		if opts.Output != "json" {
+		if !structured() {
 			fmt.Println(sub.ID)
 		}
 		return report, nil
@@ -238,7 +293,7 @@ func notarizeFile(svc notary.Service, path, name string, wait, doStaple, printLo
 	if (printLog || rejected) && st != nil && st.Done() {
 		if log, lerr := notary.FetchLog(ctx, svc, nil, sub.ID); lerr == nil {
 			report.Log = log
-			if opts.Output != "json" {
+			if !structured() {
 				printLogIssues(log)
 			}
 		} else {

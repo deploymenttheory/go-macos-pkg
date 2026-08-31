@@ -248,7 +248,7 @@ a ticket fetched elsewhere.
 
 | Flag | Description |
 |---|---|
-| `-o, --output text\|json` | output format |
+| `-o, --output text\|json\|plist` | output format |
 | `-q, --quiet` | suppress progress messages |
 | `--verbose` | diagnostics on stderr |
 | `--source-date-epoch N` | pin every timestamp for reproducible output |

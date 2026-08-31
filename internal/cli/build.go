@@ -344,7 +344,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 	report.SHA256, _ = sha256File(output)
 
-	if opts.Output == "json" {
+	if structured() {
 		return jsonOut(report)
 	}
 	progressf("built %s: %s %s, %d files, %d KB installed%s", output, report.Identifier, report.Version, report.NumberOfFiles, report.InstallKBytes, signedLabel(signer != nil))
@@ -463,7 +463,7 @@ func runAnalyze(root, out string) error {
 	for _, b := range fresh {
 		report.Bundles = append(report.Bundles, b.RootRelativeBundlePath)
 	}
-	if opts.Output == "json" {
+	if structured() {
 		return jsonOut(report)
 	}
 	if len(report.Bundles) == 0 {

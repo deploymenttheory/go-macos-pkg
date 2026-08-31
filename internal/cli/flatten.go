@@ -86,7 +86,7 @@ func runFlatten(cmd *cobra.Command, args []string) error {
 	if report.Archived == nil {
 		report.Archived = []string{}
 	}
-	if opts.Output == "json" {
+	if structured() {
 		return jsonOut(report)
 	}
 	progressf("flattened %s -> %s (%d entries)", dir, output, len(res.Entries))

@@ -159,7 +159,7 @@ func runVerify(cmd *cobra.Command, args []string) error {
 	}
 	report.Valid = report.Signed && len(report.Errors) == 0
 
-	if opts.Output == "json" {
+	if structured() {
 		if err := jsonOut(report); err != nil {
 			return err
 		}
