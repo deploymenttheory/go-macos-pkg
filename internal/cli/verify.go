@@ -70,6 +70,7 @@ type verifyReport struct {
 	Valid             bool          `json:"valid"`
 	Digest            string        `json:"digest,omitempty"`
 	DigestValid       bool          `json:"digestValid"`
+	ContentsValid     bool          `json:"contentsValid"`
 	RSAValid          bool          `json:"rsaValid"`
 	CMSValid          bool          `json:"cmsValid"`
 	Trusted           bool          `json:"trusted"`
@@ -120,6 +121,19 @@ func runVerify(cmd *cobra.Command, args []string) error {
 		Certificates: []certSummary{}, Errors: res.Errors}
 	if report.Errors == nil {
 		report.Errors = []string{}
+	}
+	// The signature covers the table of contents, and the table of
+	// contents carries a checksum for every entry. Checking the signature
+	// alone therefore says nothing about the bytes in the heap: they can
+	// be replaced and the signature still verifies. Apple's
+	// "pkgutil --check-signature" reports such a package as invalid, and
+	// so must this.
+	report.ContentsValid = true
+	for _, f := range p.XAR.Files() {
+		if err := p.XAR.Verify(f); err != nil {
+			report.ContentsValid = false
+			report.Errors = append(report.Errors, "contents: "+err.Error())
+		}
 	}
 	if !res.SigningTime.IsZero() {
 		report.SigningTime = res.SigningTime.UTC().Format(time.RFC3339)
@@ -201,6 +215,7 @@ func printVerify(r *verifyReport) {
 	fmt.Printf("Digest:    %s (%s)\n", r.Digest, validLabel(r.DigestValid))
 	fmt.Printf("RSA:       %s\n", validLabel(r.RSAValid))
 	fmt.Printf("CMS:       %s\n", validLabel(r.CMSValid))
+	fmt.Printf("Contents:  %s\n", validLabel(r.ContentsValid))
 	for i, c := range r.Certificates {
 		label := "Signer:   "
 		if i > 0 {
