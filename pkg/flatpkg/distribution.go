@@ -216,5 +216,7 @@ func (d *Distribution) Marshal() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("flatpkg: unable to encode Distribution: %w", err)
 	}
-	return append(append([]byte(`<?xml version="1.0" encoding="utf-8"?>`+"\n"), selfClose(body)...), '\n'), nil
+	// standalone="yes" and no trailing newline, which is what
+	// productbuild --synthesize writes.
+	return append([]byte(`<?xml version="1.0" encoding="utf-8" standalone="yes"?>`+"\n"), selfClose(body)...), nil
 }

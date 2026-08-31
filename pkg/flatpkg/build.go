@@ -23,6 +23,12 @@ import (
 	"github.com/deploymenttheory/go-macos-pkg/pkg/xar"
 )
 
+// DefaultScriptTimeout is the timeout, in seconds, that current pkgbuild
+// writes on every script it records in a PackageInfo. Versions before
+// InstallCmds-860 wrote no timeout attribute at all; the fixtures record
+// both shapes, and we write what the current tool writes.
+const DefaultScriptTimeout = "600"
+
 // Ownership selects how payload owners are recorded, as pkgbuild's
 // --ownership does.
 type Ownership int
@@ -234,9 +240,12 @@ type ComponentOptions struct {
 	// NoPayload builds a package with no Payload, like pkgbuild --nopayload.
 	NoPayload bool
 
-	Identifier      string
-	Version         string
-	InstallLocation string // default "/"
+	Identifier string
+	Version    string
+	// InstallLocation is written as the install-location attribute. Empty
+	// leaves the attribute out, as pkgbuild does, which the Installer
+	// reads as "/".
+	InstallLocation string
 	Ownership       Ownership
 	MinOSVersion    string
 	// PostinstallAction is none, logout, restart or shutdown.
@@ -253,6 +262,10 @@ type ComponentOptions struct {
 	// PreserveXattr sets preserve-xattr on the PackageInfo, as pkgbuild
 	// --preserve-xattr does.
 	PreserveXattr bool
+	// ScriptTimeout is the timeout attribute written on every top-level
+	// script, in seconds. Empty means DefaultScriptTimeout, which is what
+	// current pkgbuild writes.
+	ScriptTimeout string
 
 	// Xattrs selects where extended attributes come from. They are
 	// carried the way pkgbuild carries them: as AppleDouble "._" sidecar
@@ -376,9 +389,11 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 	if o.Ownership != OwnershipRecommended && runtime.GOOS == "windows" {
 		return nil, fmt.Errorf("%w: preserving ownership (Windows has no uid or gid)", ErrUnsupportedOnPlatform)
 	}
-	if o.InstallLocation == "" {
-		o.InstallLocation = "/"
-	}
+	// InstallLocation is deliberately not defaulted. pkgbuild writes the
+	// attribute only when it is told one, and the Installer treats an
+	// absent install-location as "/", so filling it in would both diverge
+	// from pkgbuild's document and rewrite a package that had none when it
+	// is expanded and built again.
 	if o.Auth == "" {
 		o.Auth = "root"
 	}
@@ -490,8 +505,12 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 			return nil, err
 		}
 		info.Scripts = &Scripts{}
+		timeout := o.ScriptTimeout
+		if timeout == "" {
+			timeout = DefaultScriptTimeout
+		}
 		for _, n := range names {
-			s := &Script{File: "./" + n}
+			s := &Script{File: "./" + n, Timeout: timeout}
 			switch n {
 			case "preinstall":
 				info.Scripts.Preinstall = s

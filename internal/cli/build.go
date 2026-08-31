@@ -90,7 +90,7 @@ func init() {
 	f := buildCmd.Flags()
 	f.StringVar(&buildIdentifier, "identifier", "", "package identifier, e.g. com.example.foo")
 	f.StringVar(&buildVersion, "version", "", "package version, e.g. 1.2.0")
-	f.StringVar(&buildInstallLocation, "install-location", "", "where the payload is installed (default /)")
+	f.StringVar(&buildInstallLocation, "install-location", "", "where the payload is installed; left out of PackageInfo when unset, which the Installer reads as /")
 	f.StringVar(&buildScripts, "scripts", "", "directory of install scripts (preinstall, postinstall, ...)")
 	f.StringVar(&buildOwnership, "ownership", "", "payload ownership: recommended, preserve or preserve-other")
 	f.StringVar(&buildMinOS, "min-os-version", "", "minimum macOS version, e.g. 12.0")

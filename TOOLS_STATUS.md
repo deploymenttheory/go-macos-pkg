@@ -58,8 +58,15 @@ attributes, which loses nothing, since a build reads them back.
 
 ⁵ (superseded by ⁸–¹⁰ below)
 
-⁶ Parity with `pkgbuild` is checked by the macOS acceptance leg: the same
-source tree built both ways gives identical `lsbom` output, identical
+⁶ Parity with `pkgbuild` is checked by the macOS acceptance leg. The
+`PackageInfo` and `Distribution` documents are compared byte for byte
+against the ones `pkgbuild` and `productbuild` write for the same input
+(`acceptance/parity_test.go`), with a single normalisation:
+`generator-version`, which names the tool and which macospkg must not
+copy. That covers attribute order, script timeouts, the absence of a
+trailing newline, and the fact that `install-location` is written only
+when it is asked for. Beyond the documents, the same source tree built
+both ways gives identical `lsbom` output, identical
 `installKBytes`, identical `xar -tf` and `pkgutil --payload-files`, and
 `installer` installs the result, sidecars included: extended attributes
 are carried exactly as pkgbuild carries them (`._` AppleDouble entries with

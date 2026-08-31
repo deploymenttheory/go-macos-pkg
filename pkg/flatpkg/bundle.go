@@ -56,10 +56,13 @@ func findBundles(root string) ([]Bundle, error) {
 		if err != nil {
 			return err
 		}
+		// CFBundleIdentifier is deliberately left unset: pkgbuild writes
+		// the identifier once, as id, and a second CFBundleIdentifier
+		// attribute would break a byte comparison against its output.
+		// The reader still accepts the attribute where a package has it.
 		out = append(out, Bundle{
 			ID:                         info.CFBundleIdentifier,
 			Path:                       "./" + filepath.ToSlash(rel),
-			CFBundleIdentifier:         info.CFBundleIdentifier,
 			CFBundleShortVersionString: info.CFBundleShortVersionString,
 			CFBundleVersion:            info.CFBundleVersion,
 		})

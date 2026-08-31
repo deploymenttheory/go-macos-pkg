@@ -15,18 +15,25 @@ import (
 type PackageInfo struct {
 	XMLName xml.Name `xml:"pkg-info"`
 
-	FormatVersion         int    `xml:"format-version,attr"`
-	Identifier            string `xml:"identifier,attr"`
-	Version               string `xml:"version,attr"`
-	InstallLocation       string `xml:"install-location,attr,omitempty"`
-	Auth                  string `xml:"auth,attr,omitempty"` // none | root
-	OverwritePermissions  *bool  `xml:"overwrite-permissions,attr,omitempty"`
-	Relocatable           *bool  `xml:"relocatable,attr,omitempty"`
-	GeneratorVersion      string `xml:"generator-version,attr,omitempty"`
-	PostinstallAction     string `xml:"postinstall-action,attr,omitempty"` // none | logout | restart | shutdown
-	MinimumSystemVersion  string `xml:"minimumSystemVersion,attr,omitempty"`
-	PreserveXattr         *bool  `xml:"preserve-xattr,attr,omitempty"`
-	UseHFSPlusCompression *bool  `xml:"useHFSPlusCompression,attr,omitempty"`
+	// Field order is the order pkgbuild writes the attributes in, because
+	// encoding/xml emits attributes in field order and the documents are
+	// compared byte for byte against pkgbuild's. Every fixture in
+	// testdata/cli and both real-world oracles agree on it, across
+	// InstallCmds 834, 860.14 and 864.12.
+	OverwritePermissions *bool  `xml:"overwrite-permissions,attr,omitempty"`
+	Relocatable          *bool  `xml:"relocatable,attr,omitempty"`
+	Identifier           string `xml:"identifier,attr"`
+	PostinstallAction    string `xml:"postinstall-action,attr,omitempty"` // none | logout | restart | shutdown
+	Version              string `xml:"version,attr"`
+	FormatVersion        int    `xml:"format-version,attr"`
+	GeneratorVersion     string `xml:"generator-version,attr,omitempty"`
+	InstallLocation      string `xml:"install-location,attr,omitempty"`
+	Auth                 string `xml:"auth,attr,omitempty"` // none | root
+	MinimumSystemVersion string `xml:"minimumSystemVersion,attr,omitempty"`
+
+	// No fixture carries either of these, so their position is ours.
+	PreserveXattr         *bool `xml:"preserve-xattr,attr,omitempty"`
+	UseHFSPlusCompression *bool `xml:"useHFSPlusCompression,attr,omitempty"`
 
 	// Element order is pkgbuild's: payload, bundle, the bundle lists,
 	// then scripts.
@@ -54,11 +61,13 @@ type PackageInfo struct {
 // Payload summarises the payload: how many entries and how many kilobytes
 // they occupy once installed.
 type Payload struct {
+	// LargeSegmented marks a --large-payload package, whose archive entry
+	// is LargeSegmentedPayload rather than Payload. pkgbuild writes it
+	// first, before the counts, so it is declared first here.
+	LargeSegmented string `xml:"large-segmented,attr,omitempty"`
+
 	NumberOfFiles int `xml:"numberOfFiles,attr"`
 	InstallKBytes int `xml:"installKBytes,attr"`
-	// LargeSegmented marks a --large-payload package, whose archive entry
-	// is LargeSegmentedPayload rather than Payload.
-	LargeSegmented string `xml:"large-segmented,attr,omitempty"`
 }
 
 // Scripts names the install scripts carried in the Scripts archive.
@@ -147,7 +156,8 @@ func (p *PackageInfo) Marshal() ([]byte, error) {
 	var buf bytes.Buffer
 	buf.WriteString(`<?xml version="1.0" encoding="utf-8"?>` + "\n")
 	buf.Write(selfClose(body))
-	buf.WriteByte('\n')
+	// No trailing newline: pkgbuild's PackageInfo ends at the closing tag,
+	// and these documents are compared with its output byte for byte.
 	return buf.Bytes(), nil
 }
 

@@ -93,7 +93,7 @@ func BuildProduct(o ProductOptions, out io.Writer) (*ProductResult, error) {
 		var refs []synthRef
 		for _, c := range components {
 			info := c.pkg.Components[0].Info
-			r := synthRef{ID: info.Identifier, Version: info.Version, Path: c.name, Auth: info.Auth}
+			r := synthRef{ID: info.Identifier, Version: info.Version, Path: c.name}
 			if info.Payload != nil {
 				r.InstallKBytes = info.Payload.InstallKBytes
 			}
@@ -215,59 +215,85 @@ func addResources(w *xar.Writer, dir string, hdr, dirHdr xar.FileHeader, progres
 	return names, nil
 }
 
+// DefaultHostArchitectures is what productbuild writes into a synthesised
+// Distribution when it is given no architectures: both, x86_64 first. It has
+// done so since Big Sur.
+var DefaultHostArchitectures = []string{"x86_64", "arm64"}
+
 // synthRef is what a synthesised Distribution needs to know per package.
 type synthRef struct {
 	ID            string
 	Version       string
 	Path          string
-	Auth          string
 	InstallKBytes int
 }
 
-// synthesiseDistribution writes the Distribution productbuild --synthesize
-// would: one hidden choice per package, all selected, no customisation.
+// synthesiseDistribution writes the Distribution that productbuild puts
+// inside a product archive when it is not given one: one hidden choice per
+// package, all selected, no customisation.
+//
+// The shape is productbuild's, byte for byte, and it is worth being precise
+// about which shape that is. "productbuild --synthesize" writes a slightly
+// different document to a file: no standalone attribute, bare <pkg-ref id/>
+// stubs, bare package paths, and no size attributes. When productbuild then
+// embeds a distribution into an archive it rewrites it, and that rewritten
+// form is what a package actually carries and what this function produces:
+// standalone="yes", stubs carrying <bundle-version/>, "#name.pkg" paths, and
+// installKBytes plus updateKBytes on every reference.
+//
+// Two attributes are deliberately absent because productbuild does not write
+// them either: auth, which every component's PackageInfo carries but which
+// never reaches the Distribution, and a trailing newline.
 func synthesiseDistribution(o ProductOptions, refs []synthRef) []byte {
 	var b strings.Builder
-	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>` + "\n")
-	b.WriteString(`<installer-gui-script minSpecVersion="2">` + "\n")
+	attr := func(v string) string { return `"` + xmlEscape(v) + `"` }
+
+	b.WriteString(`<?xml version="1.0" encoding="utf-8" standalone="yes"?>` + "\n")
+	b.WriteString(`<installer-gui-script minSpecVersion="1">` + "\n")
 	if o.Title != "" {
 		fmt.Fprintf(&b, "    <title>%s</title>\n", xmlEscape(o.Title))
 	}
 	if o.ProductID != "" {
-		fmt.Fprintf(&b, "    <product id=%q", o.ProductID)
+		fmt.Fprintf(&b, "    <product id=%s", attr(o.ProductID))
 		if o.ProductVersion != "" {
-			fmt.Fprintf(&b, " version=%q", o.ProductVersion)
+			fmt.Fprintf(&b, " version=%s", attr(o.ProductVersion))
 		}
 		b.WriteString("/>\n")
 	}
-	b.WriteString(`    <options customize="never" require-scripts="false"`)
-	if len(o.HostArchitectures) > 0 {
-		fmt.Fprintf(&b, ` hostArchitectures=%q`, strings.Join(o.HostArchitectures, ","))
+
+	// The stubs productbuild writes ahead of <options>, one per package.
+	for _, r := range refs {
+		fmt.Fprintf(&b, "    <pkg-ref id=%s>\n        <bundle-version/>\n    </pkg-ref>\n", attr(r.ID))
 	}
-	b.WriteString("/>\n")
+
+	archs := o.HostArchitectures
+	if len(archs) == 0 {
+		archs = DefaultHostArchitectures
+	}
+	fmt.Fprintf(&b, "    <options customize=\"never\" require-scripts=\"false\" hostArchitectures=%s/>\n",
+		attr(strings.Join(archs, ",")))
+
 	if o.MinOSVersion != "" {
-		fmt.Fprintf(&b, "    <volume-check>\n        <allowed-os-versions>\n            <os-version min=%q/>\n        </allowed-os-versions>\n    </volume-check>\n", o.MinOSVersion)
+		fmt.Fprintf(&b, "    <volume-check>\n        <allowed-os-versions>\n            <os-version min=%s/>\n        </allowed-os-versions>\n    </volume-check>\n",
+			attr(o.MinOSVersion))
 	}
-	b.WriteString("    <choices-outline>\n")
+
+	// One default line wrapping every package, not one wrapper per package.
+	b.WriteString("    <choices-outline>\n        <line choice=\"default\">\n")
 	for _, r := range refs {
-		fmt.Fprintf(&b, "        <line choice=\"default\">\n            <line choice=%q/>\n        </line>\n", r.ID)
+		fmt.Fprintf(&b, "            <line choice=%s/>\n", attr(r.ID))
 	}
-	b.WriteString("    </choices-outline>\n")
+	b.WriteString("        </line>\n    </choices-outline>\n")
 	b.WriteString("    <choice id=\"default\"/>\n")
+
+	// Each choice is followed by its own pkg-ref, interleaved.
 	for _, r := range refs {
-		fmt.Fprintf(&b, "    <choice id=%q visible=\"false\">\n        <pkg-ref id=%q/>\n    </choice>\n", r.ID, r.ID)
+		fmt.Fprintf(&b, "    <choice id=%s visible=\"false\">\n        <pkg-ref id=%s/>\n    </choice>\n", attr(r.ID), attr(r.ID))
+		fmt.Fprintf(&b, "    <pkg-ref id=%s version=%s onConclusion=\"none\" installKBytes=%s updateKBytes=\"0\">#%s</pkg-ref>\n",
+			attr(r.ID), attr(r.Version), attr(strconv.Itoa(r.InstallKBytes)), xmlEscape(r.Path))
 	}
-	for _, r := range refs {
-		fmt.Fprintf(&b, "    <pkg-ref id=%q version=%q onConclusion=\"none\"", r.ID, r.Version)
-		if r.InstallKBytes > 0 {
-			fmt.Fprintf(&b, " installKBytes=%q", strconv.Itoa(r.InstallKBytes))
-		}
-		if r.Auth != "" {
-			fmt.Fprintf(&b, " auth=%q", strings.ToLower(r.Auth))
-		}
-		fmt.Fprintf(&b, ">#%s</pkg-ref>\n", xmlEscape(r.Path))
-	}
-	b.WriteString("</installer-gui-script>\n")
+
+	b.WriteString("</installer-gui-script>")
 	return []byte(b.String())
 }
 
