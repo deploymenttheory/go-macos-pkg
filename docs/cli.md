@@ -15,7 +15,7 @@ test.
 - [Configuration and environment](#configuration-and-environment)
 - [Exit codes](#exit-codes)
 - [Reading a package](#reading-a-package): `info`, `list`, `cat`, `inspect`
-- [Unpacking](#unpacking): `expand`, `extract`
+- [Unpacking](#unpacking): `expand`, `flatten`, `extract`
 - [Building](#building): `build`, `product`
 - [Signing](#signing): `sign`, `verify`
 - [Notarizing](#notarizing): `notarize`, `staple`, `unstaple`
@@ -170,6 +170,25 @@ to `pkgutil`'s.
 
 Use `expand` when you want to inspect or edit the package's own parts.
 Use `extract` when you want the files it installs.
+
+### `flatten DIR OUT.pkg`
+
+`pkgutil --flatten`: the inverse of `expand`, and the way to change one
+thing in a package without rebuilding it. Expand it, edit the
+`PackageInfo` or a script, flatten it again.
+
+No flags of its own beyond `--sign-*`.
+
+The contents are taken as they stand. Every file becomes an archive entry
+with the bytes it has on disk, so a Payload `expand` left packed goes back
+exactly as it came out. A directory named `Scripts` is packed into the
+archive a package expects, which is the one name `expand` unpacks.
+
+**Nothing is recomputed.** The bill of materials, the payload counts and
+the install size are whatever the directory already says, so editing a
+payload here leaves the package describing the old one. Use `build` for
+that. A signature and a stapled ticket do not survive either, since both
+cover bytes that have just changed.
 
 ### `extract PKG DIR`
 
@@ -514,6 +533,7 @@ Staple after signing, never before: signing invalidates a ticket.
 | know what is inside the container | `list --archive` |
 | read one file it installs | `cat PKG --payload ./path` |
 | take the package apart | `expand --full` |
+| put it back together after an edit | `flatten` |
 | get the files out | `extract` |
 | work out why a signature fails | `inspect PKG digest`, then `verify` |
 | build one package from a directory | `build` |

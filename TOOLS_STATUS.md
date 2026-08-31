@@ -20,6 +20,7 @@ macOS leg additionally checks the result against Apple's own tools.
 | PackageInfo and Distribution models | ✅ | ✅ | ✅ |
 | `info`, `list`, `cat`, `inspect` | ✅ | ✅ | ✅ |
 | `expand` (pkgutil --expand / --expand-full parity) | ✅³ | ✅³ | ✅³ |
+| `flatten` (pkgutil --flatten parity) | ✅¹¹ | ✅¹¹ | ✅¹¹ |
 | `extract` (payload, scripts, pattern, verify) | ✅ | ✅ | 🟡⁴ |
 | `build` (component package) | ✅⁶ | ✅⁶ | ✅⁶ |
 | `product` (product archive) | ✅ | ✅ | ✅ |
@@ -118,3 +119,12 @@ Root CA. No revocation checking.
 the S3 upload (single PUT, 5 GiB limit), polling and log download are
 here. The end-to-end job needs Developer ID secrets and runs on the main
 repository's CI only.
+
+¹¹ Expanding and flattening a package returns every entry unchanged, byte
+for byte, except the `Scripts` archives, which are built afresh from the
+unpacked directory and hold the same paths with the same modes.
+`pkgutil --flatten` does the same. The one difference is ownership: an
+archive a package arrives with records the uid of whoever built it, and
+`pkgutil --flatten` records the uid of whoever expanded it, while macospkg
+records root:wheel so the same directory gives the same package on any
+machine. The Installer runs scripts as root whatever the archive says.

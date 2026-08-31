@@ -39,6 +39,7 @@ Notarized: yes (ticket on record with Apple)
 |---|:---:|:---:|:---:|
 | Inspect: `info`, `list`, `cat`, `inspect` | ✅ | ✅ | ✅ |
 | Unpack: `expand` (pkgutil parity), `extract` | ✅ | ✅ | ✅ |
+| Repack: `flatten` (pkgutil --flatten) | ✅ | ✅ | ✅ |
 | Build component packages and product archives, reproducibly | ✅ | ✅ | ✅ |
 | Sign with a Developer ID Installer certificate, with Apple timestamps | ✅ | ✅ | ✅ |
 | Verify signatures against Apple's roots; team, timestamp, staple | ✅ | ✅ | ✅ |
@@ -166,6 +167,13 @@ nothing is lost on Linux or Windows and building the extracted tree again
 restores the package (`--xattrs auto`, the default; `apply`, `file` and
 `skip` choose explicitly). Hard links are recreated as hard links;
 `--hard-links=false` writes copies.
+
+### `flatten DIR [OUT.pkg]`
+
+`pkgutil --flatten`: the inverse of `expand`. Every file in the expanded
+directory goes back as the archive entry it was, a `Scripts` directory is
+packed again, and nothing is recomputed, so it is the way to change one
+thing in a package without rebuilding it.
 
 ### `build SRC [OUT.pkg] --identifier ID --version V [options]`
 

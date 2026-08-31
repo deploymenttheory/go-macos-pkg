@@ -79,6 +79,17 @@ func (p *Package) Expand(dir string, o ExpandOptions) (*ExpandResult, error) {
 			special[f] = true
 		}
 	}
+	// A product archive's own Scripts entry belongs to no component, and
+	// pkgutil unpacks it as well. PlugIns it leaves packed, so this is a
+	// list of one rather than a rule about auxiliary entries.
+	var productScripts *xar.File
+	for _, f := range x.Files() {
+		if f.Path() == EntryScripts && !special[f] {
+			productScripts = f
+			special[f] = true
+			break
+		}
+	}
 
 	for _, f := range x.Files() {
 		if special[f] {
@@ -123,6 +134,15 @@ func (p *Package) Expand(dir string, o ExpandOptions) (*ExpandResult, error) {
 		if o.Progress != nil {
 			o.Progress(rel)
 		}
+	}
+
+	if productScripts != nil {
+		sr, err := extractArchiveEntry(x, productScripts, filepath.Join(dir, EntryScripts),
+			ExtractOptions{Symlinks: o.Symlinks, Xattrs: o.Xattrs, NoHardLinks: o.NoHardLinks, Progress: o.Progress})
+		if err != nil {
+			return res, fmt.Errorf("Scripts: %w", err)
+		}
+		res.Payloads = append(res.Payloads, sr)
 	}
 
 	for _, c := range p.Components {
@@ -206,4 +226,19 @@ func copyEntry(root *os.Root, x *xar.Reader, f *xar.File, target string) error {
 		_ = root.Chtimes(target, t, t)
 	}
 	return nil
+}
+
+// extractArchiveEntry unpacks a xar entry that holds a cpio archive, which
+// is what the Scripts entries are.
+func extractArchiveEntry(x *xar.Reader, f *xar.File, dir string, o ExtractOptions) (*ExtractResult, error) {
+	rc, err := x.Open(f)
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	cr, _, err := OpenCPIO(rc)
+	if err != nil {
+		return nil, err
+	}
+	return ExtractCPIO(cr, dir, o)
 }

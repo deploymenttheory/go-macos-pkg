@@ -56,6 +56,7 @@ Read commands:
   cat      Write one archive entry or payload file to stdout
   inspect  Low-level structural inspection (header, TOC, bom, signature)
   expand   Unpack the archive like pkgutil --expand / --expand-full
+  flatten  Reassemble an expanded directory into a package (pkgutil --flatten)
   extract  Extract payload files to the local file system
 
 Write commands:
@@ -112,6 +113,7 @@ func init() {
 	rootCmd.AddCommand(catCmd)
 	rootCmd.AddCommand(inspectCmd)
 	rootCmd.AddCommand(expandCmd)
+	rootCmd.AddCommand(flattenCmd)
 	rootCmd.AddCommand(extractCmd)
 	rootCmd.AddCommand(buildCmd)
 	rootCmd.AddCommand(productCmd)
