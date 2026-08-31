@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.4.0](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.3.2...v0.4.0) (2026-08-31)
+
+
+### Features
+
+* 1:1 result parity with the macOS built-in tools ([b46c320](https://github.com/deploymenttheory/go-macos-pkg/commit/b46c320367d4d0d803dc6def1aa082143afcc8de))
+* accept the credential variable names electron-builder uses ([dedb846](https://github.com/deploymenttheory/go-macos-pkg/commit/dedb8466cd4be47e7bd50a23c38930aefa4447d9))
+* add --analyze and --component-plist for per-bundle rules ([14ac113](https://github.com/deploymenttheory/go-macos-pkg/commit/14ac11355b0ee028af1c5aacfae6bc4ac875b5fb))
+* add --component and --prior, pkgbuild's other two ways to build ([d88190d](https://github.com/deploymenttheory/go-macos-pkg/commit/d88190de0cd3b6d4292fc83290a13db76a77df0d))
+* add flatten, the inverse of expand ([1918e72](https://github.com/deploymenttheory/go-macos-pkg/commit/1918e72f9d1d5980f4ce8827b40b7ebbdbecac7b))
+* add product --product, the pre-install requirements property list ([b12fc11](https://github.com/deploymenttheory/go-macos-pkg/commit/b12fc1193ed7d7df4a0d94d21d6971c34c4ded1d))
+* add product --scripts, --plugins and --ui ([ac75675](https://github.com/deploymenttheory/go-macos-pkg/commit/ac75675490009cbf7561748b07a3f583ca6f0aee))
+* add product --synthesize and --package-path, and rewrite a supplied Distribution ([cfd8cd3](https://github.com/deploymenttheory/go-macos-pkg/commit/cfd8cd39bce40b719a70e034dd0dc5d409cd3646))
+* apply pkgbuild's default payload filters, and add --filter ([ee92e8c](https://github.com/deploymenttheory/go-macos-pkg/commit/ee92e8ca902aa52c1070ed4b807887ff8fb4cfe5))
+* build the component in place with product --root, --content and --component ([083580e](https://github.com/deploymenttheory/go-macos-pkg/commit/083580e1976d204b91f792fc1ca04b1351952341))
+* check whether the signing certificate has been revoked ([7e725ca](https://github.com/deploymenttheory/go-macos-pkg/commit/7e725ca49842b91322ed606902f4f52548cb4148))
+* narrow a listing with --only-files, --only-dirs and --regexp ([559eca5](https://github.com/deploymenttheory/go-macos-pkg/commit/559eca5fcfef9ec69622c16061360554bf01da19))
+* read a volume's receipt database ([fd3e4f4](https://github.com/deploymenttheory/go-macos-pkg/commit/fd3e4f477c63820964db9328907b20f838954216))
+* remember credentials under a name, and write property lists ([1cb1b47](https://github.com/deploymenttheory/go-macos-pkg/commit/1cb1b4709288fe9a363e73719e7589b9309a6c14))
+* require macOS 12 where a product carries a large payload ([c07bb76](https://github.com/deploymenttheory/go-macos-pkg/commit/c07bb76b5c5d63d2250044d27182d6d5e3a05c04))
+* store a payload uncompressed, with --compression none ([71bff18](https://github.com/deploymenttheory/go-macos-pkg/commit/71bff1807e297634c0e710c8c49e077abe0e6569))
+* submit disk images and archives, upload in parts, and ask for a webhook ([a06db54](https://github.com/deploymenttheory/go-macos-pkg/commit/a06db54f370d6c1918d3c627f17fe9ebbea3b491))
+* write --large-payload packages, not only read them ([1fcc1e7](https://github.com/deploymenttheory/go-macos-pkg/commit/1fcc1e7d6c495db624b33b459d31b223837ea795))
+
+
+### Bug Fixes
+
+* accelerate uploads by default, as Apple's own example does ([e3544ae](https://github.com/deploymenttheory/go-macos-pkg/commit/e3544ae3ec8d533e0e7e4c4cd38b15140433228c))
+* follow pkgbuild's rules for framework paths and nested bundles ([6084264](https://github.com/deploymenttheory/go-macos-pkg/commit/6084264f06f47da1d2bf40bd7ac7699b51d1b47e))
+* make flatten and the receipts tests work off macOS ([785c92d](https://github.com/deploymenttheory/go-macos-pkg/commit/785c92dac2bc502f90c63e16f8484d59e50a4318))
+* only declare standalone on a Distribution productbuild re-serialises ([324c39e](https://github.com/deploymenttheory/go-macos-pkg/commit/324c39e9b515d821708528e0558f5fcc697d7baf))
+* write PackageInfo and Distribution exactly as Apple's tools write them ([45e85e3](https://github.com/deploymenttheory/go-macos-pkg/commit/45e85e35766c60f1f3a7c7a6c76e13c37634fe8a))
+
 ## [0.3.2](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.3.1...v0.3.2) (2026-08-30)
 
 
