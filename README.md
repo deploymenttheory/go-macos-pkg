@@ -114,6 +114,9 @@ shasum -a 256 -c macospkg_<version>_checksums.txt --ignore-missing
 Every command takes the package first; `-o json` turns any output into
 JSON (one document, or one line per entry for listings).
 
+This section is the tour. [`docs/cli.md`](docs/cli.md) is the full
+reference: every flag, what it does, and when to reach for it.
+
 ### `info PKG`
 
 Kind (component package or product archive), each component's identity,
