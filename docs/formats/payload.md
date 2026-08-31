@@ -44,9 +44,8 @@ The first bytes of a Payload say how it is wrapped:
 | `pbze` | pbz* with LZFSE chunks | `aa archive -a lzfse`, `macospkg build --compression lzfse` |
 | `pbzb` | pbz* with LZBITMAP chunks | `aa archive -a lzbitmap`, `macospkg build --compression lzbitmap` |
 | `pbz4`, `pbzz` | pbz* with Apple-framed LZ4 or zlib chunks | `aa archive`, libParallelCompression; `pkg/pbzx` writes them, `macospkg build` refuses |
-| `pbzb` | pbz* with LZBITMAP | decoded and encoded by `pkg/lzbitmap` |
 | `070707` / `07070` | bare cpio | unusual |
-| `AA01`, `YAA1`, `AEA1` | Apple Archive | recognised; the Installer does not read it either |
+| `AA01`, `YAA1`, `AEA1` | Apple Archive | recognized; the Installer does not read it either |
 
 `pkgbuild --large-payload` writes the gzip cpio under the entry name
 `LargeSegmentedPayload` and sets `large-segmented="true"` on the
@@ -133,7 +132,7 @@ indexes the inode once (see `bom.md`). `installKBytes` counts the set
 once. `macospkg build` does the same when the host reports inodes
 (`--hard-links auto`); `--hard-links copy` packages the members as
 separate files, which is all Windows can do. `extract` and `expand --full`
-link later members to the first (`--hard-links=false` writes copies).
+link later members to the first (`--hard-links copy` writes copies).
 
 ## Extended attributes: AppleDouble sidecars
 

@@ -1,5 +1,5 @@
 // Package staple attaches notarization tickets to flat packages and
-// recognises them.
+// recognizes them.
 //
 // A stapled ticket is not part of the xar archive at all. It is appended
 // after the archive's last heap byte as a trailer, so an unaware reader

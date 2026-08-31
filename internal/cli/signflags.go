@@ -26,7 +26,6 @@ type signingFlags struct {
 	key         string
 	chain       string
 	timestamp   string
-	noTimestamp bool
 }
 
 // signingByCommand keeps each command's flag values apart: build and
@@ -45,8 +44,27 @@ func addSigningFlags(cmd *cobra.Command, prefix string) {
 	f.StringVar(&sf.cert, prefix+"cert", "", "PEM certificate to sign with (with --"+prefix+"key)")
 	f.StringVar(&sf.key, prefix+"key", "", "PEM private key matching --"+prefix+"cert")
 	f.StringVar(&sf.chain, prefix+"chain", "", "PEM file of intermediate certificates to embed")
-	f.StringVar(&sf.timestamp, prefix+"timestamp", "", "RFC 3161 timestamp server URL (default Apple's)")
-	f.BoolVar(&sf.noTimestamp, prefix+"no-timestamp", false, "do not timestamp the signature")
+	f.StringVar(&sf.timestamp, prefix+"timestamp", "", "RFC 3161 timestamp server URL, or \"none\" to sign without a timestamp (default Apple's server)")
+}
+
+// timestamping resolves whether to timestamp, and against which server.
+//
+// The flag decides when it is given: "none" turns timestamping off, any
+// other value is the server URL. Otherwise the manifest's
+// signing_info.timestamp decides, and failing that a signature is
+// timestamped, since a timestamp is what keeps it valid past the
+// certificate's expiry. An empty URL means the default server.
+func (sf *signingFlags) timestamping(m *manifestFile) (on bool, url string) {
+	if strings.EqualFold(sf.timestamp, "none") {
+		return false, ""
+	}
+	if sf.timestamp != "" {
+		return true, sf.timestamp
+	}
+	if m != nil && m.SigningInfo != nil && m.SigningInfo.Timestamp != nil {
+		return *m.SigningInfo.Timestamp, ""
+	}
+	return true, ""
 }
 
 // signingRequested reports whether any signing input was given.
@@ -139,17 +157,13 @@ func signerFromFlags(cmd *cobra.Command, m *manifestFile, hash crypto.Hash) (xar
 		return nil, err
 	}
 	o := pkgsign.SignOptions{Hash: hash, SigningTime: opts.SourceDateEpoch}
-	timestamp := !sf.noTimestamp
-	if m != nil && m.SigningInfo != nil && m.SigningInfo.Timestamp != nil && !sf.noTimestamp {
-		timestamp = *m.SigningInfo.Timestamp
-	}
-	if timestamp {
-		o.Timestamper = pkgsign.NewHTTPTimestamper(sf.timestamp)
+	if on, url := sf.timestamping(m); on {
+		o.Timestamper = pkgsign.NewHTTPTimestamper(url)
 	}
 	s, err := pkgsign.NewSigner(id, o)
 	if err != nil {
 		if o.Timestamper != nil {
-			return nil, fmt.Errorf("%w (use --%sno-timestamp to sign without a timestamp)", err, sf.prefix)
+			return nil, fmt.Errorf("%w (use --%stimestamp none to sign without a timestamp)", err, sf.prefix)
 		}
 		return nil, err
 	}

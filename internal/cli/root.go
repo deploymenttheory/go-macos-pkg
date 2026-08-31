@@ -44,24 +44,25 @@ var opts globalOptions
 var rootCmd = &cobra.Command{
 	Use:   "macospkg",
 	Short: "Inspect, extract, build, sign and notarize macOS installer packages",
-	Long: `A cross-platform, self-contained toolkit for macOS flat installer packages
-(.pkg). It reads and writes the xar container, the bill of materials, the cpio
-payload, PackageInfo and Distribution directly - without pkgbuild, productbuild,
-productsign, pkgutil or a Mac - so packages can be inspected, built, signed,
-notarized and stapled on Linux and Windows CI runners as well as on macOS.
+	Long: `Build, inspect, sign and notarize macOS Installer packages on any platform.
+
+A flat package is a xar archive holding a payload, a bill of materials listing
+every path it installs, and the documents the macOS Installer reads. macospkg
+reads and writes all of it directly, so a package can be produced on a Linux or
+Windows CI runner exactly as on a Mac.
 
 Read commands:
   info     Package summary: kind, components, payload, signature, staple
   list     List payload files (from the bill of materials) or archive entries
   cat      Write one archive entry or payload file to stdout
-  inspect  Low-level structural inspection (header, TOC, bom, signature)
-  expand   Unpack the archive like pkgutil --expand / --expand-full
-  flatten  Reassemble an expanded directory into a package (pkgutil --flatten)
+  inspect  Dump one structure as stored (header, TOC, bom, signature)
+  expand   Unpack a package into a directory of its entries
+  flatten  Reassemble an expanded directory into a package
   extract  Extract payload files to the local file system
 
 Write commands:
-  build    Build a component package from a directory
-  product  Build a product archive (distribution) from component packages
+  build    Build a component package from a destination root
+  product  Build a product archive from component packages
 
 Signing and notarization:
   sign      Sign a package with a Developer ID Installer certificate
@@ -70,13 +71,16 @@ Signing and notarization:
   staple    Attach a notarization ticket; unstaple removes one
 
 Receipts:
-  receipts  What a volume records about the packages installed on it
+  receipts  Read what a volume records about the packages installed on it
 
 Packages are auto-detected by content; every command takes the package as its
 first argument. Data goes to stdout, diagnostics and progress to stderr.
 
-Configuration precedence: flag > MACOSPKG_<FLAG> environment variable >
-~/.config/macospkg/config.yaml.
+Configuration precedence: flag > environment variable >
+~/.config/macospkg/config.yaml. Only the five global flags above are bound to a
+variable, each under its name upper-cased with dashes turned to underscores:
+MACOSPKG_OUTPUT, MACOSPKG_QUIET, MACOSPKG_VERBOSE, MACOSPKG_SOURCE_DATE_EPOCH
+and MACOSPKG_TEMP_DIR.
 
 Reproducible output: build and product produce byte-identical packages for
 identical input. Set --source-date-epoch (or SOURCE_DATE_EPOCH) to pin every

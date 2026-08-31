@@ -102,7 +102,7 @@ func catPayloadFile(p *flatpkg.Package, want string) error {
 	if !c.HasPayload() {
 		return withCode(ExitBadPackage, fmt.Errorf("%s has no payload", componentLabel(c)))
 	}
-	want = normalisePayloadPath(want)
+	want = normalizePayloadPath(want)
 	cr, _, closer, err := c.OpenPayloadCPIO()
 	if err != nil {
 		return payloadOpenError(err)
@@ -116,7 +116,7 @@ func catPayloadFile(p *flatpkg.Package, want string) error {
 		if err != nil {
 			return fmt.Errorf("payload: %w", err)
 		}
-		if normalisePayloadPath(h.Name) != want {
+		if normalizePayloadPath(h.Name) != want {
 			continue
 		}
 		if !h.IsRegular() {
@@ -128,8 +128,8 @@ func catPayloadFile(p *flatpkg.Package, want string) error {
 	return withCode(ExitBadPackage, fmt.Errorf("no file %s in the payload (try: macospkg list %s)", want, p.Path))
 }
 
-// normalisePayloadPath makes "./a", "a" and "/a" compare equal.
-func normalisePayloadPath(s string) string {
+// normalizePayloadPath makes "./a", "a" and "/a" compare equal.
+func normalizePayloadPath(s string) string {
 	s = strings.TrimPrefix(s, "./")
 	s = strings.Trim(s, "/")
 	if s == "" || s == "." {

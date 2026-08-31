@@ -14,24 +14,24 @@ macOS leg additionally checks the result against Apple's own tools.
 | Read xar (header, TOC, entries, checksums, signature elements) | ✅ | ✅ | ✅ |
 | Read bill of materials (Bom) | ✅¹ | ✅¹ | ✅¹ |
 | Read cpio payloads: gzip, pbz* (xz, LZFSE, LZ4, zlib, LZBITMAP), odc, newc | ✅ | ✅ | ✅ |
-| Write pbzx, pbze and pbzb payloads (`build --compression pbzx\|lzfse\|lzbitmap`) | ✅⁶ | ✅⁶ | ✅⁶ |
+| Write pbzx, pbze and pbzb payloads (`build --compression pbzx\|lzfse\|lzbitmap`) | ✅⁵ | ✅⁵ | ✅⁵ |
 | Read `--large-payload` packages (LargeSegmentedPayload) | ✅ | ✅ | ✅ |
 | Apple Archive payloads | ⬜² | ⬜² | ⬜² |
 | PackageInfo and Distribution models | ✅ | ✅ | ✅ |
 | `info`, `list`, `cat`, `inspect` | ✅ | ✅ | ✅ |
 | `expand` (pkgutil --expand / --expand-full parity) | ✅³ | ✅³ | ✅³ |
-| `flatten` (pkgutil --flatten parity) | ✅¹¹ | ✅¹¹ | ✅¹¹ |
-| `extract` (payload, scripts, pattern, verify) | ✅ | ✅ | 🟡⁴ |
-| `build` (component package) | ✅⁶ | ✅⁶ | ✅⁶ |
+| `flatten` (pkgutil --flatten parity) | ✅¹⁰ | ✅¹⁰ | ✅¹⁰ |
+| `extract` (payload, scripts, regexp, verify) | ✅ | ✅ | 🟡⁴ |
+| `build` (component package) | ✅⁵ | ✅⁵ | ✅⁵ |
 | `product` (product archive) | ✅ | ✅ | ✅ |
 | Reproducible output (`SOURCE_DATE_EPOCH`) | ✅ | ✅ | ✅ |
-| Bill of materials writer | ✅⁷ | ✅⁷ | ✅⁷ |
-| Hard links and extended attributes (`._` AppleDouble sidecars) | ✅⁶ | ✅⁶ | 🟡⁴ |
-| `sign` (RSA + CMS, Apple timestamp) | ✅⁸ | ✅⁸ | ✅⁸ |
-| `verify` (digest, signatures, chain to Apple's roots, timestamp, staple) | ✅⁹ | ✅⁹ | ✅⁹ |
-| `notarize` (submit, upload, wait, log) | ✅¹⁰ | ✅¹⁰ | ✅¹⁰ |
-| `staple`, `unstaple`, `verify --online` | ✅¹³ | ✅¹³ | ✅¹³ |
-| `receipts` (pkgutil's receipt database, read only) | ✅¹² | ✅¹² | ✅¹² |
+| Bill of materials writer | ✅⁶ | ✅⁶ | ✅⁶ |
+| Hard links and extended attributes (`._` AppleDouble sidecars) | ✅⁵ | ✅⁵ | 🟡⁴ |
+| `sign` (RSA + CMS, Apple timestamp) | ✅⁷ | ✅⁷ | ✅⁷ |
+| `verify` (digest, signatures, chain to Apple's roots, timestamp, staple) | ✅⁸ | ✅⁸ | ✅⁸ |
+| `notarize` (submit, upload, wait, log) | ✅⁹ | ✅⁹ | ✅⁹ |
+| `staple`, `unstaple`, `verify --online` | ✅¹² | ✅¹² | ✅¹² |
+| `receipts` (pkgutil's receipt database, read only) | ✅¹¹ | ✅¹¹ | ✅¹¹ |
 
 ¹ The `Size64` tree, which records sizes over 4 GiB, is read on a
 best-effort basis: its layout is not documented anywhere and no fixture
@@ -53,17 +53,15 @@ hard links.
 ⁴ On Windows, permission bits and ownership cannot be applied. Symbolic
 links need the symlink privilege, and `--symlinks auto` writes the target
 as a file where they cannot be created (reported, exit 6 if you asked for
-`--symlinks real`). Names Windows cannot store are sanitised and reported.
+`--symlinks real`). Names Windows cannot store are sanitized and reported.
 Windows exposes no inode, so hard links are packaged and extracted as
 copies; extended attributes travel as `._` files rather than as host
 attributes, which loses nothing, since a build reads them back.
 
-⁵ (superseded by ⁸–¹⁰ below)
-
-⁶ Parity with `pkgbuild` is checked by the macOS acceptance leg. The
+⁵ Parity with `pkgbuild` is checked by the macOS acceptance leg. The
 `PackageInfo` and `Distribution` documents are compared byte for byte
 against the ones `pkgbuild` and `productbuild` write for the same input
-(`acceptance/parity_test.go`), with a single normalisation:
+(`acceptance/parity_test.go`), with a single normalization:
 `generator-version`, which names the tool and which macospkg must not
 copy. That covers attribute order, script timeouts, the absence of a
 trailing newline, and the fact that `install-location` is written only
@@ -97,7 +95,7 @@ per chunk, no check, 8 MiB dictionary); pkgbuild has written pbzx for
 `--compression latest` on every macOS from 12 to 26, which the fixture
 manifest records.
 
-⁷ Round-trip checked against Google's Go installer: expanded and rebuilt
+⁶ Round-trip checked against Google's Go installer: expanded and rebuilt
 with macospkg, the bill of materials is identical in all 17,356 entries
 and `installKBytes` matches exactly. Byte layout differs from `mkbom`'s
 (block placement is ours), block contents follow it: the POSIX `cksum` checksum, APFS directory sizes,
@@ -105,14 +103,14 @@ and `installKBytes` matches exactly. Byte layout differs from `mkbom`'s
 hard-link set is indexed once, by its last member in path order, as
 `mkbom` does).
 
-⁸ Checked against Apple's tools on macOS: `pkgutil --check-signature`
+⁷ Checked against Apple's tools on macOS: `pkgutil --check-signature`
 parses our signature and its timestamp, `openssl cms -verify` accepts the
 CMS blob, `xar` and `pkgutil --expand` read the signed archive. Only RSA
 identities are supported (Developer ID Installer certificates are RSA).
 No keychain is used; the identity comes from a PKCS#12 or PEM files.
 
-⁹ Validated against Google's Go installer (Apple-signed, notarized,
-stapled): the BER-encoded CMS Apple writes is normalised, Apple's critical
+⁸ Validated against Google's Go installer (Apple-signed, notarized,
+stapled): the BER-encoded CMS Apple writes is normalized, Apple's critical
 marker extensions are accepted, and the chain reaches the built-in Apple
 Root CA. `--revocation` asks the responder the signing certificate names
 whether the authority has withdrawn it since, which chain verification
@@ -120,7 +118,7 @@ cannot tell you and which `pkgutil --check-signature` consults too. It
 needs the network, so it happens only when asked for; a certificate naming
 no responder is reported as unchecked rather than as good.
 
-¹⁰ The four notary API calls go through `deploymenttheory/go-sdk-appleservices`;
+⁹ The four notary API calls go through `deploymenttheory/go-sdk-appleservices`;
 the S3 upload, polling and log download are here. A file over 5 GiB, which
 is S3's limit for one request, goes up in parts, and a failed upload is
 aborted rather than left incomplete in Apple's bucket. `--webhook` asks
@@ -137,7 +135,7 @@ documented Notary REST API, and guessing at an undocumented endpoint that
 handles credentials is not a trade worth making. The end-to-end job needs
 Developer ID secrets and runs on the main repository's CI only.
 
-¹¹ Expanding and flattening a package returns every entry unchanged, byte
+¹⁰ Expanding and flattening a package returns every entry unchanged, byte
 for byte, except the `Scripts` archives, which are built afresh from the
 unpacked directory and hold the same paths with the same modes.
 `pkgutil --flatten` does the same. The one difference is ownership: an
@@ -146,7 +144,7 @@ archive a package arrives with records the uid of whoever built it, and
 records root:wheel so the same directory gives the same package on any
 machine. The Installer runs scripts as root whatever the archive says.
 
-¹² Reads `<volume>/var/db/receipts`, so it works against a volume mounted
+¹¹ Reads `<volume>/var/db/receipts`, so it works against a volume mounted
 anywhere rather than only the running system. Checked against `pkgutil`:
 `receipts info` agrees with `--pkg-info` field for field and `receipts
 files` with `--files` path for path, 8,704 of them for one package on the
@@ -158,7 +156,7 @@ here is one `pkgutil` reports; 32 of its 123 on that machine. The writes,
 believes it installed, and neither belongs to a tool that is not the
 Installer.
 
-¹³ Flat packages only. `stapler` also staples `.app` bundles and UDIF disk
+¹² Flat packages only. `stapler` also staples `.app` bundles and UDIF disk
 images, which this does not: a bundle's ticket is keyed on the CDHash of
 its Mach-O code signature, which needs a reader this tool does not have,
 and a disk image is `go-apfs-v2`'s domain. The design for bundles is worked

@@ -11,11 +11,13 @@ import (
 
 var flattenCmd = &cobra.Command{
 	Use:   "flatten DIR OUT.pkg",
-	Short: "Reassemble an expanded package directory into a flat package",
-	Long: `Turn a directory produced by expand back into a flat package, which is
-what pkgutil --flatten does. It is the inverse of expand, and the way to
-change one thing in a package without rebuilding it: expand it, edit the
-PackageInfo or a script, flatten it again.
+	Short: "Reassemble an expanded directory into a package",
+	Long: `Flatten a directory into a package, the inverse of expand.
+
+DIR must already have the contents and layout of an expanded flat package.
+This is the way to change one thing in a package without rebuilding it: expand
+it, edit the PackageInfo or a script, flatten it again. It is not a substitute
+for build.
 
 The contents are taken as they stand. Every file becomes an archive entry
 with the bytes it has on disk, so a Payload expand left packed goes back

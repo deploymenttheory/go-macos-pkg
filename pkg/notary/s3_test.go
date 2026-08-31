@@ -39,7 +39,7 @@ func TestSigV4Vector(t *testing.T) {
 	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
 	signV4(req2, creds, "us-east-1", "iam", hex.EncodeToString(empty[:]), time.Date(2015, 8, 30, 12, 36, 0, 0, time.UTC))
 	if req2.Header.Get("Authorization") != got {
-		t.Error("query parameter order changed the signature; canonicalisation is wrong")
+		t.Error("query parameter order changed the signature; canonicalization is wrong")
 	}
 }
 

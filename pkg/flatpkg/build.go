@@ -137,7 +137,7 @@ func ParseCompression(s string) (Compression, error) {
 	case "lz4", "pbz4", "zlib", "pbzz":
 		return 0, fmt.Errorf("compression %q writes a payload macOS cannot read: pkgutil refuses a pbz4 or pbzz Payload, so the package would not install (pkg/pbzx writes the container itself, if you need one outside a package)", s)
 	}
-	return 0, fmt.Errorf("unknown compression %q: want gzip, pbzx, latest, lzfse or lzbitmap", s)
+	return 0, fmt.Errorf("unknown compression %q: want gzip, pbzx, latest, lzfse, lzbitmap or none", s)
 }
 
 func (c Compression) String() string {
@@ -463,7 +463,7 @@ type payloadEntry struct {
 	nlink   uint32
 	// xattrs is what the entry's sidecar will carry, if anything.
 	xattrs *appledouble.File
-	// sidecar is set on the synthesised "._" entries: the encoded
+	// sidecar is set on the synthesized "._" entries: the encoded
 	// AppleDouble bytes; owner is the index of the entry they belong to.
 	sidecar []byte
 	owner   int
@@ -1137,7 +1137,7 @@ func withSidecars(entries []payloadEntry) ([]payloadEntry, error) {
 	return out, nil
 }
 
-// sidecarEntry synthesises the "._" entry for an owner, with pkgbuild's
+// sidecarEntry synthesizes the "._" entry for an owner, with pkgbuild's
 // header: mode 100644, the owner's owner, time and link count. Encode
 // fails when the attributes do not fit AppleDouble's 64 KiB header,
 // which a tree on disk or a manifest can both ask for.
@@ -1390,10 +1390,10 @@ func versionLess(a, b string) bool {
 	return false
 }
 
-// knownScripts are the script names pkgbuild recognises.
+// knownScripts are the script names pkgbuild recognizes.
 var knownScripts = []string{"preflight", "preinstall", "preupgrade", "postinstall", "postupgrade", "postflight"}
 
-// scriptNames returns the recognised scripts present in dir, in Apple's
+// scriptNames returns the recognized scripts present in dir, in Apple's
 // order.
 func scriptNames(dir string) ([]string, error) {
 	st, err := os.Stat(dir)

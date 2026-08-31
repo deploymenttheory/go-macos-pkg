@@ -36,7 +36,7 @@ func NewBuilder() *Builder {
 // parents must be added before their children, as a directory walk does.
 // Mode must include the type bits. ID and ParentID are assigned here.
 func (b *Builder) Add(e Entry) error {
-	p := normalisePath(e.Path)
+	p := normalizePath(e.Path)
 	if b.seen[p] {
 		return fmt.Errorf("bom: duplicate path %s", p)
 	}
@@ -54,7 +54,7 @@ func (b *Builder) Add(e Entry) error {
 	return nil
 }
 
-func normalisePath(p string) string {
+func normalizePath(p string) string {
 	p = strings.TrimSuffix(p, "/")
 	if p == "" || p == "." || p == "./" {
 		return "."

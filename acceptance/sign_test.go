@@ -48,7 +48,7 @@ func signedFixture(t *testing.T) (string, string) {
 	p12, _, _, ca := fixtureKeys(t)
 	src, _ := fixture(t, "component-basic.pkg")
 	out := filepath.Join(t.TempDir(), "signed.pkg")
-	_, stderr, code := runEnv(t, []string{"MACOSPKG_P12_PASSWORD=fixture"}, "sign", src, out, "--p12", p12, "--no-timestamp")
+	_, stderr, code := runEnv(t, []string{"MACOSPKG_P12_PASSWORD=fixture"}, "sign", src, out, "--p12", p12, "--timestamp", "none")
 	if code != 0 {
 		t.Fatalf("sign: exit %d\n%s", code, stderr)
 	}
@@ -70,7 +70,7 @@ func TestSignThenVerify(t *testing.T) {
 		t.Errorf("digest = %s", v.Digest)
 	}
 	if v.Timestamped {
-		t.Error("--no-timestamp signature reports a timestamp")
+		t.Error("--timestamp none signature reports a timestamp")
 	}
 	// Leaf first, then the CA it was issued by, as productsign embeds them.
 	if len(v.Certificates) != 2 || !strings.Contains(v.Certificates[0].Subject, "Developer ID Installer: Fixture") || !strings.Contains(v.Certificates[1].Subject, "Certification Authority") {
@@ -148,7 +148,7 @@ func TestSignTamperAndResign(t *testing.T) {
 	// the way productsign leaves pkgbuild's packages.
 	_, cert, key, _ := fixtureKeys(t)
 	resigned := filepath.Join(t.TempDir(), "resigned.pkg")
-	mustRun(t, "sign", signed, resigned, "--cert", cert, "--key", key, "--chain", ca, "--no-timestamp", "--digest", "sha1")
+	mustRun(t, "sign", signed, resigned, "--cert", cert, "--key", key, "--chain", ca, "--timestamp", "none", "--digest", "sha1")
 	var v verifyJSON
 	mustRunJSON(t, &v, "verify", "--trust-anchors", ca, resigned)
 	if !v.Valid || v.Digest != "sha1" {
@@ -163,30 +163,30 @@ func TestSignCredentialErrors(t *testing.T) {
 	p12, cert, _, _ := fixtureKeys(t)
 	src, _ := fixture(t, "component-basic.pkg")
 	out := filepath.Join(t.TempDir(), "out.pkg")
-	_, stderr, code := runEnv(t, []string{"MACOSPKG_P12_PASSWORD=wrong"}, "sign", src, out, "--p12", p12, "--no-timestamp")
+	_, stderr, code := runEnv(t, []string{"MACOSPKG_P12_PASSWORD=wrong"}, "sign", src, out, "--p12", p12, "--timestamp", "none")
 	if code != exitcode.Auth {
 		t.Errorf("wrong password: exit %d, want %d\n%s", code, exitcode.Auth, stderr)
 	}
 	if _, err := os.Stat(out); err == nil {
 		t.Error("a failed sign left an output file")
 	}
-	_, _, code = runWithStdin(t, "fixture\n", "sign", src, out, "--p12", p12, "--p12-password-stdin", "--no-timestamp")
+	_, _, code = runWithStdin(t, "fixture\n", "sign", src, out, "--p12", p12, "--p12-password-stdin", "--timestamp", "none")
 	if code != 0 {
 		t.Errorf("--p12-password-stdin: exit %d", code)
 	}
-	_, _, code = run(t, "sign", src, out, "--no-timestamp")
+	_, _, code = run(t, "sign", src, out, "--timestamp", "none")
 	if code != exitcode.Usage {
 		t.Errorf("no identity: exit %d", code)
 	}
-	_, _, code = run(t, "sign", src, out, "--cert", cert, "--no-timestamp")
+	_, _, code = run(t, "sign", src, out, "--cert", cert, "--timestamp", "none")
 	if code != exitcode.Usage {
 		t.Errorf("cert without key: exit %d", code)
 	}
-	_, _, code = run(t, "sign", src, out, "--cert", cert, "--key", filepath.Join(repoRoot, "testdata", "cli", "keys", "fixture-ca.key"), "--no-timestamp")
+	_, _, code = run(t, "sign", src, out, "--cert", cert, "--key", filepath.Join(repoRoot, "testdata", "cli", "keys", "fixture-ca.key"), "--timestamp", "none")
 	if code != exitcode.Auth {
 		t.Errorf("mismatched key: exit %d, want %d", code, exitcode.Auth)
 	}
-	_, _, code = run(t, "sign", src, out, "--p12", filepath.Join(t.TempDir(), "missing.p12"), "--no-timestamp")
+	_, _, code = run(t, "sign", src, out, "--p12", filepath.Join(t.TempDir(), "missing.p12"), "--timestamp", "none")
 	if code != exitcode.Auth {
 		t.Errorf("missing p12: exit %d", code)
 	}
@@ -196,7 +196,7 @@ func TestBuildSignsInline(t *testing.T) {
 	p12, _, _, ca := fixtureKeys(t)
 	root, scripts := sourceTree(t)
 	out := filepath.Join(t.TempDir(), "signed.pkg")
-	args := append(buildArgs(root, scripts, out), "--sign-p12", p12, "--sign-no-timestamp")
+	args := append(buildArgs(root, scripts, out), "--sign-p12", p12, "--sign-timestamp", "none")
 	_, stderr, code := runEnv(t, []string{"MACOSPKG_P12_PASSWORD=fixture"}, args...)
 	if code != 0 {
 		t.Fatalf("build --sign-p12: exit %d\n%s", code, stderr)
@@ -208,7 +208,7 @@ func TestBuildSignsInline(t *testing.T) {
 	}
 	// Signed builds are reproducible too: the signing time is the epoch.
 	out2 := filepath.Join(t.TempDir(), "signed2.pkg")
-	args = append(buildArgs(root, scripts, out2), "--sign-p12", p12, "--sign-no-timestamp")
+	args = append(buildArgs(root, scripts, out2), "--sign-p12", p12, "--sign-timestamp", "none")
 	runEnv(t, []string{"MACOSPKG_P12_PASSWORD=fixture"}, args...)
 	h1, _ := fileSHA256(out)
 	h2, _ := fileSHA256(out2)
@@ -217,7 +217,7 @@ func TestBuildSignsInline(t *testing.T) {
 	}
 	// product --sign-* too.
 	prod := filepath.Join(t.TempDir(), "product.pkg")
-	_, stderr, code = runEnv(t, []string{"MACOSPKG_P12_PASSWORD=fixture"}, "product", prod, "--package", out, "--sign-p12", p12, "--sign-no-timestamp")
+	_, stderr, code = runEnv(t, []string{"MACOSPKG_P12_PASSWORD=fixture"}, "product", prod, "--package", out, "--sign-p12", p12, "--sign-timestamp", "none")
 	if code != 0 {
 		t.Fatalf("product --sign-p12: exit %d\n%s", code, stderr)
 	}

@@ -48,7 +48,7 @@ func TestSentinelsSurviveWrapping(t *testing.T) {
 		},
 		{
 			"unsupported payload, unwrapped",
-			fmt.Errorf("%w: unrecognised payload container", flatpkg.ErrUnsupportedPayload),
+			fmt.Errorf("%w: unrecognized payload container", flatpkg.ErrUnsupportedPayload),
 			payloadOpenError, ExitUnsupported,
 		},
 		{

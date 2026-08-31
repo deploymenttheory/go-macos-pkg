@@ -13,19 +13,21 @@ var (
 	expandVerify    bool
 	expandSymlinks  string
 	expandXattrs    string
-	expandHardLinks bool
+	expandHardLinks string
 )
 
 var expandCmd = &cobra.Command{
 	Use:   "expand PKG DIR",
-	Short: "Unpack the archive like pkgutil --expand / --expand-full",
-	Long: `Write the package's archive entries, decoded, into a new directory DIR:
-PackageInfo, Bom, Distribution and Resources as files, each Scripts archive
-unpacked into a Scripts directory, and each Payload left as the gzip cpio
-stream it is, exactly the layout pkgutil --expand produces.
+	Short: "Unpack a package into a directory of its entries",
+	Long: `Expand a flat package into a new directory.
 
---full also unpacks every Payload into a directory of the same name, as
-pkgutil --expand-full does.
+Every archive entry is written out decoded: PackageInfo, Bom, Distribution and
+Resources as files, each Scripts archive unpacked into a Scripts directory, and
+each Payload left as the gzip cpio stream it is. A product archive's components
+become directories, each holding its own entries.
+
+--full also unpacks every Payload into a directory of the same name, so nothing
+is left packed.
 
 DIR must not exist: an expansion never merges into something else.
 
@@ -38,11 +40,11 @@ Examples:
 }
 
 func init() {
-	expandCmd.Flags().BoolVar(&expandFull, "full", false, "also unpack each Payload into a directory (pkgutil --expand-full)")
+	expandCmd.Flags().BoolVar(&expandFull, "full", false, "also unpack each Payload into a directory of the same name")
 	expandCmd.Flags().BoolVar(&expandVerify, "verify", false, "verify every archive entry's stored checksums")
 	expandCmd.Flags().StringVar(&expandSymlinks, "symlinks", "auto", "symbolic links: auto, real or file")
 	expandCmd.Flags().StringVar(&expandXattrs, "xattrs", "auto", "\"._\" sidecars: apply (set the attributes on the owner), file (write them as files) or skip; auto applies what the host takes and keeps the rest as files")
-	expandCmd.Flags().BoolVar(&expandHardLinks, "hard-links", true, "recreate hard links; --hard-links=false writes copies")
+	expandCmd.Flags().StringVar(&expandHardLinks, "hard-links", "", "hard links: auto (recreate them, the default) or copy (write each member as its own file)")
 }
 
 // expandReport is the JSON schema for macospkg expand.
@@ -70,6 +72,11 @@ func runExpand(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return usageErrorf("%v", err)
 	}
+	links, err := flatpkg.ParseHardLinkMode(expandHardLinks)
+	if err != nil {
+		return usageErrorf("%v", err)
+	}
+	expandHardLinksCopy := links == flatpkg.HardLinksCopy
 	p, err := openPackage(args[0])
 	if err != nil {
 		return err
@@ -81,7 +88,7 @@ func runExpand(cmd *cobra.Command, args []string) error {
 		Verify:      expandVerify,
 		Symlinks:    mode,
 		Xattrs:      xattrMode,
-		NoHardLinks: !expandHardLinks,
+		NoHardLinks: expandHardLinksCopy,
 		Progress:    func(path string) { verbosef("wrote %s", path) },
 	})
 	if err != nil {

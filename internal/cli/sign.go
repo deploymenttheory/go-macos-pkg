@@ -19,15 +19,21 @@ var signDigest string
 var signCmd = &cobra.Command{
 	Use:   "sign PKG OUT.pkg",
 	Short: "Sign a package with a Developer ID Installer certificate",
-	Long: `Sign a package the way productsign does: an RSA signature and a CMS
-signature over the archive's table-of-contents digest, with the certificate
-chain embedded, and by default an RFC 3161 timestamp from Apple's server so
-the signature outlives the certificate.
+	Long: `Add a digital signature to a package.
 
-The identity comes from a PKCS#12 file (--p12, password via
+Signing writes an RSA signature and a CMS signature over the archive's
+table-of-contents digest, embeds the certificate chain, and by default adds an
+RFC 3161 timestamp from Apple's server so the signature outlives the
+certificate.
+
+To sign, you need a certificate and its private key, together called an
+identity. It comes from a PKCS#12 file (--p12, with the password from
 --p12-password-stdin, MACOSPKG_P12_PASSWORD or --p12-password) or from PEM
-files (--cert and --key, plus --chain for intermediates). No keychain is
-involved, so this works the same on Linux and Windows.
+files (--cert and --key). No keychain is involved, so this works the same on
+Linux and Windows.
+
+--chain embeds further intermediate certificates, to form a chain of trust
+between the signing certificate and a root the system already trusts.
 
 An existing signature is replaced. A stapled notarization ticket is
 removed, since re-signing invalidates it; notarize and staple again.
@@ -35,7 +41,7 @@ removed, since re-signing invalidates it; notarize and staple again.
 Examples:
   macospkg sign Foo.pkg Foo-signed.pkg --p12 developer-id.p12 --p12-password-stdin < password.txt
   macospkg sign Foo.pkg Foo-signed.pkg --cert cert.pem --key key.pem --chain intermediates.pem
-  macospkg sign Foo.pkg Foo-signed.pkg --p12 id.p12 --no-timestamp`,
+  macospkg sign Foo.pkg Foo-signed.pkg --p12 id.p12 --timestamp none`,
 	Args: exactArgs(2, "PKG OUT.pkg"),
 	RunE: runSign,
 }
@@ -103,7 +109,8 @@ func runSign(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return signError(err)
 	}
-	report := signReport{Input: p.Path, Output: args[1], Digest: alg.String(), Timestamped: !sf.noTimestamp, Unstapled: unstapled}
+	timestamped, _ := sf.timestamping(nil)
+	report := signReport{Input: p.Path, Output: args[1], Digest: alg.String(), Timestamped: timestamped, Unstapled: unstapled}
 	if s, ok := signer.(interface{ SignerName() (string, string) }); ok {
 		report.Signer, report.TeamID = s.SignerName()
 	}
