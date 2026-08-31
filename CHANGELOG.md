@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.4.2](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.4.1...v0.4.2) (2026-08-31)
+
+
+### Bug Fixes
+
+* **appledouble:** step over an attribute record by its declared name length ([1faeeb3](https://github.com/deploymenttheory/go-macos-pkg/commit/1faeeb3cae79718fb852637d2d611181cfd3ca53))
+* **appledouble:** step over an attribute record by its declared name length ([e0341f7](https://github.com/deploymenttheory/go-macos-pkg/commit/e0341f706c2ef9438ab804b5795fb4d9e7974963))
+* **bom:** build a Paths tree deeper than one branch level ([19e5ef5](https://github.com/deploymenttheory/go-macos-pkg/commit/19e5ef56176e7e8129fcfd7214a8ed6edfffd941))
+* **bom:** build a Paths tree deeper than one branch level ([85d51c2](https://github.com/deploymenttheory/go-macos-pkg/commit/85d51c2e121afe90f1bf72c8c69c3ef491d3751d))
+* **bom:** count symbolic link targets in the BomInfo byte total ([0048943](https://github.com/deploymenttheory/go-macos-pkg/commit/004894384d6ae3afb4bb1eb3ae6e49c3bf37849c))
+* **bom:** count symbolic link targets in the BomInfo byte total ([8550373](https://github.com/deploymenttheory/go-macos-pkg/commit/8550373263df7a4f2a9fe6b4f18d8b0e0c0b5594))
+* **cpio:** refuse odc fields too large to hold, instead of masking ([3464c1b](https://github.com/deploymenttheory/go-macos-pkg/commit/3464c1b5c43ee6a9fabf5d8f2a655e57dc197028))
+* **cpio:** refuse odc fields too large to hold, instead of masking ([24777be](https://github.com/deploymenttheory/go-macos-pkg/commit/24777beb6cbe39a81e951b2e1a470ade9ad18398))
+* **flatpkg:** report a payload that does not match the bill of materials ([c20c3e5](https://github.com/deploymenttheory/go-macos-pkg/commit/c20c3e57798f082616464ec8cfc50935e6c98864))
+* **flatpkg:** report a payload that does not match the bill of materials ([c70f069](https://github.com/deploymenttheory/go-macos-pkg/commit/c70f0695a76e93bf8e60253c72a2334b0a37079e))
+* **flatpkg:** skip entries written through a symlink instead of failing ([9cd0994](https://github.com/deploymenttheory/go-macos-pkg/commit/9cd099436cf400bcc181157dd5d5f44064cc6ee0))
+* **flatpkg:** skip entries written through a symlink instead of failing ([1d9a5e1](https://github.com/deploymenttheory/go-macos-pkg/commit/1d9a5e1181622593d6612ffca98c47170c30bbe5))
+* **flatpkg:** treat a backslash as part of a name, not a separator ([f6db575](https://github.com/deploymenttheory/go-macos-pkg/commit/f6db5755c93dd221be629ef00e5c417d193ccc40))
+* **flatpkg:** treat a backslash as part of a name, not a separator ([762acf0](https://github.com/deploymenttheory/go-macos-pkg/commit/762acf07e059f03c392dc39b9454702e09266652))
+* **verify:** check the contents the signature covers, not just the signature ([d5feeed](https://github.com/deploymenttheory/go-macos-pkg/commit/d5feeed30a3097632057f01a493694f7a8a04033))
+* **verify:** check the contents the signature covers, not just the signature ([776a5e0](https://github.com/deploymenttheory/go-macos-pkg/commit/776a5e0a304771abfca14efe51ca466a8569e5e8))
+* **xar:** bound entry data without overflowing int64 ([1ac0b0a](https://github.com/deploymenttheory/go-macos-pkg/commit/1ac0b0a362c3c102788c6b5ae2ebefc7ca76478a))
+* **xar:** bound entry data without overflowing int64 ([a094e18](https://github.com/deploymenttheory/go-macos-pkg/commit/a094e187c1bf249bb65d016f82b3215ee7dc8415))
+
 ## [0.4.1](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.4.0...v0.4.1) (2026-08-31)
 
 
