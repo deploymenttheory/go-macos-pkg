@@ -111,6 +111,12 @@ func treeBlock(child, blockSize, pathCount uint32) []byte {
 
 // encodePaths encodes a leaf or branch Paths block of blockSize bytes.
 func encodePaths(isLeaf bool, entries []pathsEntry, forward, backward, blockSize uint32) []byte {
+	if max := int((blockSize - 12) / 8); len(entries) > max {
+		// buildTree chunks to this size, so exceeding it is a programming
+		// error rather than anything the input can cause. Say so, instead
+		// of running off the end of the block.
+		panic(fmt.Sprintf("bom: %d entries in a %d-byte block holds %d", len(entries), blockSize, max))
+	}
 	b := make([]byte, blockSize)
 	if isLeaf {
 		binary.BigEndian.PutUint16(b[0:], 1)
@@ -160,20 +166,32 @@ func buildTree(bw *blockWriter, entries []pathsEntry, blockSize uint32, pathCoun
 		}
 		bw.set(leafIdx[n], encodePaths(true, entries[n*perBlock:end], fwd, back, blockSize))
 	}
-	root := leafIdx[0]
-	if len(leafIdx) > 1 {
-		// One branch level: an entry per leaf, keyed by the leaf's last
-		// entry's key, as a B+tree does. A second level would only be
-		// needed past ~260,000 paths.
-		var branch []pathsEntry
-		for n, idx := range leafIdx {
-			end := (n + 1) * perBlock
-			if end > len(entries) {
-				end = len(entries)
-			}
-			branch = append(branch, pathsEntry{Index0: idx, Index1: entries[end-1].Index1})
+	// Branch levels, keyed by each child's last key as a B+tree is, built
+	// upward until a level fits in one block. One level holds perBlock
+	// leaves, so a single level runs out at perBlock*perBlock paths: 260,100
+	// for a 4096-byte block. Beyond that a second level is required, and
+	// writing only the first overran the block and panicked.
+	level := make([]pathsEntry, 0, len(leafIdx))
+	for n, idx := range leafIdx {
+		end := (n + 1) * perBlock
+		if end > len(entries) {
+			end = len(entries)
 		}
-		root = bw.add(encodePaths(false, branch, 0, 0, blockSize))
+		level = append(level, pathsEntry{Index0: idx, Index1: entries[end-1].Index1})
+	}
+	root := leafIdx[0]
+	for len(level) > 1 {
+		next := make([]pathsEntry, 0, (len(level)+perBlock-1)/perBlock)
+		for i := 0; i < len(level); i += perBlock {
+			end := i + perBlock
+			if end > len(level) {
+				end = len(level)
+			}
+			idx := bw.add(encodePaths(false, level[i:end], 0, 0, blockSize))
+			next = append(next, pathsEntry{Index0: idx, Index1: level[end-1].Index1})
+		}
+		level = next
+		root = level[0].Index0
 	}
 	return bw.add(treeBlock(root, blockSize, pathCount))
 }
