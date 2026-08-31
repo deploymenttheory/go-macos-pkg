@@ -31,6 +31,8 @@ var (
 	buildFilter             []string
 	buildAnalyze            bool
 	buildComponentPlist     string
+	buildComponents         []string
+	buildPrior              string
 	buildExecutable         []string
 	buildManifest           string
 	buildCompression        string
@@ -106,6 +108,8 @@ func init() {
 	f.StringArrayVar(&buildFilter, "filter", nil, "payload paths to leave out (regular expression on ./path), as pkgbuild's --filter; giving any inhibits the default filters; repeatable")
 	f.StringArrayVar(&buildExclude, "exclude", nil, "alias for --filter; repeatable")
 	f.StringArrayVar(&buildExecutable, "executable", nil, "payload paths that are executable, for hosts without execute bits (regular expression); repeatable")
+	f.StringArrayVar(&buildComponents, "component", nil, "bundle to package in place of a source directory, as pkgbuild --component; repeatable, and with exactly one the identifier, version and install location are inferred from it")
+	f.StringVar(&buildPrior, "prior", "", "a previous build of this package to take the identifier and install location from, with its version incremented")
 	f.BoolVar(&buildAnalyze, "analyze", false, "write a component property list describing the bundles in SRC instead of building a package; the second argument is the plist path")
 	f.StringVar(&buildComponentPlist, "component-plist", "", "component property list giving per-bundle relocation, version and script rules; with --analyze, the prior list whose settings are carried forward")
 	f.StringVar(&buildManifest, "manifest", "", "build-info.yaml/.json/.plist to read options from")
@@ -138,10 +142,18 @@ type buildReport struct {
 }
 
 func runBuild(cmd *cobra.Command, args []string) error {
+	// With --component the payload comes from the named bundles, so the
+	// first argument is the output rather than a source directory.
 	src := args[0]
 	buildOutput := ""
 	if len(args) > 1 {
 		buildOutput = args[1]
+	}
+	if len(buildComponents) > 0 {
+		if len(args) > 1 {
+			return usageErrorf("--component takes only an output path: build OUT.pkg --component Foo.app")
+		}
+		src, buildOutput = "", args[0]
 	}
 	if buildAnalyze {
 		return runAnalyze(src, buildOutput)
@@ -160,6 +172,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return manifest
 	}
 	o := flatpkg.ComponentOptions{
+		Components:         buildComponents,
 		Root:               m.payloadRoot(src),
 		Scripts:            pick(buildScripts, m.scriptsDir(src)),
 		NoPayload:          buildNoPayload || m.NoPayload,
@@ -177,13 +190,35 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		GeneratorVersion:   "go-macos-pkg " + tools.Version(),
 		Progress:           func(rel string) { verbosef("packaged %s", rel) },
 	}
-	if o.Identifier == "" {
-		return usageErrorf("--identifier is required (or identifier in a build-info manifest)")
+	if buildPrior != "" {
+		prior, err := flatpkg.InferFromPrior(buildPrior)
+		if err != nil {
+			return buildError(err)
+		}
+		if o.Identifier == "" {
+			o.Identifier = prior.Identifier
+		}
+		if o.Version == "" {
+			o.Version = prior.Version
+		}
+		if o.InstallLocation == "" {
+			o.InstallLocation = prior.InstallLocation
+		}
 	}
-	if o.Version == "" {
-		return usageErrorf("--version is required (or version in a build-info manifest)")
+	// A component build infers all three from the bundle, so the checks
+	// that follow are made there instead.
+	if len(buildComponents) == 0 {
+		if o.Identifier == "" {
+			return usageErrorf("--identifier is required (or --component, --prior, or identifier in a build-info manifest)")
+		}
+		if o.Version == "" {
+			return usageErrorf("--version is required (or --component, --prior, or version in a build-info manifest)")
+		}
 	}
-	output := pick(buildOutput, m.outputPath(src, o.Version))
+	output := buildOutput
+	if len(buildComponents) == 0 {
+		output = pick(buildOutput, m.outputPath(src, o.Version))
+	}
 	if output == "" {
 		return usageErrorf("an output path is required: build SRC OUT.pkg (or a manifest with a name)")
 	}

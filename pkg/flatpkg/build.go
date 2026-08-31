@@ -286,6 +286,11 @@ type ComponentOptions struct {
 	// children, are described. Empty means every bundle found takes the
 	// defaults.
 	ComponentPlist []ComponentBundle
+	// Components are bundle paths to package in place of a Root, as
+	// pkgbuild --component does. They must share one directory, which
+	// becomes the root. With exactly one, the identifier, version and
+	// install location are inferred from it when they are not given.
+	Components []string
 
 	// Xattrs selects where extended attributes come from. They are
 	// carried the way pkgbuild carries them: as AppleDouble "._" sidecar
@@ -371,6 +376,43 @@ func installKBytes(entries []payloadEntry) int {
 	return int((blocks*512 + 1023) / 1024)
 }
 
+// componentPayloadCounts is what pkgbuild reports for a --component build,
+// which is not what it reports for a --root build of the same payload.
+//
+// A --root build counts every archived entry and sizes the directories the
+// way the bill of materials does. A --component build describes the bundle
+// instead of the archive: it counts the entries other than the root and the
+// AppleDouble sidecars, and adds up the bytes of the regular files alone,
+// with no directory overhead. The same eleven-entry payload comes out as
+// 11 files and 3 KB one way and 5 files and 0 KB the other, and 17 entries
+// come out as 17 and 308 against 8 and 305.
+func componentPayloadCounts(entries []payloadEntry) (files, kbytes int) {
+	var bytes int64
+	seen := map[uint64]bool{}
+	for _, e := range entries {
+		if e.rel == "." || e.sidecar != nil || isAppleDoubleName(e.rel) {
+			continue
+		}
+		files++
+		if e.isDir() {
+			continue
+		}
+		if e.linkKey != 0 {
+			if seen[e.linkKey] {
+				continue
+			}
+			seen[e.linkKey] = true
+		}
+		bytes += e.size
+	}
+	return files, int(bytes / 1024)
+}
+
+// isAppleDoubleName reports whether a path names a "._" sidecar file.
+func isAppleDoubleName(rel string) bool {
+	return strings.HasPrefix(path.Base(rel), "._")
+}
+
 // payloadEntry is one path in the payload, collected before writing.
 type payloadEntry struct {
 	rel      string // "./a/b"
@@ -397,6 +439,42 @@ func (e *payloadEntry) isDir() bool { return e.mode&cpio.ModeTypeMask == cpio.Mo
 
 // BuildComponent writes a component package to out.
 func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
+	if len(o.Components) > 0 {
+		if o.Root != "" {
+			return nil, fmt.Errorf("flatpkg: a component build takes no payload root")
+		}
+		root, keep, err := resolveComponents(o.Components)
+		if err != nil {
+			return nil, err
+		}
+		o.Root = root
+		// Keep only the named bundles, and still honour whatever the
+		// caller was excluding.
+		outer := o.Exclude
+		o.Exclude = func(rel string) bool {
+			if !keep(rel) {
+				return true
+			}
+			return outer != nil && outer(rel)
+		}
+		if len(o.Components) == 1 {
+			id, err := InferFromBundle(o.Components[0])
+			if err != nil {
+				return nil, err
+			}
+			if o.Identifier == "" {
+				o.Identifier = id.Identifier
+			}
+			if o.Version == "" {
+				o.Version = id.Version
+			}
+			if o.InstallLocation == "" {
+				o.InstallLocation = id.InstallLocation
+			}
+		} else if o.Identifier == "" {
+			return nil, fmt.Errorf("flatpkg: an identifier is required unless there is exactly one component to take it from")
+		}
+	}
 	if o.Identifier == "" {
 		return nil, fmt.Errorf("flatpkg: an identifier is required")
 	}
@@ -493,6 +571,9 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 		}
 		res.NumberOfFiles = len(entries)
 		res.InstallKBytes = installKBytes(entries)
+		if len(o.Components) > 0 {
+			res.NumberOfFiles, res.InstallKBytes = componentPayloadCounts(entries)
+		}
 		info.Payload = &Payload{NumberOfFiles: res.NumberOfFiles, InstallKBytes: res.InstallKBytes}
 
 		bundles, err := findBundles(o.Root)

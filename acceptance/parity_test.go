@@ -613,3 +613,136 @@ func TestDistributionBytesMatchProductbuild(t *testing.T) {
 
 	requireSameBytes(t, "Distribution", xarEntry(t, theirs, "Distribution"), xarEntry(t, ours, "Distribution"))
 }
+
+// TestComponentModeMatchesPkgbuild covers pkgbuild's third mode, where the
+// payload is a bundle rather than a destination root and the package's
+// identity is read out of the bundle's Info.plist.
+func TestComponentModeMatchesPkgbuild(t *testing.T) {
+	requireTools(t, "pkgbuild", "xar", "pkgutil")
+	base := t.TempDir()
+	root := filepath.Join(base, "root")
+	app := filepath.Join(root, "Example.app")
+	writeFile(t, filepath.Join(app, "Contents", "Info.plist"), infoPlist("com.example.Example", "3.2.1", "3210"), 0o644)
+	writeFile(t, filepath.Join(app, "Contents", "MacOS", "Example"), "#!/bin/sh\necho example\n", 0o755)
+	writeFile(t, filepath.Join(app, "Contents", "Resources", "big.bin"), strings.Repeat("a", 307200), 0o644)
+	stampTree(t, root)
+
+	work := t.TempDir()
+	ours := filepath.Join(work, "ours.pkg")
+	theirs := filepath.Join(work, "theirs.pkg")
+	runIn(t, root, "pkgbuild", "--quiet", "--component", "Example.app", theirs)
+	mustRun(t, "build", ours, "--component", app, "--source-date-epoch", epoch)
+
+	apple := string(xarEntry(t, theirs, "PackageInfo"))
+	mine := string(xarEntry(t, ours, "PackageInfo"))
+
+	// A component build reports different payload numbers from a root
+	// build of the same tree: it counts the bundle's entries rather than
+	// the archive's, so the AppleDouble sidecars and the directory sizes
+	// are left out. Build it the other way too, and require that the two
+	// really do disagree, so this stays a test of the rule rather than of
+	// nothing.
+	asRoot := filepath.Join(work, "asroot.pkg")
+	hostTool(t, "pkgbuild", "--quiet", "--root", root,
+		"--identifier", "com.example.Example", "--version", "3.2.1",
+		"--ownership", "recommended", asRoot)
+	require.NotEqual(t, payloadElement(t, string(xarEntry(t, asRoot, "PackageInfo"))), payloadElement(t, apple),
+		"a component build should not report the same payload numbers as a root build")
+	assert.Equal(t, payloadElement(t, apple), payloadElement(t, mine))
+
+	// Identity is inferred from the Info.plist.
+	assert.Contains(t, mine, `identifier="com.example.Example"`)
+	assert.Contains(t, mine, `version="3.2.1"`)
+
+	// The install location is the directory holding the bundle. Compare it
+	// resolved: under /tmp and /var the two tools spell one directory
+	// differently, because those are symbolic links into /private and
+	// macOS shows the shorter form to Apple's own path APIs.
+	assert.Equal(t, resolved(t, installLocation(t, apple)), resolved(t, installLocation(t, mine)))
+
+	// Only the named bundle is packaged, and the payload is pkgbuild's.
+	assert.Equal(t, payloadPaths(t, theirs), payloadPaths(t, ours))
+
+	// Everything else in the document still matches byte for byte.
+	normalise := func(s string) string { return installLocationAttr.ReplaceAllString(s, `install-location="L"`) }
+	requireSameBytes(t, "PackageInfo (component mode)", []byte(normalise(apple)), []byte(normalise(mine)))
+}
+
+// installLocationAttr matches the attribute the component-mode comparison
+// normalises, for the /private reason above.
+var installLocationAttr = regexp.MustCompile(`install-location="[^"]*"`)
+
+// payloadElementRe matches the payload element and its counts.
+var payloadElementRe = regexp.MustCompile(`<payload[^/]*/>`)
+
+// payloadElement pulls the payload element out of a PackageInfo.
+func payloadElement(t *testing.T, packageInfo string) string {
+	t.Helper()
+	m := payloadElementRe.FindString(packageInfo)
+	require.NotEmpty(t, m, "PackageInfo carries no payload element")
+	return m
+}
+
+// installLocation reads the attribute out of a PackageInfo.
+func installLocation(t *testing.T, packageInfo string) string {
+	t.Helper()
+	m := installLocationAttr.FindString(packageInfo)
+	require.NotEmpty(t, m, "PackageInfo carries no install-location")
+	return strings.TrimSuffix(strings.TrimPrefix(m, `install-location="`), `"`)
+}
+
+// resolved follows symbolic links, so /tmp and /private/tmp compare equal.
+func resolved(t *testing.T, p string) string {
+	t.Helper()
+	r, err := filepath.EvalSymlinks(p)
+	require.NoError(t, err)
+	return r
+}
+
+// runIn runs a host tool with a working directory, which --component needs
+// because pkgbuild records the directory holding the bundle.
+func runIn(t *testing.T, dir, name string, args ...string) {
+	t.Helper()
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	require.NoErrorf(t, err, "%s: %s", name, out)
+}
+
+// TestPriorMatchesPkgbuild covers --prior, which takes the identifier and
+// install location from a previous build and increments its version.
+func TestPriorMatchesPkgbuild(t *testing.T) {
+	requireTools(t, "pkgbuild", "xar")
+	root := productTree(t)
+	stampTree(t, root)
+
+	// The version is converted to an integer and incremented, so a prior
+	// 1.0.0 becomes 2 and a prior 9.9.9 becomes 10.
+	for _, tc := range []struct{ prior, want string }{
+		{"1.0.0", "2"},
+		{"3", "4"},
+		{"2.7", "3"},
+		{"9.9.9", "10"},
+	} {
+		t.Run("prior_"+tc.prior, func(t *testing.T) {
+			work := t.TempDir()
+			first := filepath.Join(work, "first.pkg")
+			hostTool(t, "pkgbuild", "--quiet", "--root", root,
+				"--identifier", "com.deploymenttheory.prior", "--version", tc.prior,
+				"--install-location", "/opt/here", "--ownership", "recommended", first)
+
+			ours := filepath.Join(work, "ours.pkg")
+			theirs := filepath.Join(work, "theirs.pkg")
+			mustRun(t, "build", root, ours, "--prior", first, "--source-date-epoch", epoch)
+			hostTool(t, "pkgbuild", "--quiet", "--root", root, "--prior", first,
+				"--ownership", "recommended", theirs)
+
+			mine := string(xarEntry(t, ours, "PackageInfo"))
+			assert.Contains(t, mine, `identifier="com.deploymenttheory.prior"`)
+			assert.Contains(t, mine, `version="`+tc.want+`"`)
+			assert.Contains(t, mine, `install-location="/opt/here"`)
+			requireSameBytes(t, "PackageInfo (prior)",
+				sortBundleRuns(xarEntry(t, theirs, "PackageInfo")), sortBundleRuns([]byte(mine)))
+		})
+	}
+}

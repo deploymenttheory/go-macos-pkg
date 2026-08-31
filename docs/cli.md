@@ -213,6 +213,8 @@ manifest supplies them.
 | `--install-location PATH` | Where the payload is installed. Left out of the document when unset, which the Installer reads as `/`. |
 | `--scripts DIR` | Directory of install scripts. `preinstall` and `postinstall` run as the package's own scripts; anything else is available for them to call. |
 | `--nopayload` | A scripts-only package with no payload. |
+| `--component BUNDLE` | Package the named bundle rather than a directory. Repeatable. With exactly one, the identifier, version and install location are read out of its `Info.plist`. In this mode the first argument is the output path, not a source. |
+| `--prior PKG` | Take the identifier and install location from a previous build of the same package, and increment its version. |
 
 **Payload shape.**
 
@@ -260,6 +262,22 @@ Naming even one filter turns the defaults off, so to keep everything pass
 a pattern that cannot match, such as `--filter 'a^'`. That matters when
 rebuilding a tree you got from `expand` or `extract`, where you want
 fidelity rather than source-tree hygiene.
+
+**Three ways to say what the package is.** `--identifier` and `--version`
+are the usual answer. `--component Foo.app` reads all three out of the
+bundle: the identifier from `CFBundleIdentifier`, the version from
+`CFBundleShortVersionString` normalised to three numbers (`4` and `4.0`
+both become `4.0.0`, `4.0.1.2` becomes `4.0.1`), and the install location
+from the directory holding the bundle, which is an absolute build path and
+almost never what you want to ship, so pass `--install-location` as well.
+`--prior old.pkg` reads the identifier and install location from a package
+you built before and increments its version to the next integer, so a
+prior `1.0.0` gives `2` and a prior `9.9.9` gives `10`.
+
+A component build also reports different payload numbers from a build of
+the same files as a directory, because it counts the bundle's own entries
+rather than the archive's: no `._` sidecars, and no directory sizes. That
+is pkgbuild's behaviour, not a choice made here.
 
 **Per-bundle rules.** Without a component property list every bundle in
 the payload gets the same treatment: version-checked and upgraded, and, if
