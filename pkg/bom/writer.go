@@ -220,9 +220,13 @@ func (b *Builder) Build(w io.Writer) error {
 
 	// BomInfo: version, path count (+1, as mkbom counts), one info entry
 	// carrying the total file bytes.
+	// Every entry that occupies bytes, which is files and the targets of
+	// symbolic links. Measured against mkbom and pkgbuild, which both
+	// count a link's target: a tree of one 100-byte file and a link to
+	// "abcde" totals 105, not 100.
 	var totalBytes uint64
 	for _, e := range b.entries {
-		if e.Type == TypeFile {
+		if e.Type == TypeFile || e.Type == TypeLink {
 			totalBytes += uint64(e.Size)
 		}
 	}
