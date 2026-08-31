@@ -294,6 +294,17 @@ type ComponentOptions struct {
 	// PreserveXattr sets preserve-xattr on the PackageInfo, as pkgbuild
 	// --preserve-xattr does.
 	PreserveXattr bool
+	// KeepSidecarFiles carries "._" AppleDouble files through as the
+	// files they are, rather than folding them into their owner's
+	// extended attributes and deriving them again on the way out.
+	//
+	// A build wants the folding: it is what lets a tree exported from
+	// macOS to a host with no extended attributes package the same way.
+	// Flatten wants the opposite. Its contract is that the contents go
+	// back as they stand, and folding then re-deriving gives a different
+	// answer on a host that cannot store Apple's attribute names, which
+	// would make a flattened package depend on where it was flattened.
+	KeepSidecarFiles bool
 	// ScriptTimeout is the timeout attribute written on every top-level
 	// script, in seconds. Empty means DefaultScriptTimeout, which is what
 	// current pkgbuild writes.
@@ -851,9 +862,11 @@ func collectPayload(o ComponentOptions, epoch time.Time) ([]payloadEntry, error)
 		return nil, fmt.Errorf("flatpkg: walking payload root: %w", err)
 	}
 	entries = pruneEmptiedDirs(entries, childCount, sourceHadChild)
-	entries, err = liftSidecarFiles(entries, childCount, o.ExcludeXattr)
-	if err != nil {
-		return nil, err
+	if !o.KeepSidecarFiles {
+		entries, err = liftSidecarFiles(entries, childCount, o.ExcludeXattr)
+		if err != nil {
+			return nil, err
+		}
 	}
 	for _, ov := range o.XattrOverrides {
 		if err := applyXattrOverride(entries, ov); err != nil {
@@ -1416,12 +1429,13 @@ func writeScripts(dir, dst string, o ComponentOptions, epoch time.Time) error {
 // bundles as well as anything runnable.
 func writeArchivedDir(dir, dst string, o ComponentOptions, epoch time.Time, forceExecutable bool) error {
 	so := ComponentOptions{
-		Root:         dir,
-		Ownership:    OwnershipRecommended,
-		Xattrs:       o.Xattrs,
-		ExcludeXattr: o.ExcludeXattr,
-		HardLinks:    HardLinksCopy,
-		FileModes:    map[string]uint32{},
+		Root:             dir,
+		Ownership:        OwnershipRecommended,
+		Xattrs:           o.Xattrs,
+		ExcludeXattr:     o.ExcludeXattr,
+		KeepSidecarFiles: o.KeepSidecarFiles,
+		HardLinks:        HardLinksCopy,
+		FileModes:        map[string]uint32{},
 	}
 	entries, err := collectPayload(so, epoch)
 	if err != nil {
@@ -1430,7 +1444,10 @@ func writeArchivedDir(dir, dst string, o ComponentOptions, epoch time.Time, forc
 	for i := range entries {
 		e := &entries[i]
 		switch {
-		case e.sidecar != nil:
+		// A sidecar, whether it was folded into its owner or is being
+		// carried as the file it is, keeps the mode pkgbuild gives it.
+		// Only the scripts themselves are made executable.
+		case e.sidecar != nil || isAppleDoubleName(e.rel):
 		case e.isDir():
 			e.mode = cpio.ModeDir | 0o755
 		case e.mode&cpio.ModeTypeMask == cpio.ModeRegular:

@@ -117,8 +117,25 @@ func flattenDir(w *xar.Writer, o FlattenOptions, res *FlattenResult, tmp, dir, p
 		switch {
 		case info.IsDir() && name == EntryScripts:
 			// The one name Expand unpacks, so the one name to pack again.
+			//
+			// The sidecars are carried as the files they are, no
+			// attributes are read from the tree, and the scripts are
+			// made executable.
+			//
+			// All three are so that a package flattened on Linux or
+			// Windows is the package flattened on macOS. Folding the
+			// sidecars into attributes and deriving them again loses
+			// them on a host that cannot store Apple's attribute names;
+			// reading attributes as well as keeping the files would
+			// generate a sidecar for each sidecar on a host that can;
+			// and a host with no execute bit would produce scripts the
+			// Installer will not run. pkgbuild makes a package's
+			// scripts executable too.
 			archive := filepath.Join(tmp, strings.ReplaceAll(entry, "/", "_"))
-			if err := writeArchivedDir(path, archive, ComponentOptions{}, archiveTime, false); err != nil {
+			if err := writeArchivedDir(path, archive, ComponentOptions{
+				KeepSidecarFiles: true,
+				Xattrs:           XattrsNone,
+			}, archiveTime, true); err != nil {
 				return err
 			}
 			if err := addFileEntry(w, entry, hdr, xar.EncodingNone, archive); err != nil {

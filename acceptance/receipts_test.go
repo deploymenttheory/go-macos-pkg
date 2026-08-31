@@ -8,6 +8,7 @@ package acceptance
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -93,20 +94,96 @@ func TestReceiptsFilesMatchPkgutil(t *testing.T) {
 	attest(t, "receipts files agrees with pkgutil --files on %d paths for %s", len(ours), id)
 }
 
+// fakeVolume builds a volume with a receipt database of its own, so the
+// reader can be exercised anywhere rather than only on a Mac that happens
+// to have something installed.
+//
+// A receipt is a property list and a bill of materials named for the
+// package. The bill of materials is borrowed from a fixture, since it is
+// the same format a package carries.
+func fakeVolume(t *testing.T) (volume, id string) {
+	t.Helper()
+	volume = t.TempDir()
+	id = "com.deploymenttheory.example"
+	dir := filepath.Join(volume, "var", "db", "receipts")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+
+	writeFile(t, filepath.Join(dir, id+".plist"), `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>InstallPrefixPath</key><string>usr/local</string>
+	<key>InstallProcessName</key><string>installer</string>
+	<key>PackageFileName</key><string>example.pkg</string>
+	<key>PackageIdentifier</key><string>`+id+`</string>
+	<key>PackageVersion</key><string>4.2.1</string>
+</dict>
+</plist>
+`, 0o644)
+
+	pkg, _ := fixture(t, "component-basic.pkg")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, id+".bom"),
+		[]byte(mustRun(t, "cat", pkg, "Bom")), 0o644))
+	return volume, id
+}
+
+// TestReceiptsReadAVolume exercises the reader against a volume built for
+// the purpose, so it runs on every platform rather than only where a Mac
+// happens to have something installed.
+func TestReceiptsReadAVolume(t *testing.T) {
+	volume, id := fakeVolume(t)
+
+	assert.Equal(t, []string{id}, nonEmptyLines(mustRun(t, "receipts", "list", "--volume", volume)))
+
+	var info struct {
+		PackageID       string `json:"packageId"`
+		Version         string `json:"version"`
+		Volume          string `json:"volume"`
+		InstallLocation string `json:"installLocation"`
+		InstalledBy     string `json:"installedBy"`
+		PackageFileName string `json:"packageFileName"`
+		HasFiles        bool   `json:"hasFiles"`
+	}
+	mustRunJSON(t, &info, "receipts", "info", id, "--volume", volume)
+	assert.Equal(t, id, info.PackageID)
+	assert.Equal(t, "4.2.1", info.Version)
+	assert.Equal(t, "usr/local", info.InstallLocation)
+	assert.Equal(t, "installer", info.InstalledBy)
+	assert.Equal(t, "example.pkg", info.PackageFileName)
+	assert.True(t, info.HasFiles)
+	assert.Equal(t, volume, info.Volume)
+
+	// The paths come out relative to the install location, without the
+	// "./" the bill of materials carries and without the root entry.
+	files := nonEmptyLines(mustRun(t, "receipts", "files", id, "--volume", volume))
+	assert.NotEmpty(t, files)
+	for _, f := range files {
+		assert.NotEqual(t, ".", f)
+		assert.False(t, strings.HasPrefix(f, "./"), "%s should be relative to the install location", f)
+	}
+	// And the two halves partition the listing.
+	onlyFiles := nonEmptyLines(mustRun(t, "receipts", "files", "--only-files", id, "--volume", volume))
+	onlyDirs := nonEmptyLines(mustRun(t, "receipts", "files", "--only-dirs", id, "--volume", volume))
+	assert.Len(t, files, len(onlyFiles)+len(onlyDirs))
+}
+
 // TestReceiptsRejectsWhatIsNotThere covers the errors: an unknown package,
-// and a volume with no receipt database.
+// a volume with no receipt database, and an identifier trying to reach out
+// of the directory.
 func TestReceiptsRejectsWhatIsNotThere(t *testing.T) {
-	_, stderr, code := run(t, "receipts", "info", "no.such.package.exists")
+	volume, _ := fakeVolume(t)
+
+	_, stderr, code := run(t, "receipts", "info", "no.such.package.exists", "--volume", volume)
 	assert.Equal(t, 3, code, "an unknown package is a missing-package error")
 	assert.Contains(t, stderr, "no.such.package.exists")
 
 	_, stderr, code = run(t, "receipts", "list", "--volume", t.TempDir())
-	assert.Equal(t, 3, code)
+	assert.Equal(t, 3, code, "a volume with no receipt database is one too")
 	assert.Contains(t, stderr, "var/db/receipts")
 
 	// An identifier that tries to reach out of the directory is refused
 	// rather than followed.
-	_, _, code = run(t, "receipts", "info", filepath.Join("..", "..", "etc", "passwd"))
+	_, _, code = run(t, "receipts", "info", filepath.Join("..", "..", "etc", "passwd"), "--volume", volume)
 	assert.NotEqual(t, 0, code)
 }
 
