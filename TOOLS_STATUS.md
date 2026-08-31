@@ -69,10 +69,12 @@ when it is asked for. It also covers which bundle list each kind of bundle
 is referenced from: every bundle is version-checked and upgraded, only an
 application is relocated and strictly identified, and a bundle nested
 inside another is described but never referenced. One deliberate
-difference: pkgbuild emits the `bundle` elements in its own hash order,
-which is deterministic for a given set of names but is neither the walk
-order nor a sort, so macospkg sorts them by path instead and the
-comparison sorts both sides. Matching Apple's order would mean
+difference: pkgbuild emits the `bundle` elements, and the bundle-specific
+scripts, in its own hash order, which is deterministic for a given set of
+names but is neither the walk order nor a sort, and the same package can
+order the two differently. macospkg sorts by path instead and the
+comparison sorts both sides; the package's own scripts still follow the
+bundle-specific ones, which is pkgbuild's rule and is compared exactly. Matching Apple's order would mean
 reimplementing its hashing and would make the output depend on which macOS
 built the package. Beyond the documents, the same source tree built
 both ways gives identical `lsbom` output, identical

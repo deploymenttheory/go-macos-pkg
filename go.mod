@@ -8,6 +8,7 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.29
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
+	github.com/stretchr/testify v1.12.1
 )
 
 require (
