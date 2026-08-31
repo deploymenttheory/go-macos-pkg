@@ -243,6 +243,8 @@ manifest supplies them.
 
 | Flag | What it does |
 |---|---|
+| `--analyze` | Write a component property list describing the bundles in `SRC` instead of building a package. The second argument is the plist path. |
+| `--component-plist FILE` | Per-bundle rules. With `--analyze`, the prior list whose settings are carried forward. |
 | `--manifest FILE` | Read options from a `build-info.yaml`, `.json` or `.plist`. |
 | `--sign-*` | Sign in the same run. Same flags as `sign`, prefixed `sign-`. |
 | `--notarize` | Notarize and staple in the same run. Requires a signing identity. |
@@ -258,6 +260,32 @@ Naming even one filter turns the defaults off, so to keep everything pass
 a pattern that cannot match, such as `--filter 'a^'`. That matters when
 rebuilding a tree you got from `expand` or `extract`, where you want
 fidelity rather than source-tree hygiene.
+
+**Per-bundle rules.** Without a component property list every bundle in
+the payload gets the same treatment: version-checked and upgraded, and, if
+it is an application, relocated and matched on a strict identifier.
+Frameworks, plug-ins and the rest are installed where the package puts
+them.
+
+To vary that, run `build ROOT components.plist --analyze` to get a
+template, edit it, then pass it back with `--component-plist`. The keys
+are Apple's:
+
+| Key | Effect |
+|---|---|
+| `BundleIsVersionChecked` | Adds the bundle to `bundle-version`, so a newer copy on disk is left alone. |
+| `BundleOverwriteAction` | `upgrade` replaces the bundle atomically, dropping paths it no longer has; `update` overwrites and leaves the rest, and installs nothing where there is no bundle already. |
+| `BundleIsRelocatable` | Installs over a copy the user has moved, rather than at the packaged path. |
+| `BundleHasStrictIdentifier` | Requires the identifier at the install path to match. |
+| `BundlePreInstallScriptPath`, `BundlePostInstallScriptPath` | Scripts for this bundle alone, named relative to `--scripts`. |
+| `BundleInstallScriptTimeout` | Seconds before the system kills the script. Honoured by macOS 15 and later. Absent means 21600, far longer than the 600 a package's own scripts get. |
+| `ChildBundles` | Bundles nested inside this one. They are described but never given rules of their own: they are installed as part of the bundle that contains them. |
+
+A component property list is **exhaustive**. A bundle it does not name is
+not described at all, so adding a bundle to the payload means adding it to
+the list. That is what `--analyze --component-plist old.plist` is for: it
+re-reads the root and carries the settings of bundles that still exist
+forward onto the fresh list.
 
 **Choosing a compression.** `gzip` is pkgbuild's default and the only
 container every macOS can install, so it is the right answer unless you

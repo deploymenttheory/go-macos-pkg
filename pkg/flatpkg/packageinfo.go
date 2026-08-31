@@ -71,13 +71,18 @@ type Payload struct {
 }
 
 // Scripts names the install scripts carried in the Scripts archive.
+//
+// Each kind is a list, not a single script: a component property list can
+// give every bundle its own preinstall and postinstall, and pkgbuild writes
+// one element per bundle followed by the package's own. Each of the
+// bundle-specific ones carries the bundle's identifier as component-id.
 type Scripts struct {
-	Preinstall  *Script `xml:"preinstall"`
-	Postinstall *Script `xml:"postinstall"`
-	Preflight   *Script `xml:"preflight"`
-	Postflight  *Script `xml:"postflight"`
-	Preupgrade  *Script `xml:"preupgrade"`
-	Postupgrade *Script `xml:"postupgrade"`
+	Preinstall  []Script `xml:"preinstall"`
+	Postinstall []Script `xml:"postinstall"`
+	Preflight   []Script `xml:"preflight"`
+	Postflight  []Script `xml:"postflight"`
+	Preupgrade  []Script `xml:"preupgrade"`
+	Postupgrade []Script `xml:"postupgrade"`
 }
 
 // Script is one script reference: the file is relative to the Scripts
@@ -89,7 +94,8 @@ type Script struct {
 	Timeout string `xml:"timeout,attr,omitempty"`
 }
 
-// Names lists the scripts present, in Apple's canonical order.
+// Names lists the kinds of script present, in Apple's canonical order. A
+// kind appears once however many scripts of it the package carries.
 func (s *Scripts) Names() []string {
 	if s == nil {
 		return nil
@@ -97,14 +103,27 @@ func (s *Scripts) Names() []string {
 	var out []string
 	for _, p := range []struct {
 		name string
-		s    *Script
+		s    []Script
 	}{
 		{"preflight", s.Preflight}, {"preinstall", s.Preinstall}, {"preupgrade", s.Preupgrade},
 		{"postinstall", s.Postinstall}, {"postupgrade", s.Postupgrade}, {"postflight", s.Postflight},
 	} {
-		if p.s != nil {
+		if len(p.s) > 0 {
 			out = append(out, p.name)
 		}
+	}
+	return out
+}
+
+// All lists every script the package carries, in the order the document
+// records them.
+func (s *Scripts) All() []Script {
+	if s == nil {
+		return nil
+	}
+	var out []Script
+	for _, list := range [][]Script{s.Preinstall, s.Postinstall, s.Preflight, s.Postflight, s.Preupgrade, s.Postupgrade} {
+		out = append(out, list...)
 	}
 	return out
 }

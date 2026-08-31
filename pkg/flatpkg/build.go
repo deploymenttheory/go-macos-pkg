@@ -281,6 +281,11 @@ type ComponentOptions struct {
 	// script, in seconds. Empty means DefaultScriptTimeout, which is what
 	// current pkgbuild writes.
 	ScriptTimeout string
+	// ComponentPlist carries pkgbuild's --component-plist rules. When it
+	// is set it is exhaustive: only the bundles it names, and their
+	// children, are described. Empty means every bundle found takes the
+	// defaults.
+	ComponentPlist []ComponentBundle
 
 	// Xattrs selects where extended attributes come from. They are
 	// carried the way pkgbuild carries them: as AppleDouble "._" sidecar
@@ -473,6 +478,9 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 	}
 
 	var payloadPath, bomPath, scriptsPath string
+	// Filled in from the component property list while the bundles are
+	// walked, and written into <scripts> below.
+	var bundleScripts []bundleScript
 	if !o.NoPayload {
 		entries, err := collectPayload(o, epoch)
 		if err != nil {
@@ -491,32 +499,41 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 		if err != nil {
 			return nil, fmt.Errorf("flatpkg: scanning for bundles: %w", err)
 		}
+		// A component property list is exhaustive: pkgbuild records only
+		// the bundles it names, and drops any others from the payload's
+		// description entirely. Without one, every bundle found is
+		// recorded under the defaults.
+		bundles, rules := resolveBundleRules(bundles, o.ComponentPlist)
 		res.Bundles = bundles
-		// Every bundle is described; only the top-level ones are referenced.
-		referenced := map[string]bool{}
-		for _, b := range topLevelBundles(bundles) {
-			referenced[b.ID] = true
-		}
 		for _, b := range bundles {
 			// pkgbuild's layout: details once, at the top level, then id
 			// references in bundle-version (version checking),
-			// upgrade-bundle, strict-identifier and relocate.
+			// upgrade-bundle or update-bundle, strict-identifier and
+			// relocate.
 			info.Bundles = append(info.Bundles, b)
-			if !referenced[b.ID] {
+			r, ok := rules[b.Path]
+			if !ok {
+				// Nested: described, never referenced. Its behaviour is
+				// the containing bundle's.
 				continue
 			}
 			ref := BundleRef{ID: b.ID}
-			// Every bundle is version-checked and upgraded; only an
-			// application is relocated or strictly identified.
-			info.BundleVersion.Bundles = append(info.BundleVersion.Bundles, Bundle{ID: b.ID})
-			info.UpgradeBundle.Bundles = append(info.UpgradeBundle.Bundles, ref)
-			if !isApplicationBundle(b.Path) {
-				continue
+			if r.versionChecked {
+				info.BundleVersion.Bundles = append(info.BundleVersion.Bundles, Bundle{ID: b.ID})
 			}
-			info.StrictIdentifier.Bundles = append(info.StrictIdentifier.Bundles, ref)
-			if !o.NoBundleRelocation {
+			switch r.overwriteAction {
+			case OverwriteUpgrade:
+				info.UpgradeBundle.Bundles = append(info.UpgradeBundle.Bundles, ref)
+			case OverwriteUpdate:
+				info.UpdateBundle.Bundles = append(info.UpdateBundle.Bundles, ref)
+			}
+			if r.strictIdentifier {
+				info.StrictIdentifier.Bundles = append(info.StrictIdentifier.Bundles, ref)
+			}
+			if r.relocatable && !o.NoBundleRelocation {
 				info.Relocate.Bundles = append(info.Relocate.Bundles, ref)
 			}
+			bundleScripts = append(bundleScripts, scriptsForBundle(b, r)...)
 		}
 	}
 
@@ -525,7 +542,7 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(names) == 0 {
+		if len(names) == 0 && len(bundleScripts) == 0 {
 			return nil, fmt.Errorf("flatpkg: %s contains no install scripts (preinstall, postinstall, ...)", o.Scripts)
 		}
 		scriptsPath = filepath.Join(tmp, "Scripts")
@@ -533,28 +550,39 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 			return nil, err
 		}
 		info.Scripts = &Scripts{}
+		// pkgbuild writes the bundle-specific scripts first, in bundle
+		// order, then the package's own.
+		for _, bs := range bundleScripts {
+			s := Script{File: "./" + bs.file, ComponentID: bs.componentID, Timeout: bs.timeout}
+			switch bs.kind {
+			case "preinstall":
+				info.Scripts.Preinstall = append(info.Scripts.Preinstall, s)
+			case "postinstall":
+				info.Scripts.Postinstall = append(info.Scripts.Postinstall, s)
+			}
+		}
 		timeout := o.ScriptTimeout
 		if timeout == "" {
 			timeout = DefaultScriptTimeout
 		}
 		for _, n := range names {
-			s := &Script{File: "./" + n, Timeout: timeout}
+			s := Script{File: "./" + n, Timeout: timeout}
 			switch n {
 			case "preinstall":
-				info.Scripts.Preinstall = s
+				info.Scripts.Preinstall = append(info.Scripts.Preinstall, s)
 			case "postinstall":
-				info.Scripts.Postinstall = s
+				info.Scripts.Postinstall = append(info.Scripts.Postinstall, s)
 			case "preflight":
-				info.Scripts.Preflight = s
+				info.Scripts.Preflight = append(info.Scripts.Preflight, s)
 			case "postflight":
-				info.Scripts.Postflight = s
+				info.Scripts.Postflight = append(info.Scripts.Postflight, s)
 			case "preupgrade":
-				info.Scripts.Preupgrade = s
+				info.Scripts.Preupgrade = append(info.Scripts.Preupgrade, s)
 			case "postupgrade":
-				info.Scripts.Postupgrade = s
+				info.Scripts.Postupgrade = append(info.Scripts.Postupgrade, s)
 			}
 		}
-		res.Scripts = names
+		res.Scripts = info.Scripts.Names()
 	}
 
 	res.PackageInfo = info

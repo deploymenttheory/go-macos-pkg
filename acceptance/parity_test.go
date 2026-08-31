@@ -420,3 +420,175 @@ func TestBundleKindsMatchPkgbuild(t *testing.T) {
 		t.Error("a nested bundle should be described but never referenced")
 	}
 }
+
+// writeFile writes one file, creating its parents.
+func writeFile(t *testing.T, p, body string, mode os.FileMode) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(body), mode); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestAnalyzeMatchesPkgbuild pins the component property list, which is the
+// document pkgbuild --analyze writes and --component-plist reads back.
+func TestAnalyzeMatchesPkgbuild(t *testing.T) {
+	requireTools(t, "pkgbuild")
+	base := t.TempDir()
+	root := filepath.Join(base, "root")
+	// An application, so the two booleans only an application gets appear,
+	// and a framework nested inside it, so ChildBundles appears.
+	writeBundle(t, root, "com.example.app", "Applications/Thing.app/Contents/Info.plist")
+	writeBundle(t, root, "com.example.inner", "Applications/Thing.app/Contents/Frameworks/Inner.framework/Versions/A/Resources/Info.plist")
+	hostTool(t, "sh", "-c", `find "$1" -exec touch -h -t 202401020304.05 {} +`, "sh", root)
+
+	work := t.TempDir()
+	ours := filepath.Join(work, "ours.plist")
+	theirs := filepath.Join(work, "theirs.plist")
+	mustRun(t, "build", root, ours, "--analyze")
+	hostTool(t, "pkgbuild", "--analyze", "--root", root, theirs)
+
+	a, err := os.ReadFile(theirs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(ours)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(a, b) {
+		t.Errorf("component property list differs from pkgbuild's\n--- pkgbuild ---\n%s\n--- ours ---\n%s", a, b)
+	}
+	attest(t, "pkgbuild --analyze output is byte-identical (%d bytes)", len(a))
+}
+
+// TestComponentPlistMatchesPkgbuild pins how a component property list maps
+// onto the PackageInfo bundle lists and scripts. The mapping is orthogonal:
+// each key drives exactly one element, and BundleOverwriteAction chooses
+// between upgrade-bundle and update-bundle.
+func TestComponentPlistMatchesPkgbuild(t *testing.T) {
+	requireTools(t, "pkgbuild", "xar")
+	base := t.TempDir()
+	root := filepath.Join(base, "root")
+	writeBundle(t, root, "com.example.one", "Apps/One.app/Contents/Info.plist")
+	writeBundle(t, root, "com.example.two", "Apps/Two.app/Contents/Info.plist")
+	scripts := filepath.Join(base, "scripts")
+	for _, n := range []string{"preinstall", "postinstall", "bundlepre", "bundlepost"} {
+		writeFile(t, filepath.Join(scripts, n), "#!/bin/sh\nexit 0\n", 0o755)
+	}
+
+	// One.app: updated rather than upgraded, not relocated, with both of
+	// its own scripts and an explicit timeout.
+	// Two.app: upgraded, relocated, strictly identified, one script and no
+	// timeout, so it takes the long bundle-script default.
+	plist := filepath.Join(base, "components.plist")
+	writeFile(t, plist, `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+	<dict>
+		<key>BundleInstallScriptTimeout</key>
+		<integer>1200</integer>
+		<key>BundleIsVersionChecked</key>
+		<true/>
+		<key>BundleOverwriteAction</key>
+		<string>update</string>
+		<key>BundlePostInstallScriptPath</key>
+		<string>bundlepost</string>
+		<key>BundlePreInstallScriptPath</key>
+		<string>bundlepre</string>
+		<key>RootRelativeBundlePath</key>
+		<string>Apps/One.app</string>
+	</dict>
+	<dict>
+		<key>BundleHasStrictIdentifier</key>
+		<true/>
+		<key>BundleIsRelocatable</key>
+		<true/>
+		<key>BundleIsVersionChecked</key>
+		<true/>
+		<key>BundleOverwriteAction</key>
+		<string>upgrade</string>
+		<key>BundlePreInstallScriptPath</key>
+		<string>bundlepre</string>
+		<key>RootRelativeBundlePath</key>
+		<string>Apps/Two.app</string>
+	</dict>
+</array>
+</plist>
+`, 0o644)
+	hostTool(t, "sh", "-c", `find "$1" "$2" -exec touch -h -t 202401020304.05 {} +`, "sh", root, scripts)
+
+	work := t.TempDir()
+	ours := filepath.Join(work, "ours.pkg")
+	theirs := filepath.Join(work, "theirs.pkg")
+	mustRun(t, "build", root, ours, "--identifier", "com.deploymenttheory.cp", "--version", "1.0",
+		"--install-location", "/", "--scripts", scripts, "--component-plist", plist,
+		"--source-date-epoch", epoch)
+	hostTool(t, "pkgbuild", "--quiet", "--root", root,
+		"--identifier", "com.deploymenttheory.cp", "--version", "1.0",
+		"--install-location", "/", "--ownership", "recommended",
+		"--scripts", scripts, "--component-plist", plist, theirs)
+
+	pi := xarEntry(t, ours, "PackageInfo")
+	requireSameBytes(t, "PackageInfo (component plist)",
+		sortBundleRuns(xarEntry(t, theirs, "PackageInfo")), sortBundleRuns(pi))
+
+	got := string(pi)
+	for _, want := range []string{
+		`<preinstall file="./bundlepre" component-id="com.example.one" timeout="1200"/>`,
+		`<preinstall file="./bundlepre" component-id="com.example.two" timeout="21600"/>`,
+		`<preinstall file="./preinstall" timeout="600"/>`,
+		`<postinstall file="./bundlepost" component-id="com.example.one" timeout="1200"/>`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("PackageInfo is missing %s", want)
+		}
+	}
+}
+
+// TestComponentPlistIsExhaustive pins the rule that a component property
+// list replaces bundle discovery rather than adding to it: a bundle the
+// list does not name is not described at all.
+func TestComponentPlistIsExhaustive(t *testing.T) {
+	requireTools(t, "pkgbuild", "xar")
+	base := t.TempDir()
+	root := filepath.Join(base, "root")
+	writeBundle(t, root, "com.example.one", "Apps/One.app/Contents/Info.plist")
+	writeBundle(t, root, "com.example.two", "Apps/Two.app/Contents/Info.plist")
+	plist := filepath.Join(base, "components.plist")
+	writeFile(t, plist, `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+	<dict>
+		<key>BundleIsVersionChecked</key>
+		<true/>
+		<key>BundleOverwriteAction</key>
+		<string>upgrade</string>
+		<key>RootRelativeBundlePath</key>
+		<string>Apps/One.app</string>
+	</dict>
+</array>
+</plist>
+`, 0o644)
+	hostTool(t, "sh", "-c", `find "$1" -exec touch -h -t 202401020304.05 {} +`, "sh", root)
+
+	work := t.TempDir()
+	ours := filepath.Join(work, "ours.pkg")
+	theirs := filepath.Join(work, "theirs.pkg")
+	mustRun(t, "build", root, ours, "--identifier", "com.deploymenttheory.cpx", "--version", "1.0",
+		"--install-location", "/", "--component-plist", plist, "--source-date-epoch", epoch)
+	hostTool(t, "pkgbuild", "--quiet", "--root", root,
+		"--identifier", "com.deploymenttheory.cpx", "--version", "1.0",
+		"--install-location", "/", "--ownership", "recommended",
+		"--component-plist", plist, theirs)
+
+	pi := xarEntry(t, ours, "PackageInfo")
+	requireSameBytes(t, "PackageInfo (exhaustive list)", xarEntry(t, theirs, "PackageInfo"), pi)
+	if strings.Contains(string(pi), "com.example.two") {
+		t.Error("a bundle the component property list does not name should not be described")
+	}
+}

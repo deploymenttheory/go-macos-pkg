@@ -29,6 +29,8 @@ var (
 	buildPreserveXattr      bool
 	buildExclude            []string
 	buildFilter             []string
+	buildAnalyze            bool
+	buildComponentPlist     string
 	buildExecutable         []string
 	buildManifest           string
 	buildCompression        string
@@ -104,6 +106,8 @@ func init() {
 	f.StringArrayVar(&buildFilter, "filter", nil, "payload paths to leave out (regular expression on ./path), as pkgbuild's --filter; giving any inhibits the default filters; repeatable")
 	f.StringArrayVar(&buildExclude, "exclude", nil, "alias for --filter; repeatable")
 	f.StringArrayVar(&buildExecutable, "executable", nil, "payload paths that are executable, for hosts without execute bits (regular expression); repeatable")
+	f.BoolVar(&buildAnalyze, "analyze", false, "write a component property list describing the bundles in SRC instead of building a package; the second argument is the plist path")
+	f.StringVar(&buildComponentPlist, "component-plist", "", "component property list giving per-bundle relocation, version and script rules; with --analyze, the prior list whose settings are carried forward")
 	f.StringVar(&buildManifest, "manifest", "", "build-info.yaml/.json/.plist to read options from")
 	f.StringVar(&buildCompression, "compression", "", "payload container: gzip (default, every macOS), pbzx/latest (smaller; macOS 12 or later) or lzfse/lzbitmap (pbze/pbzb; macOS reads them, pkgbuild writes neither)")
 	f.Uint64Var(&buildBlockSize, "pbzx-block-size", 0, "block size in bytes for any pbz* container (default 16 MiB, as pkgbuild)")
@@ -138,6 +142,9 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	buildOutput := ""
 	if len(args) > 1 {
 		buildOutput = args[1]
+	}
+	if buildAnalyze {
+		return runAnalyze(src, buildOutput)
 	}
 	m, err := loadManifestFor(src, buildManifest)
 	if err != nil {
@@ -185,6 +192,17 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return usageErrorf("%v", err)
 	}
 	o.Ownership = ownership
+	if buildComponentPlist != "" {
+		data, err := os.ReadFile(buildComponentPlist)
+		if err != nil {
+			return usageErrorf("unable to read --component-plist: %v", err)
+		}
+		list, err := flatpkg.ParseComponentPlist(data)
+		if err != nil {
+			return usageErrorf("--component-plist: %v", err)
+		}
+		o.ComponentPlist = list
+	}
 	compression, err := flatpkg.ParseCompression(pick(buildCompression, m.Compression))
 	if err != nil {
 		return usageErrorf("%v", err)
@@ -359,4 +377,56 @@ func signedLabel(signed bool) string {
 		return ", signed"
 	}
 	return ""
+}
+
+// analyzeReport is the JSON schema for macospkg build --analyze.
+type analyzeReport struct {
+	Output  string   `json:"output"`
+	Bundles []string `json:"bundles"`
+}
+
+// runAnalyze writes a component property list for the bundles in a
+// destination root, as pkgbuild --analyze does. Given an existing list with
+// --component-plist, the settings of bundles that still exist are carried
+// forward, so adding a bundle does not mean editing the list again from
+// scratch.
+func runAnalyze(root, out string) error {
+	if out == "" {
+		return usageErrorf("--analyze needs an output path: build ROOT PLIST --analyze")
+	}
+	fresh, err := flatpkg.AnalyzeBundles(root)
+	if err != nil {
+		return buildError(err)
+	}
+	if buildComponentPlist != "" {
+		data, err := os.ReadFile(buildComponentPlist)
+		if err != nil {
+			return usageErrorf("unable to read --component-plist: %v", err)
+		}
+		prior, err := flatpkg.ParseComponentPlist(data)
+		if err != nil {
+			return usageErrorf("--component-plist: %v", err)
+		}
+		fresh = flatpkg.MergeComponentPlist(fresh, prior)
+	}
+	data, err := flatpkg.MarshalComponentPlist(fresh)
+	if err != nil {
+		return buildError(err)
+	}
+	if err := os.WriteFile(out, data, 0o644); err != nil { //nolint:gosec // the second argument names the output plist on purpose
+		return buildError(err)
+	}
+	report := analyzeReport{Output: out, Bundles: []string{}}
+	for _, b := range fresh {
+		report.Bundles = append(report.Bundles, b.RootRelativeBundlePath)
+	}
+	if opts.Output == "json" {
+		return jsonOut(report)
+	}
+	if len(report.Bundles) == 0 {
+		progressf("wrote %s: no bundles found under %s", out, root)
+	} else {
+		progressf("wrote %s: %d bundle(s)", out, len(report.Bundles))
+	}
+	return nil
 }
