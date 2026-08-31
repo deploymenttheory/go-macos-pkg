@@ -77,7 +77,7 @@ func TestDeveloperIDSignAndNotarize(t *testing.T) {
 		attest(t, "spctl: %s", strings.TrimSpace(out))
 	}
 	// And the submission is visible through the status commands.
-	if got := mustRun(t, "notarize", "status", rep.SubmissionID); !strings.Contains(got, "Accepted") {
+	if got := mustRun(t, "notarize", "info", rep.SubmissionID); !strings.Contains(got, "Accepted") {
 		t.Errorf("notarize status: %s", got)
 	}
 	if got := mustRun(t, "notarize", "log", rep.SubmissionID); !strings.Contains(got, "\"status\"") {

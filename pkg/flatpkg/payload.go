@@ -5,7 +5,7 @@
 // reads) or a pbz* block-compression container (--compression latest,
 // which has meant pbzx (xz chunks) on every macOS from 12 to 26).
 // --large-payload keeps gzip but names the entry LargeSegmentedPayload.
-// Apple Archive is recognised so that an .aar handed to the tool is named
+// Apple Archive is recognized so that an .aar handed to the tool is named
 // correctly; the Installer itself never reads it. Every pbz* container is
 // decoded, LZBITMAP included (see pkg/lzbitmap). The first bytes tell
 // them apart.
@@ -54,7 +54,7 @@ func pbzEncoding(a pbzx.Algorithm) PayloadEncoding {
 
 // ErrUnsupportedPayload reports a payload container this tool cannot
 // decode: Apple Archive, which the Installer does not read either, and
-// anything unrecognised. Every pbz* container is decoded.
+// anything unrecognized. Every pbz* container is decoded.
 var ErrUnsupportedPayload = errors.New("flatpkg: unsupported payload encoding")
 
 var (
@@ -151,7 +151,7 @@ func OpenCPIO(r io.Reader) (*cpio.Reader, PayloadEncoding, error) {
 	case PayloadAppleArchive:
 		return nil, enc, fmt.Errorf("%w: Apple Archive (the Installer does not read it either)", ErrUnsupportedPayload)
 	default:
-		return nil, enc, fmt.Errorf("%w: unrecognised payload container", ErrUnsupportedPayload)
+		return nil, enc, fmt.Errorf("%w: unrecognized payload container", ErrUnsupportedPayload)
 	}
 }
 

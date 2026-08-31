@@ -131,18 +131,18 @@ func TestExtractPatternAndScripts(t *testing.T) {
 	path, _ := fixture(t, "component-basic.pkg")
 	dir := filepath.Join(t.TempDir(), "out")
 	var rep extractJSON
-	mustRunJSON(t, &rep, "extract", "--pattern", `bin/tool$`, path, dir)
+	mustRunJSON(t, &rep, "extract", "--regexp", `bin/tool$`, path, dir)
 	if rep.Components[0].Files != 1 {
 		t.Errorf("pattern extracted %d files, want 1", rep.Components[0].Files)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "usr", "local", "fixture", "hello.txt")); err == nil {
 		t.Error("pattern did not filter hello.txt")
 	}
-	_, _, code := run(t, "extract", "--pattern", "nomatch", path, filepath.Join(t.TempDir(), "none"))
+	_, _, code := run(t, "extract", "--regexp", "nomatch", path, filepath.Join(t.TempDir(), "none"))
 	if code != exitcode.Partial {
 		t.Errorf("no match: exit %d, want %d", code, exitcode.Partial)
 	}
-	_, _, code = run(t, "extract", "--pattern", "(", path, filepath.Join(t.TempDir(), "bad"))
+	_, _, code = run(t, "extract", "--regexp", "(", path, filepath.Join(t.TempDir(), "bad"))
 	if code != exitcode.Usage {
 		t.Errorf("bad regexp: exit %d, want %d", code, exitcode.Usage)
 	}

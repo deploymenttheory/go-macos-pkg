@@ -27,7 +27,7 @@ func SafeRelPath(name string) (rel string, renamedFrom string, reason string) {
 	if strings.ContainsRune(name, 0) {
 		return "", "", "name contains a NUL byte"
 	}
-	// Payload entries are "./a/b"; archive entries "a/b". Normalise.
+	// Payload entries are "./a/b"; archive entries "a/b". Normalize.
 	n := strings.ReplaceAll(name, "\\", "/")
 	n = strings.TrimPrefix(n, "./")
 	if strings.HasPrefix(n, "/") {

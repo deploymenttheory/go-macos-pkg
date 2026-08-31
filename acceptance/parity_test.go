@@ -6,7 +6,7 @@
 // differently: attribute order, a trailing newline and a stray attribute all
 // survive a semantic comparison.
 //
-// One attribute is normalised away. pkgbuild writes its own build number as
+// One attribute is normalized away. pkgbuild writes its own build number as
 // generator-version and macospkg must not claim to be pkgbuild, so the
 // comparison replaces that attribute on both sides and requires everything
 // else to match exactly.
@@ -31,9 +31,9 @@ import (
 // disagree on.
 var generatorAttr = regexp.MustCompile(`generator-version="[^"]*"`)
 
-// normaliseGenerator blanks generator-version so the rest can be compared.
-func normaliseGenerator(b []byte) []byte {
-	return generatorAttr.ReplaceAll(b, []byte(`generator-version="NORMALISED"`))
+// normalizeGenerator blanks generator-version so the rest can be compared.
+func normalizeGenerator(b []byte) []byte {
+	return generatorAttr.ReplaceAll(b, []byte(`generator-version="NORMALizED"`))
 }
 
 // xarEntry extracts one archive entry with xar(1), Apple's own reader, so
@@ -93,7 +93,7 @@ func sortBundleRuns(b []byte) []byte {
 // which is the only useful way to read an attribute-order mismatch.
 func requireSameBytes(t *testing.T, what string, apple, ours []byte) {
 	t.Helper()
-	apple, ours = normaliseGenerator(apple), normaliseGenerator(ours)
+	apple, ours = normalizeGenerator(apple), normalizeGenerator(ours)
 	require.Equalf(t, string(apple), string(ours), "%s differs from Apple's", what)
 	attest(t, "%s is byte-identical to Apple's (%d bytes)", what, len(apple))
 }
@@ -579,7 +579,7 @@ func TestFilterInhibitsDefaults(t *testing.T) {
 	attest(t, "a named filter replaces the defaults, as pkgbuild does (%d entries)", len(got))
 }
 
-// TestDistributionBytesMatchProductbuild pins the synthesised Distribution
+// TestDistributionBytesMatchProductbuild pins the synthesized Distribution
 // against the one productbuild embeds, which is not the same document
 // productbuild --synthesize writes to a file.
 func TestDistributionBytesMatchProductbuild(t *testing.T) {
@@ -599,9 +599,9 @@ func TestDistributionBytesMatchProductbuild(t *testing.T) {
 		"--identifier", "com.deploymenttheory.acceptance.second", "--version", "2.1",
 		"--install-location", "/opt/fixture", "--ownership", "recommended", second)
 
-	// Compared against productbuild synthesising straight into an archive,
+	// Compared against productbuild synthesizing straight into an archive,
 	// which is the same thing "product --package" does. Feeding a
-	// synthesised file back through --distribution is a different path and
+	// synthesized file back through --distribution is a different path and
 	// gives a document that differs, so it is covered separately by
 	// TestSuppliedDistributionIsRewritten.
 	theirs := filepath.Join(work, "theirs.pkg")
@@ -613,7 +613,7 @@ func TestDistributionBytesMatchProductbuild(t *testing.T) {
 	mine := xarEntry(t, ours, "Distribution")
 	requireSameBytes(t, "Distribution", xarEntry(t, theirs, "Distribution"), mine)
 	assert.NotContains(t, string(mine), "standalone",
-		"a document productbuild synthesises into an archive declares no standalone")
+		"a document productbuild synthesizes into an archive declares no standalone")
 }
 
 // TestComponentModeMatchesPkgbuild covers pkgbuild's third mode, where the
@@ -666,12 +666,12 @@ func TestComponentModeMatchesPkgbuild(t *testing.T) {
 	assert.Equal(t, payloadPaths(t, theirs), payloadPaths(t, ours))
 
 	// Everything else in the document still matches byte for byte.
-	normalise := func(s string) string { return installLocationAttr.ReplaceAllString(s, `install-location="L"`) }
-	requireSameBytes(t, "PackageInfo (component mode)", []byte(normalise(apple)), []byte(normalise(mine)))
+	normalize := func(s string) string { return installLocationAttr.ReplaceAllString(s, `install-location="L"`) }
+	requireSameBytes(t, "PackageInfo (component mode)", []byte(normalize(apple)), []byte(normalize(mine)))
 }
 
 // installLocationAttr matches the attribute the component-mode comparison
-// normalises, for the /private reason above.
+// normalizes, for the /private reason above.
 var installLocationAttr = regexp.MustCompile(`install-location="[^"]*"`)
 
 // payloadElementRe matches the payload element and its counts.
@@ -817,7 +817,7 @@ func TestSynthesizeMatchesProductbuild(t *testing.T) {
 	require.NoError(t, err)
 	mine, err := os.ReadFile(ours)
 	require.NoError(t, err)
-	require.Equal(t, string(apple), string(mine), "synthesised Distribution differs")
+	require.Equal(t, string(apple), string(mine), "synthesized Distribution differs")
 
 	// The file form is the one without standalone, without the sizes, and
 	// naming each package as a file rather than an archive entry.
@@ -1158,7 +1158,7 @@ func TestProductOneStepModesMatchProductbuild(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Dir(theirs), 0o755))
 		require.NoError(t, os.MkdirAll(filepath.Dir(ours), 0o755))
 		hostTool(t, "productbuild", "--quiet", "--root", root, "/", theirs)
-		mustRun(t, "product", ours, "--root", root, "--root-install-path", "/", "--source-date-epoch", epoch)
+		mustRun(t, "product", ours, "--root", root+":/", "--source-date-epoch", epoch)
 
 		mine := xarEntry(t, ours, "Distribution")
 		requireSameBytes(t, "Distribution (--root)", xarEntry(t, theirs, "Distribution"), mine)
@@ -1345,7 +1345,7 @@ func TestProductLargePayloadMatchesProductbuild(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Dir(theirs), 0o755))
 		require.NoError(t, os.MkdirAll(filepath.Dir(ours), 0o755))
 		hostTool(t, "productbuild", "--quiet", "--root", root, "/", "--large-payload", theirs)
-		mustRun(t, "product", ours, "--root", root, "--root-install-path", "/",
+		mustRun(t, "product", ours, "--root", root+":/",
 			"--large-payload", "--source-date-epoch", epoch)
 
 		requireSameBytes(t, "Distribution (large payload built here)",

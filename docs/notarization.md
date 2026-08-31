@@ -9,7 +9,7 @@ and `product --notarize` do it as the last step of a build.
 
 An App Store Connect API key with the Developer role: the key ID, the
 issuer ID and the `.p8` private key. Give them as `--key-id`,
-`--issuer-id` and `--private-key path.p8`, or as environment variables:
+`--issuer` and `--key path.p8`, or as environment variables:
 
 ```
 APPLE_KEY_ID=ABC123DEFG
@@ -31,8 +31,8 @@ Missing or rejected credentials exit 4.
 4. With `--staple`, the ticket is fetched from Apple's public database and
    appended to the package.
 
-`notarize status ID`, `notarize log ID`, `notarize wait ID` and
-`notarize list` cover the rest of `notarytool`.
+`notarize info ID`, `notarize log ID`, `notarize wait ID` and
+`notarize history` cover the rest of `notarytool`.
 
 The package must already be signed with a Developer ID Installer
 certificate and a timestamp; the service rejects anything else, and the

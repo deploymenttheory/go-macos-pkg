@@ -44,48 +44,36 @@ Notarized: yes (ticket on record with Apple)
 | Sign with a Developer ID Installer certificate, with Apple timestamps | ✅ | ✅ | ✅ |
 | Verify signatures against Apple's roots; team, timestamp, staple | ✅ | ✅ | ✅ |
 | Notarize (App Store Connect API key) and staple | ✅ | ✅ | ✅ |
-| Payloads: read and write gzip cpio and pbzx | ✅ | ✅ | ✅ |
-| Payloads: read `pbze`/`pbz4`/`pbzz` and `pkgbuild --large-payload` | ✅ | ✅ | ✅ |
+| Payloads: read and write gzip cpio, `pbzx`, `pbze`, `pbzb` and `--large-payload` | ✅ | ✅ | ✅ |
+| Payloads: read `pbz4` and `pbzz`, which macOS cannot install | ✅ | ✅ | ✅ |
 | Hard links and extended attributes (`._` sidecars), as pkgbuild carries them | ✅ | ✅ | xattrs as `._` files; links as copies |
 
 See [`TOOLS_STATUS.md`](TOOLS_STATUS.md) for the exact state of each area.
 
 ### Payload containers
 
-A Payload is a cpio archive; what differs between packages is the
-container it is wrapped in, which the first bytes identify. None of this
-depends on the host: the readers and writers are ordinary Go, so macOS,
-Linux and Windows behave identically.
+A Payload is a cpio archive, wrapped in a container its first bytes identify.
+The readers and writers are ordinary Go, so every platform behaves identically.
 
 | Container | What it is | Support |
 |---|---|---|
-| gzip cpio | `pkgbuild`'s default, and the only container every macOS can install | read + write (the default) |
-| `pbzx` | xz-compressed 16 MiB blocks: smaller, but only macOS 12 and later installs it | read + write (`--compression pbzx`, which `pkgbuild` spells `latest`) |
-| `pbze` | the same container with LZFSE chunks. `pkgbuild` never writes it, but macOS reads it | read + write (`--compression lzfse`) |
-| `pbzb` | the same container with LZBITMAP, Apple's undocumented codec. macOS reads it too | read + write (`--compression lzbitmap`) |
-| `pbz4`, `pbzz` | the same container with Apple-framed LZ4 or zlib chunks, written by `aa` and libParallelCompression | read; `pkg/pbzx` writes them, but `build` refuses (see below) |
-| Apple Archive | a different format entirely; the Installer does not read it either | detected, reported, exit 5 |
+| gzip cpio | the default, and the only container every macOS can install | read + write |
+| `pbzx` | xz chunks: smaller, but only macOS 12 and later installs it | read + write (`--compression pbzx`, also spelled `latest`) |
+| `pbze`, `pbzb` | the same container with LZFSE or LZBITMAP chunks. macOS reads both | read + write (`--compression lzfse\|lzbitmap`) |
+| `pbz4`, `pbzz` | the same container with Apple-framed LZ4 or zlib chunks | read only: macOS cannot install either, so `build` refuses to write one |
+| Apple Archive | a different format; the Installer does not read it either | detected, reported, exit 5 |
 
-`build` will not write `pbz4` or `pbzz`, even though `pkg/pbzx` can and
-Apple's own `aa` reads what it produces. macOS cannot read either as a
-package Payload: `pkgutil --expand-full` fails with `cpio read error: bad
-file format`, so the package would not install. `pbze` and `pbzb` are
-offered because the opposite is true, and the acceptance suite pins it:
-`pkgutil` unpacks either Payload byte for byte, single-chunk and
-multi-chunk, and `installer` installs it.
+`--large-payload` keeps the gzip cpio but names the entry
+`LargeSegmentedPayload`, which is what carries files of 8 GiB and over; only
+macOS 12 and later reads one. `--compression pbzx` likewise sets the package's
+minimum system version to 12.0 unless you ask for a higher one.
 
-LZBITMAP has no published specification. `pkg/lzbitmap` is a Go
-translation of Corellium's MIT-licensed `libzbitmap`, which
-reverse-engineered it; `NOTICE` carries the copyright. Both directions are
-judged against Apple's own `aa`, which reads what we write and writes what
-we read.
+LZBITMAP has no published specification. `pkg/lzbitmap` is a Go translation of
+Corellium's MIT-licensed `libzbitmap`; `NOTICE` carries the copyright. Both
+directions are judged against Apple's own `aa`.
 
-`--large-payload` is `pkgbuild`'s flag, not one of ours. It writes an
-ordinary gzip cpio but names the archive entry `LargeSegmentedPayload`,
-so such packages are read like any other; `macospkg build` always writes
-the entry as `Payload`. Choosing `--compression pbzx` sets the package's
-minimum system version to 12.0 unless you ask for a higher one, because
-older systems cannot install it. The byte-level details are in
+Which containers macOS will actually install, and why `pbz4` and `pbzz` are
+refused, is measured and recorded in
 [`docs/formats/payload.md`](docs/formats/payload.md).
 
 ## Install
@@ -110,141 +98,46 @@ cosign verify-blob \
 shasum -a 256 -c macospkg_<version>_checksums.txt --ignore-missing
 ```
 
-## Command reference
+## Commands
 
-Every command takes the package first; `-o json` turns any output into
-JSON (one document, or one line per entry for listings).
+Every command takes the package first. `-o json` turns any output into JSON,
+one document or one line per entry. [`docs/cli.md`](docs/cli.md) is the
+reference: every flag, its default, and when to reach for it.
 
-This section is the tour. [`docs/cli.md`](docs/cli.md) is the full
-reference: every flag, what it does, and when to reach for it.
+| Command | What it does |
+|---|---|
+| `info PKG` | Kind, each component's identity, payload, scripts, signature and staple |
+| `list PKG` | The files the package installs, from the bill of materials; `--archive` lists xar entries instead |
+| `cat PKG ENTRY` | One archive entry to stdout, decoded; `--payload PATH` for one file out of the payload |
+| `inspect PKG VERB` | One structure as stored: `header`, `toc`, `bom`, `signature`, `cms`, `rsa`, `digest`, `ticket` |
+| `expand PKG DIR` | Every entry decoded into a new directory; `--full` unpacks the payloads too |
+| `flatten DIR OUT.pkg` | The inverse of `expand`, so one entry can be edited without a rebuild |
+| `extract PKG DIR` | The payload files, as they would land under the install location |
+| `build SRC OUT.pkg` | A component package from a destination root, a bundle, or a `build-info.yaml` project |
+| `product OUT.pkg` | A product archive from component packages, with a Distribution synthesized or supplied |
+| `sign PKG OUT.pkg` | An RSA and a CMS signature over the table of contents, chain embedded, timestamped |
+| `verify PKG` | Digest, signatures, chain to Apple's roots, team, timestamp, staple, each reported separately |
+| `notarize PKG` | Submit to Apple's notary service; `--wait` for the verdict, `--staple` to attach the ticket |
+| `staple PKG` | Fetch the ticket from Apple's database and attach it; `unstaple` removes one |
+| `receipts` | What a volume records about the packages installed on it |
 
-### `info PKG`
+Three things are worth knowing before reading the reference.
 
-Kind (component package or product archive), each component's identity,
-payload size and scripts, the Distribution's title, choices, architectures
-and resources, the signature's certificate chain and team, and whether a
-notarization ticket is stapled.
+**Signing takes no keychain.** The identity is a PKCS#12 file (`--p12`) or a
+PEM pair (`--cert` and `--key`), which is what lets the same command run on
+Linux and Windows. `build` and `product` carry the same flags under a `sign-`
+prefix, and the notary credentials under a `notary-` prefix, so a whole release
+is one run: `build ... --sign-p12 devid.p12 --notarize`.
 
-### `list PKG [--archive] [--component NAME] [-l|--long] [--scripts]`
+**Extended attributes and hard links survive a round trip.** Attributes travel
+as `._` AppleDouble entries, applied to their owners where the host stores them
+and left as files where it does not, so expanding a package on Linux and
+building it again reproduces it. See
+[`docs/formats/payload.md`](docs/formats/payload.md).
 
-The files the package installs, from the bill of materials: what `lsbom`
-prints for an expanded package, without expanding. `-l` adds mode, owner,
-size and time; `--archive` lists the xar entries; `--scripts` the Scripts
-archives.
-
-### `cat PKG ENTRY [--raw]` / `cat PKG --payload PATH`
-
-One archive entry (`PackageInfo`, `Distribution`, `foo.pkg/Bom`,
-`Resources/en.lproj/welcome.html`) decoded to stdout, or one file out of
-the payload (`--payload ./usr/local/bin/tool`). `--raw` writes the entry's
-stored bytes without decoding its encoding.
-
-### `inspect PKG header|toc|packageinfo|distribution|bom|signature|cms|rsa|digest|ticket`
-
-Raw structures: the xar header decoded, the table of contents XML as
-stored, the bill of materials in `lsbom` columns, the signature elements
-and PEM chain, the raw CMS or RSA signature bytes, the digest they cover,
-the stapled ticket.
-
-### `expand PKG DIR [--full] [--verify] [--xattrs MODE] [--hard-links=false]`
-
-`pkgutil --expand`: every entry decoded into a new directory, Scripts
-unpacked, Payload left as its gzip cpio. `--full` unpacks the payloads
-too (`--expand-full`). Byte-identical to `pkgutil`'s output. `--xattrs`
-and `--hard-links` are passed to the payload extractions, and mean what
-they mean for `extract`.
-
-### `extract PKG DIR [--component NAME] [--scripts] [--pattern RE] [--symlinks auto|real|file] [--xattrs auto|apply|file|skip] [--hard-links=false] [--verify]`
-
-The payload files, as they would land under the install location, with
-modes and times. `--verify` checks every file against the bill of
-materials' checksum. Exit 6 if anything was skipped (device nodes, paths
-that would escape `DIR`, links the host refused).
-
-`._` AppleDouble sidecars become extended attributes on their owners
-where the host stores them and stay `._` files where it does not, so
-nothing is lost on Linux or Windows and building the extracted tree again
-restores the package (`--xattrs auto`, the default; `apply`, `file` and
-`skip` choose explicitly). Hard links are recreated as hard links;
-`--hard-links=false` writes copies.
-
-### `flatten DIR [OUT.pkg]`
-
-`pkgutil --flatten`: the inverse of `expand`. Every file in the expanded
-directory goes back as the archive entry it was, a `Scripts` directory is
-packed again, and nothing is recomputed, so it is the way to change one
-thing in a package without rebuilding it.
-
-### `build SRC [OUT.pkg] --identifier ID --version V [options]`
-
-A component package, what `pkgbuild` makes, from a directory. Options:
-`--install-location`, `--scripts DIR`, `--ownership recommended|preserve|preserve-other`,
-`--min-os-version`, `--postinstall-action`, `--nopayload`,
-`--no-bundle-relocation`, `--relocatable`, `--preserve-xattr`,
-`--auth root|none` (whether the Installer needs authorisation),
-`--exclude RE`, `--executable RE` (for hosts without execute bits),
-`--manifest build-info.yaml`, and `--sign-*` / `--notarize` to finish the
-job in one run.
-
-`--compression gzip|pbzx|latest` selects the payload container (`--pbzx-block-size`
-tunes pbzx; the default matches `pkgbuild`'s 16 MiB). Extended attributes
-and hard links are carried as `pkgbuild` carries them: `--xattrs fs|none`
-says whether to read attributes from the tree, `--exclude-xattr RE`
-(repeatable) drops names such as `com.apple.provenance`, and
-`--hard-links auto|copy` says whether files sharing an inode are packaged
-as one. A manifest's `file_xattrs` overrides attributes per file, or per
-folder with a trailing `/`. See [`docs/formats/payload.md`](docs/formats/payload.md).
-
-`SRC` may be a munkipkg-style project directory holding
-`build-info.yaml|json|plist`, `payload/` and `scripts/`; flags override
-the manifest.
-
-Output is reproducible: set `--source-date-epoch` or `SOURCE_DATE_EPOCH`
-and identical input gives identical bytes on every platform. Bundles in
-the payload are recorded in `bundle-version` and `relocate` as `pkgbuild`
-does; `numberOfFiles` and `installKBytes` are computed by `pkgbuild`'s
-rules.
-
-### `product OUT.pkg --package X.pkg… [--distribution D.xml] [--resources DIR] [--title T] [--min-os-version] [--host-architectures]`
-
-A product archive, what `productbuild` makes, from component packages,
-with a synthesised Distribution or one you supply. `--product-id` and
-`--product-version` set the synthesised Distribution's identity; `--sign-*`
-and `--notarize` finish the job in one run, as for `build`.
-
-### `sign PKG OUT.pkg (--p12 F | --cert PEM --key PEM [--chain PEM]) [--no-timestamp] [--timestamp URL] [--digest sha256|sha1]`
-
-`productsign`: an RSA and a CMS signature over the table of contents,
-certificate chain embedded, timestamped by Apple's server unless told
-not to. The PKCS#12 password comes from `--p12-password-stdin`,
-`MACOSPKG_P12_PASSWORD` or `--p12-password`. A stapled ticket is removed,
-since re-signing invalidates it.
-
-### `verify PKG [--team-id ID] [--trust-anchors PEM] [--allow-untrusted] [--require-developer-id] [--require-stapled] [--online] [--revocation]`
-
-`pkgutil --check-signature`, with every finding reported separately:
-digest, RSA, CMS, chain to Apple's roots (built in), team, timestamp,
-staple, with `--online` whether Apple's ticket database has a ticket
-for this exact package, and with `--revocation` whether the authority has
-withdrawn the signing certificate since it was issued. Exit 7 on any
-failure.
-
-### `notarize PKG [--wait] [--staple] [--timeout 30m] [--poll-interval 30s] [--log]`
-
-`notarytool submit`: registers the package, uploads it, and with `--wait`
-polls for the verdict (exit 0 Accepted, 8 Invalid/Rejected with the log's
-issues printed, 9 timed out); `--staple` then attaches the ticket.
-Credentials: `--key-id`, `--issuer-id`, `--private-key AuthKey.p8`, or
-`APPLE_KEY_ID`, `APPLE_ISSUER_ID`, `APPLE_PRIVATE_KEY_PEM` /
-`APPLE_PRIVATE_KEY_PATH`. `--name` sets the submission name shown in App
-Store Connect (default: the file name), and `--force` submits a package
-that is not signed. Subcommands `status`, `log`, `wait`, `list`.
-
-### `staple PKG [OUT.pkg] [--check] [--ticket FILE]` / `unstaple PKG [OUT.pkg]`
-
-`stapler staple`: fetches the ticket from Apple's public database and
-appends it. `--check` reports whether one is present; `--ticket` staples
-a ticket fetched elsewhere.
+**Output is reproducible.** Set `--source-date-epoch` or `SOURCE_DATE_EPOCH`
+and identical input gives identical bytes on every platform. See
+[`docs/reproducible-output.md`](docs/reproducible-output.md).
 
 ## Global flags
 
@@ -256,9 +149,11 @@ a ticket fetched elsewhere.
 | `--source-date-epoch N` | pin every timestamp for reproducible output |
 | `--temp-dir DIR` | where scratch files go while building (default: beside the output) |
 
-Configuration precedence: flag > `MACOSPKG_<FLAG>` environment variable >
-`~/.config/macospkg/config.yaml`. `SOURCE_DATE_EPOCH` is the exception:
-the bare variable outranks `MACOSPKG_SOURCE_DATE_EPOCH`.
+These five are the only flags with an environment variable and a config
+file key: `MACOSPKG_OUTPUT`, `MACOSPKG_QUIET`, `MACOSPKG_VERBOSE`,
+`MACOSPKG_SOURCE_DATE_EPOCH` and `MACOSPKG_TEMP_DIR`. Precedence is flag,
+then variable, then `~/.config/macospkg/config.yaml`. `SOURCE_DATE_EPOCH`
+is the exception: the bare variable outranks `MACOSPKG_SOURCE_DATE_EPOCH`.
 
 ## Exit codes
 

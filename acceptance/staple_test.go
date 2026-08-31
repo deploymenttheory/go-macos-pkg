@@ -84,7 +84,7 @@ func TestStapleFromFileAndUnstaple(t *testing.T) {
 	// Re-signing a stapled package drops the ticket and says so.
 	p12, _, _, _ := fixtureKeys(t)
 	resigned := filepath.Join(t.TempDir(), "resigned.pkg")
-	_, stderr, code := runEnv(t, []string{"MACOSPKG_P12_PASSWORD=fixture"}, "sign", stapled, resigned, "--p12", p12, "--no-timestamp")
+	_, stderr, code := runEnv(t, []string{"MACOSPKG_P12_PASSWORD=fixture"}, "sign", stapled, resigned, "--p12", p12, "--timestamp", "none")
 	if code != 0 || !strings.Contains(stderr, "removing the stapled") {
 		t.Errorf("sign on a stapled package: exit %d\n%s", code, stderr)
 	}
@@ -97,7 +97,7 @@ func TestStapleFromFileAndUnstaple(t *testing.T) {
 	out2 := filepath.Join(t.TempDir(), "x.pkg")
 	mustRun(t, "staple", signed, out2, "--ticket", bad) // staple attaches what it is given...
 	if _, _, code := run(t, "staple", "--check", out2); code != exitcode.Signature {
-		t.Error("...but a ticket without the s8ch magic must not be recognised as one")
+		t.Error("...but a ticket without the s8ch magic must not be recognized as one")
 	}
 }
 
@@ -116,7 +116,7 @@ func TestNotarizePreconditions(t *testing.T) {
 	if code != exitcode.Auth {
 		t.Errorf("notarize with an unparseable key: exit %d, want %d", code, exitcode.Auth)
 	}
-	_, _, code = run(t, "notarize", "status", "abc")
+	_, _, code = run(t, "notarize", "info", "abc")
 	if code != exitcode.Auth {
 		t.Errorf("status without credentials: exit %d", code)
 	}
@@ -203,7 +203,7 @@ func TestRealPackageStaple(t *testing.T) {
 	b, _ := fileSHA256(restapled)
 	if a != b {
 		// Apple may have re-issued the ticket; the bytes need not match,
-		// but the trailer must be recognised.
+		// but the trailer must be recognized.
 		attest(t, "re-stapled ticket differs from the original (%d bytes)", rep.TicketBytes)
 	} else {
 		attest(t, "re-stapled package is byte-identical to Apple's (%d-byte ticket)", rep.TicketBytes)

@@ -398,7 +398,7 @@ func TestInspectBomMatchesLsbom(t *testing.T) {
 
 	got := mustRun(t, "inspect", path, "bom")
 	// lsbom prints "path mode uid gid size crc"; ours prints uid/gid in
-	// one column. Normalise both to the same shape before comparing.
+	// one column. Normalize both to the same shape before comparing.
 	norm := func(s string, ours bool) []string {
 		var out []string
 		for _, line := range nonEmptyLines(s) {

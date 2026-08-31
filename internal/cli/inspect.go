@@ -26,8 +26,8 @@ var inspectCmd = &cobra.Command{
   packageinfo [NAME]   a component's PackageInfo (NAME picks a component of
                        a product archive, e.g. foo.pkg)
   distribution         the Distribution of a product archive
-  bom [NAME]           the bill of materials, one line per path in lsbom's
-                       column order: path, mode, uid/gid, size, checksum
+  bom [NAME]           the bill of materials, one line per path: path, mode,
+                       uid/gid, size, 32-bit CRC checksum
   signature            the signature elements and the certificate chain (PEM)
   cms                  the raw CMS signature (DER), to stdout
   rsa                  the raw RSA signature, to stdout

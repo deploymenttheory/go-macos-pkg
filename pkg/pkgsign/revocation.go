@@ -121,7 +121,7 @@ func askResponder(ctx context.Context, client *http.Client, responder string, re
 		status.Reason = parsed.RevocationReason
 	case ocsp.Good:
 	default:
-		// Unknown: the responder does not recognise the certificate,
+		// Unknown: the responder does not recognize the certificate,
 		// which is not the same as saying it is good.
 		return nil, fmt.Errorf("%s does not know this certificate", responder)
 	}

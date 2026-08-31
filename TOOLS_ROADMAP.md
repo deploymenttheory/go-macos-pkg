@@ -40,8 +40,8 @@ what is planned or under consideration, roughly in priority order.
 
 ## Under consideration
 
-- **Apple Archive payloads**: the `--large-payload` / `--compression latest`
-  format; detected and reported today.
-- **Multipart S3 upload** for packages over 5 GiB.
+- **Apple Archive payloads**: recognized by their magic and reported today
+  (exit 5); nothing decodes one. The Installer does not read one as a package
+  Payload either, so this buys reading other people's archives, not building.
 
 Contributions and priority feedback are welcome via GitHub issues.

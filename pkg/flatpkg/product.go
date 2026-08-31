@@ -23,11 +23,11 @@ type ProductOptions struct {
 	// Packages are the component packages to embed, in order. Each is
 	// placed in the archive under its base name.
 	Packages []string
-	// Distribution is a Distribution XML document to use; nil synthesises
+	// Distribution is a Distribution XML document to use; nil synthesizes
 	// one that installs every package, as productbuild --synthesize does.
 	Distribution []byte
 	// Requirements is the pre-install requirements property list that
-	// productbuild reads with --product. It shapes the synthesised
+	// productbuild reads with --product. It shapes the synthesized
 	// Distribution's architectures, domains, volume-check and
 	// installation-check.
 	Requirements *ProductRequirements
@@ -51,14 +51,14 @@ type ProductOptions struct {
 	//
 	// Embedding a component that already uses it has the same effect on
 	// the Distribution as asking for it here: only macOS 12 and later can
-	// read one, so the synthesised document says so.
+	// read one, so the synthesized document says so.
 	LargePayload bool
 	// ComponentCompression is the payload container for the components
 	// built from Components. productbuild applies it to --component alone,
 	// and says so: to choose a container for a package given with
 	// --package, build that package with the container you want.
 	ComponentCompression Compression
-	// UI names the interface a synthesised choices-outline is for, as
+	// UI names the interface a synthesized choices-outline is for, as
 	// productbuild --ui does. "mas" marks an outline meant for the Mac App
 	// Store. A distribution may carry several outlines and pick between
 	// them by this attribute.
@@ -80,13 +80,13 @@ type ProductOptions struct {
 	// Resources/ (welcome, license, background files the Distribution
 	// refers to); optional.
 	Resources string
-	// Title, MinOSVersion and HostArchitectures shape a synthesised
+	// Title, MinOSVersion and HostArchitectures shape a synthesized
 	// Distribution; ignored when one is supplied.
 	Title             string
 	MinOSVersion      string
 	HostArchitectures []string
 	// ProductID and ProductVersion set the <product> element of a
-	// synthesised Distribution; optional.
+	// synthesized Distribution; optional.
 	ProductID      string
 	ProductVersion string
 
@@ -177,7 +177,7 @@ func BuildProduct(o ProductOptions, out io.Writer) (*ProductResult, error) {
 
 	dist := o.Distribution
 	if dist == nil {
-		dist = synthesiseDistribution(o, refs, true, payloadFloor)
+		dist = synthesizeDistribution(o, refs, true, payloadFloor)
 	} else {
 		// A distribution written for productbuild names its packages as
 		// files beside it; embedding rewrites those references to name
@@ -327,7 +327,7 @@ func addResources(w *xar.Writer, dir string, hdr, dirHdr xar.FileHeader, progres
 	return names, nil
 }
 
-// DefaultHostArchitectures is what productbuild writes into a synthesised
+// DefaultHostArchitectures is what productbuild writes into a synthesized
 // Distribution when it is given no architectures: both, x86_64 first. It has
 // done so since Big Sur.
 var DefaultHostArchitectures = []string{"x86_64", "arm64"}
@@ -340,7 +340,7 @@ type ProductComponent struct {
 	InstallPath string
 }
 
-// synthRef is what a synthesised Distribution needs to know per package.
+// synthRef is what a synthesized Distribution needs to know per package.
 type synthRef struct {
 	ID            string
 	Version       string
@@ -362,23 +362,23 @@ type synthRef struct {
 	Title string
 }
 
-// synthesiseDistribution writes the Distribution that productbuild puts
+// synthesizeDistribution writes the Distribution that productbuild puts
 // inside a product archive when it is not given one: one hidden choice per
-// package, all selected, no customisation.
+// package, all selected, no customization.
 //
 // The shape is productbuild's, byte for byte, and it is worth being precise
 // about which shape that is. "productbuild --synthesize" writes a document
 // to a file with bare <pkg-ref id/> stubs, bare package paths and no size
-// attributes. Synthesising straight into an archive instead fills the stubs
+// attributes. Synthesizing straight into an archive instead fills the stubs
 // in with a bundle-version, names each package as an entry with a leading
 // "#", and adds installKBytes and updateKBytes. Neither declares standalone;
-// only a document productbuild re-serialises does, which is embedDistribution's
+// only a document productbuild re-serializes does, which is embedDistribution's
 // job.
 //
 // Two attributes are deliberately absent because productbuild does not write
 // them either: auth, which every component's PackageInfo carries but which
 // never reaches the Distribution, and a trailing newline.
-func synthesiseDistribution(o ProductOptions, refs []synthRef, embedded bool, payloadFloor string) []byte {
+func synthesizeDistribution(o ProductOptions, refs []synthRef, embedded bool, payloadFloor string) []byte {
 	var b strings.Builder
 	attr := func(v string) string { return `"` + xmlEscape(v) + `"` }
 
@@ -392,9 +392,9 @@ func synthesiseDistribution(o ProductOptions, refs []synthRef, embedded bool, pa
 	}
 
 	// No standalone, whichever form this is. productbuild declares it only
-	// when it re-serialises a document somebody else wrote, which is the
+	// when it re-serializes a document somebody else wrote, which is the
 	// --distribution path and is handled in embedDistribution. A document
-	// productbuild synthesises straight into an archive does not carry it.
+	// productbuild synthesizes straight into an archive does not carry it.
 	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>` + "\n")
 	fmt.Fprintf(&b, "<installer-gui-script minSpecVersion=%s>\n", attr(o.Requirements.MinSpecVersion(o.MinOSVersion, payloadFloor)))
 	// The stubs productbuild writes ahead of <options>, one per package.
@@ -493,7 +493,7 @@ func synthesiseDistribution(o ProductOptions, refs []synthRef, embedded bool, pa
 
 	// Each choice is followed by its own pkg-ref, interleaved. Only an
 	// embedded document carries the sizes and the "#" that names an entry
-	// inside the archive; a synthesised file names the package itself.
+	// inside the archive; a synthesized file names the package itself.
 	for _, r := range refs {
 		fmt.Fprintf(&b, "    <choice id=%s", attr(choiceID(r.ID)))
 		if r.Title != "" {
@@ -554,7 +554,7 @@ func SynthesizeDistribution(o ProductOptions) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return synthesiseDistribution(o, refs, false, ""), nil
+	return synthesizeDistribution(o, refs, false, ""), nil
 }
 
 // synthRefsFor reads the identity of each component package.
@@ -628,7 +628,7 @@ var choiceElement = regexp.MustCompile(`(?s)<choice\b[^>]*>.*?</choice>`)
 // namingPkgRef matches a pkg-ref that carries a package's path as its text.
 var namingPkgRef = regexp.MustCompile(`(?s)<pkg-ref\s+id="([^"]*)"([^>]*)>([^<]*)</pkg-ref>`)
 
-// emptyPkgRef matches the bare stub a synthesised distribution declares each
+// emptyPkgRef matches the bare stub a synthesized distribution declares each
 // package with, before productbuild fills it in.
 var emptyPkgRef = regexp.MustCompile(`<pkg-ref\s+id="([^"]*)"\s*/>`)
 
@@ -644,7 +644,7 @@ var emptyPkgRef = regexp.MustCompile(`<pkg-ref\s+id="([^"]*)"\s*/>`)
 //     "component-basic.pkg" from a file beside the distribution into an
 //     entry inside the archive;
 //   - every package ends up declared by a stub carrying a bundle-version.
-//     A synthesised document already has a bare <pkg-ref id="X"/> for each,
+//     A synthesized document already has a bare <pkg-ref id="X"/> for each,
 //     which is filled in where it stands; a hand-written one usually has
 //     none, and the stubs are appended at the end.
 //
@@ -652,7 +652,7 @@ var emptyPkgRef = regexp.MustCompile(`<pkg-ref\s+id="([^"]*)"\s*/>`)
 // package the document declares elsewhere, and filling them in would change
 // what the choice installs.
 //
-// Two more things follow from productbuild re-serialising the document
+// Two more things follow from productbuild re-serializing the document
 // rather than editing it, and both are reproduced so the result compares
 // equal: a bare ">" in character data comes back escaped, and the trailing
 // newline goes. Neither changes what the Installer reads. Everything else
@@ -753,7 +753,7 @@ func embedDistribution(dist []byte, refs []synthRef) []byte {
 // escapeTextGT escapes a bare ">" wherever it appears in character data.
 //
 // It is legal unescaped, and a hand-written distribution often has one in a
-// JavaScript comparison, but Apple's serialiser always writes "&gt;" and
+// JavaScript comparison, but Apple's serializer always writes "&gt;" and
 // these documents are compared with its output. Tags, comments and CDATA
 // sections are copied through untouched: inside them a ">" is structure or
 // is already exempt.

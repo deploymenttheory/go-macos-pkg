@@ -19,10 +19,11 @@ var (
 var stapleCmd = &cobra.Command{
 	Use:   "staple PKG [OUT.pkg]",
 	Short: "Attach a notarization ticket; unstaple removes one",
-	Long: `Fetch the notarization ticket Apple issued for the package and append it,
-the way stapler staple does, so the Installer can verify notarization
-offline. The ticket is looked up in Apple's public ticket database by the
-package's signature digest; no credentials are needed.
+	Long: `Retrieve the notarization ticket Apple issued for a package and attach it,
+so the Installer can verify notarization without going online.
+
+The ticket is looked up in Apple's public ticket database by the package's
+signature digest, so no credentials are needed. Flat packages only.
 
 --check reports whether a ticket is already stapled (exit 7 if not).
 --ticket FILE staples a ticket from a file instead of looking it up, for
@@ -41,7 +42,19 @@ Examples:
 var unstapleCmd = &cobra.Command{
 	Use:   "unstaple PKG [OUT.pkg]",
 	Short: "Remove a stapled notarization ticket",
-	Args:  rangeArgs(1, 2, "PKG [OUT.pkg]"),
+	Long: `Remove a notarization ticket from a package.
+
+The ticket is a trailer appended after the archive, so removing it returns the
+package to the bytes it had when it was signed. Re-signing does this too, since
+a ticket cannot survive a change to what it covers.
+
+OUT.pkg writes the result to a new path; without it the package is updated in
+place. A package with no ticket is copied unchanged.
+
+Examples:
+  macospkg unstaple Foo.pkg
+  macospkg unstaple Foo.pkg Foo-clean.pkg`,
+	Args: rangeArgs(1, 2, "PKG [OUT.pkg]"),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		x, err := openXAR(args[0])
 		if err != nil {

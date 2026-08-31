@@ -171,10 +171,10 @@ func (id *Identity) orderChain() {
 }
 
 // TeamID returns the Apple team identifier, which Developer ID
-// certificates carry in the organisational unit.
+// certificates carry in the organizational unit.
 func (id *Identity) TeamID() string { return TeamIDOf(id.Cert) }
 
-// TeamIDOf returns the organisational unit of a certificate.
+// TeamIDOf returns the organizational unit of a certificate.
 func TeamIDOf(c *x509.Certificate) string {
 	if len(c.Subject.OrganizationalUnit) > 0 {
 		return c.Subject.OrganizationalUnit[0]

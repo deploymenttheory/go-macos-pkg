@@ -8,7 +8,7 @@
 //
 // The first bytes of the heap are the digest of the compressed TOC, and a
 // signed archive keeps its signatures immediately after that digest. Both
-// are accounted for when the entry offsets are finalised, so a Signer can
+// are accounted for when the entry offsets are finalized, so a Signer can
 // be attached before Close without the layout changing under it.
 
 package xar
@@ -289,7 +289,7 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// Close finalises the table of contents, writes the archive to dst and
+// Close finalizes the table of contents, writes the archive to dst and
 // removes the scratch file.
 func (w *Writer) Close() error {
 	if w.closed {
@@ -324,7 +324,7 @@ func (w *Writer) Close() error {
 		}
 	}
 
-	toc.Files = w.finalise(w.root, prefix)
+	toc.Files = w.finalize(w.root, prefix)
 
 	raw, err := marshalTOC(toc)
 	if err != nil {
@@ -381,10 +381,10 @@ func (w *Writer) Close() error {
 	return nil
 }
 
-// finalise converts the entry tree to TOC files, shifting every data offset
+// finalize converts the entry tree to TOC files, shifting every data offset
 // by prefix and ordering children by insertion, which is the order the
 // caller walked its source tree.
-func (w *Writer) finalise(e *entry, prefix int64) []*File {
+func (w *Writer) finalize(e *entry, prefix int64) []*File {
 	sort.SliceStable(e.names, func(i, j int) bool { return e.children[e.names[i]].file.ID < e.children[e.names[j]].file.ID })
 	files := make([]*File, 0, len(e.names))
 	for _, name := range e.names {
@@ -392,7 +392,7 @@ func (w *Writer) finalise(e *entry, prefix int64) []*File {
 		if child.file.Data != nil {
 			child.file.Data.Offset += prefix
 		}
-		child.file.Children = w.finalise(child, prefix)
+		child.file.Children = w.finalize(child, prefix)
 		files = append(files, child.file)
 	}
 	return files

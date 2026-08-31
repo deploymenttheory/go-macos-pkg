@@ -17,7 +17,7 @@ var (
 	extractSymlinks  string
 	extractVerify    bool
 	extractXattrs    string
-	extractHardLinks bool
+	extractHardLinks string
 )
 
 var extractCmd = &cobra.Command{
@@ -32,7 +32,7 @@ DIR/<component>/ unless --component names one, in which case its payload
 lands in DIR directly.
 
 --scripts extracts the Scripts archives instead of the payloads.
---pattern limits extraction to payload paths matching a regular expression
+--regexp limits extraction to payload paths matching a regular expression
 (paths look like ./usr/local/bin/tool).
 --verify checks every file against the CRC-32 in the bill of materials.
 
@@ -41,7 +41,7 @@ that would escape DIR, or links the host would not create.
 
 Examples:
   macospkg extract Foo.pkg ./out
-  macospkg extract --pattern '^\./Applications/' Foo.pkg ./out
+  macospkg extract --regexp '^\./Applications/' Foo.pkg ./out
   macospkg extract --component foo.pkg Product.pkg ./out
   macospkg extract --scripts Foo.pkg ./scripts`,
 	Args: exactArgs(2, "PKG DIR"),
@@ -51,10 +51,10 @@ Examples:
 func init() {
 	extractCmd.Flags().StringVar(&extractComponent, "component", "", "only this component of a product archive (e.g. foo.pkg)")
 	extractCmd.Flags().BoolVar(&extractScripts, "scripts", false, "extract the Scripts archives rather than the payloads")
-	extractCmd.Flags().StringVar(&extractPattern, "pattern", "", "only payload paths matching this regular expression")
+	extractCmd.Flags().StringVar(&extractPattern, "regexp", "", "only payload paths matching this regular expression")
 	extractCmd.Flags().StringVar(&extractSymlinks, "symlinks", "auto", "symbolic links: auto, real or file")
 	extractCmd.Flags().StringVar(&extractXattrs, "xattrs", "auto", "\"._\" sidecars: apply (set the attributes on the owner), file (write them as files) or skip; auto applies what the host takes and keeps the rest as files")
-	extractCmd.Flags().BoolVar(&extractHardLinks, "hard-links", true, "recreate hard links; --hard-links=false writes copies")
+	extractCmd.Flags().StringVar(&extractHardLinks, "hard-links", "", "hard links: auto (recreate them, the default) or copy (write each member as its own file)")
 	extractCmd.Flags().BoolVar(&extractVerify, "verify", false, "verify each file's CRC-32 against the bill of materials")
 }
 
@@ -90,11 +90,16 @@ func runExtract(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return usageErrorf("%v", err)
 	}
+	links, err := flatpkg.ParseHardLinkMode(extractHardLinks)
+	if err != nil {
+		return usageErrorf("%v", err)
+	}
+	extractHardLinksCopy := links == flatpkg.HardLinksCopy
 	var pattern *regexp.Regexp
 	if extractPattern != "" {
 		pattern, err = regexp.Compile(extractPattern)
 		if err != nil {
-			return usageErrorf("invalid --pattern: %v", err)
+			return usageErrorf("invalid --regexp: %v", err)
 		}
 	}
 	p, err := openPackage(args[0])
@@ -118,7 +123,7 @@ func runExtract(cmd *cobra.Command, args []string) error {
 			Pattern:     pattern,
 			Symlinks:    mode,
 			Xattrs:      xattrMode,
-			NoHardLinks: !extractHardLinks,
+			NoHardLinks: extractHardLinksCopy,
 			Progress:    func(path string) { verbosef("wrote %s", path) },
 		}
 		var res *flatpkg.ExtractResult
@@ -195,7 +200,7 @@ func runExtract(cmd *cobra.Command, args []string) error {
 		return withCode(ExitPartial, fmt.Errorf("extraction incomplete: some entries were skipped or failed verification"))
 	}
 	if total == 0 && pattern != nil {
-		return withCode(ExitPartial, fmt.Errorf("no payload entries matched --pattern %q", extractPattern))
+		return withCode(ExitPartial, fmt.Errorf("no payload entries matched --regexp %q", extractPattern))
 	}
 	return nil
 }

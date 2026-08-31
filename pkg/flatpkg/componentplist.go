@@ -33,7 +33,7 @@ const (
 // ComponentBundle is one dictionary in a component property list.
 //
 // Field order is alphabetical because that is the order Apple's property
-// list serialiser emits keys in, and these documents are compared with
+// list serializer emits keys in, and these documents are compared with
 // pkgbuild's byte for byte.
 //
 // The three booleans are pointers so that absent and false stay distinct:
@@ -195,7 +195,7 @@ func ParseComponentPlist(data []byte) ([]ComponentBundle, error) {
 }
 
 // MarshalComponentPlist encodes a component property list the way Apple's
-// serialiser writes one.
+// serializer writes one.
 func MarshalComponentPlist(list []ComponentBundle) ([]byte, error) {
 	if list == nil {
 		list = []ComponentBundle{}
@@ -213,7 +213,7 @@ func MarshalComponentPlist(list []ComponentBundle) ([]byte, error) {
 var emptyPlistString = regexp.MustCompile(`<string/>`)
 
 // applePlistStyle reconciles the two places our encoder and Apple's
-// serialiser disagree, so the documents compare byte for byte:
+// serializer disagree, so the documents compare byte for byte:
 //
 //   - Apple puts the root container hard against the left margin, inside
 //     <plist> rather than indented one level within it;

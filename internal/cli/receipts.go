@@ -24,23 +24,19 @@ var receiptsCmd = &cobra.Command{
 	Use:   "receipts",
 	Short: "Read what a volume records about the packages installed on it",
 	Long: `Read a volume's receipt database: the record macOS keeps of what each
-installed package put there. A receipt is two files the Installer wrote,
-a property list of what was installed and when, and a bill of materials
-listing every path.
+installed package put there. A receipt is two files the Installer wrote under
+var/db/receipts, a property list of what was installed and when, and a bill of
+materials listing every path.
 
-This reads the directory rather than asking the system, so it works
-against a volume mounted anywhere, from any operating system: point
---volume at a disk and see what a Mac has installed on it.
+Reading the directory rather than asking the system is what makes this work
+against a volume mounted anywhere, from any operating system: point --volume at
+a disk and see what a Mac has installed on it. It is also the limit. The
+packages that make up the system itself are held in a sealed database no
+directory on disk lists, so they do not appear here.
 
-That is also its limit. On a running macOS, "pkgutil --pkgs" lists more
-than this: the packages that make up the system itself are held in a
-sealed database that pkgutil reaches through a private interface, and no
-directory on disk lists them. What you see here is what was installed
-onto the volume, which is the part worth auditing.
-
-Nothing here writes. pkgutil can forget a receipt or relearn one; both
-change what the system believes it installed, need root, and are not
-something this tool should be doing behind the Installer's back.
+Nothing here writes. Forgetting or relearning a receipt changes what the system
+believes it installed, needs root, and is not something this tool should do
+behind the Installer's back.
 
 Examples:
   macospkg receipts list
@@ -53,22 +49,46 @@ Examples:
 var receiptsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List the package identifiers recorded on the volume",
-	Args:  exactArgs(0, "no arguments"),
-	RunE:  runReceiptsList,
+	Long: `List every package identifier the volume has a receipt for.
+
+One per line, sorted. --regexp narrows the list to the identifiers it matches.
+
+Examples:
+  macospkg receipts list
+  macospkg receipts list --regexp '^com\\.apple\\.'
+  macospkg receipts list --volume /Volumes/Macintosh\\ HD`,
+	Args: exactArgs(0, "no arguments"),
+	RunE: runReceiptsList,
 }
 
 var receiptsInfoCmd = &cobra.Command{
 	Use:   "info PKGID",
 	Short: "Show what a package's receipt records",
-	Args:  exactArgs(1, "PKGID"),
-	RunE:  runReceiptsInfo,
+	Long: `Show the receipt for one package identifier.
+
+The version installed, the volume and install location it went to, when it was
+installed and by what, and the package file it came from.
+
+Examples:
+  macospkg receipts info com.example.tool
+  macospkg receipts info -o json com.example.tool`,
+	Args: exactArgs(1, "PKGID"),
+	RunE: runReceiptsInfo,
 }
 
 var receiptsFilesCmd = &cobra.Command{
 	Use:   "files PKGID",
 	Short: "List the paths a package installed",
-	Args:  exactArgs(1, "PKGID"),
-	RunE:  runReceiptsFiles,
+	Long: `List every path recorded in a package's receipt.
+
+The paths are relative to the install location the receipt names, which is what
+info reports. --only-files and --only-dirs take one half of the listing.
+
+Examples:
+  macospkg receipts files com.example.tool
+  macospkg receipts files com.example.tool --only-files`,
+	Args: exactArgs(1, "PKGID"),
+	RunE: runReceiptsFiles,
 }
 
 func init() {

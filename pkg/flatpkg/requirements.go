@@ -155,7 +155,7 @@ func (r *ProductRequirements) VolumeCheckElement(minOSVersion, payloadFloor stri
 		body.WriteString("        <required-bundles all=" + quoteAttr(all) + ">\n")
 		for _, b := range r.Bundle {
 			body.WriteString("            <bundle")
-			// Attribute order is alphabetical, as Apple's serialiser
+			// Attribute order is alphabetical, as Apple's serializer
 			// writes it, and search is written even when it is false.
 			if b.CFBundleShortVersionString != "" {
 				body.WriteString(" CFBundleShortVersionString=" + quoteAttr(b.CFBundleShortVersionString))

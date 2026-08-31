@@ -8,7 +8,7 @@ import (
 )
 
 // fileIdentity reports the device and inode a file lives on and its
-// link count, so hard links can be recognised. ok is false when the host
+// link count, so hard links can be recognized. ok is false when the host
 // does not expose them.
 func fileIdentity(fi os.FileInfo) (dev, ino uint64, nlink uint32, ok bool) {
 	st, isStat := fi.Sys().(*syscall.Stat_t)

@@ -22,7 +22,7 @@ type VerifyOptions struct {
 	Anchors *x509.CertPool
 	// AllowUntrusted reports an unknown chain as such without failing.
 	AllowUntrusted bool
-	// TeamID, when set, must match the signer's organisational unit.
+	// TeamID, when set, must match the signer's organizational unit.
 	TeamID string
 	// Now is the time to evaluate certificate validity at; zero means
 	// the signature's timestamp when present, else the current time.

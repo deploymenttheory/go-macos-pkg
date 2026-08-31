@@ -108,7 +108,7 @@ func CredentialsFromEnv() (*Credentials, error) {
 	case os.Getenv(EnvBuilderKeyData) != "":
 		// Base64, as electron-builder's documentation says to encode it.
 		// A key pasted in as-is is accepted too rather than rejected on a
-		// technicality: PEM is recognisable and the intent is obvious.
+		// technicality: PEM is recognizable and the intent is obvious.
 		raw := os.Getenv(EnvBuilderKeyData)
 		if strings.Contains(raw, "-----BEGIN") {
 			c.PrivateKey = []byte(raw)

@@ -29,8 +29,8 @@ var listCmd = &cobra.Command{
 	Use:   "list PKG",
 	Short: "List payload files (from the bill of materials) or archive entries",
 	Long: `List the files a package installs, as recorded in each component's bill
-of materials: the same view lsbom gives of an expanded package's Bom, without
-expanding anything. One line per file; -l adds mode, owner, size and time.
+of materials, without expanding anything. One line per file; -l adds mode,
+owner, size and time.
 
 --archive lists the xar entries instead (PackageInfo, Bom, Payload, nested
 component directories, Distribution resources) with their stored sizes.

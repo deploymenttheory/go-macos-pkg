@@ -164,7 +164,7 @@ func (p *progressReader) Read(b []byte) (int, error) {
 	return n, err
 }
 
-// escapePath URI-encodes each path segment the way SigV4 canonicalises
+// escapePath URI-encodes each path segment the way SigV4 canonicalizes
 // it (RFC 3986 unreserved characters kept, everything else percent-encoded).
 func escapePath(p string) string {
 	parts := strings.Split(p, "/")
