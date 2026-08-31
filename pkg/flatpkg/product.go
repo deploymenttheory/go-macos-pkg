@@ -26,6 +26,11 @@ type ProductOptions struct {
 	// Distribution is a Distribution XML document to use; nil synthesises
 	// one that installs every package, as productbuild --synthesize does.
 	Distribution []byte
+	// Requirements is the pre-install requirements property list that
+	// productbuild reads with --product. It shapes the synthesised
+	// Distribution's architectures, domains, volume-check and
+	// installation-check.
+	Requirements *ProductRequirements
 	// Resources is a directory whose contents are embedded under
 	// Resources/ (welcome, license, background files the Distribution
 	// refers to); optional.
@@ -259,7 +264,7 @@ func synthesiseDistribution(o ProductOptions, refs []synthRef, embedded bool) []
 	} else {
 		b.WriteString(`<?xml version="1.0" encoding="utf-8"?>` + "\n")
 	}
-	b.WriteString(`<installer-gui-script minSpecVersion="1">` + "\n")
+	fmt.Fprintf(&b, "<installer-gui-script minSpecVersion=%s>\n", attr(o.Requirements.MinSpecVersion(o.MinOSVersion)))
 	if o.Title != "" {
 		fmt.Fprintf(&b, "    <title>%s</title>\n", xmlEscape(o.Title))
 	}
@@ -283,15 +288,20 @@ func synthesiseDistribution(o ProductOptions, refs []synthRef, embedded bool) []
 
 	archs := o.HostArchitectures
 	if len(archs) == 0 {
+		archs = o.Requirements.Architectures()
+	}
+	if len(archs) == 0 {
 		archs = DefaultHostArchitectures
 	}
 	fmt.Fprintf(&b, "    <options customize=\"never\" require-scripts=\"false\" hostArchitectures=%s/>\n",
 		attr(strings.Join(archs, ",")))
 
-	if o.MinOSVersion != "" {
-		fmt.Fprintf(&b, "    <volume-check>\n        <allowed-os-versions>\n            <os-version min=%s/>\n        </allowed-os-versions>\n    </volume-check>\n",
-			attr(o.MinOSVersion))
-	}
+	// productbuild's order: domains, then what the volume must be, then
+	// what the machine must have.
+	b.WriteString(o.Requirements.DomainsElement())
+	volumeCheck, trailingVolumeCheck := o.Requirements.VolumeCheckElement(o.MinOSVersion)
+	b.WriteString(volumeCheck)
+	b.WriteString(o.Requirements.InstallationCheckElement())
 
 	// One default line wrapping every package, not one wrapper per package.
 	b.WriteString("    <choices-outline>\n        <line choice=\"default\">\n")
@@ -315,6 +325,7 @@ func synthesiseDistribution(o ProductOptions, refs []synthRef, embedded bool) []
 		}
 	}
 
+	b.WriteString(trailingVolumeCheck)
 	b.WriteString("</installer-gui-script>")
 	return []byte(b.String())
 }

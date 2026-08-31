@@ -932,3 +932,112 @@ func twoComponents(t *testing.T) (first, second, dir string) {
 		"--install-location", "/opt/fixture", "--ownership", "recommended", second)
 	return first, second, dir
 }
+
+// TestProductRequirementsMatchProductbuild drives the pre-install
+// requirements property list, key by key and in combination, against
+// productbuild --synthesize.
+//
+// Each key drives exactly one element and the mapping is worth having
+// pinned: several of the rules are not in the manual, and one contradicts
+// it. Table-driven so a failure names the requirement rather than the file.
+func TestProductRequirementsMatchProductbuild(t *testing.T) {
+	requireTools(t, "pkgbuild", "productbuild")
+	first, _, _ := twoComponents(t)
+
+	const (
+		metal = `<key>metal-device</key><string>isLowPowerDevice == 0</string>`
+		gl    = `<key>gl-renderer</key><string>version &gt;= 2</string>`
+		cl    = `<key>cl-device</key><string>version &gt;= 1.2</string>`
+		host  = `<key>bundle</key><array><dict><key>id</key><string>com.example.host</string>` +
+			`<key>path</key><string>/Applications/Host.app</string></dict></array>`
+	)
+	for _, tc := range []struct{ name, body string }{
+		{"arch", `<key>arch</key><array><string>arm64</string></array>`},
+		{"ram", `<key>ram</key><real>8</real>`},
+		{"ram_fractional", `<key>ram</key><real>1.5</real>`},
+		{"home_true", `<key>home</key><true/>`},
+		{"home_false", `<key>home</key><false/>`},
+		{"sysctl", `<key>sysctl-requirements</key><string>hw.physicalcpu &gt; 1</string>`},
+		{"os_one", `<key>os</key><array><string>13.0</string></array>`},
+		// Two versions become a bounded range and an open one, and the
+		// bound is the second component incremented: 10.5.4 is capped
+		// before 10.6, not before 10.5.5.
+		{"os_two", `<key>os</key><array><string>10.5.4</string><string>10.6.2</string></array>`},
+		{"os_three", `<key>os</key><array><string>12.0</string><string>13.0</string><string>14.0</string></array>`},
+		{"bundle", host},
+		{"bundle_with_version", `<key>bundle</key><array><dict><key>id</key><string>com.example.host</string>` +
+			`<key>path</key><string>/Applications/Host.app</string>` +
+			`<key>CFBundleShortVersionString</key><string>2.0</string><key>search</key><true/></dict></array>`},
+		{"all_bundles_false", `<key>bundle</key><array>` +
+			`<dict><key>id</key><string>a.b</string><key>path</key><string>/A</string></dict>` +
+			`<dict><key>id</key><string>c.d</string><key>path</key><string>/C</string></dict></array>` +
+			`<key>all-bundles</key><false/>`},
+		// Each graphics predicate implies a system version the check can
+		// actually run on, and productbuild writes that floor in a
+		// volume-check of its own after everything else.
+		{"gl_floor", gl},
+		{"cl_floor", cl},
+		{"metal_floor", metal},
+		{"gl_and_cl_floor", gl + cl},
+		{"single_graphics_device", gl + cl + metal + `<key>single-graphics-device</key><true/>`},
+		// A version below the implied floor is dropped, not raised.
+		{"metal_drops_lower_os", metal + `<key>os</key><array><string>10.13</string></array>`},
+		{"metal_keeps_higher_os", metal + `<key>os</key><array><string>10.15</string><string>12.0</string></array>`},
+		// With bundles to write, the implied floor joins them instead,
+		// and lands after them rather than before.
+		{"metal_with_bundle", metal + host},
+		{"everything", `<key>os</key><array><string>13.0</string></array>` + host +
+			`<key>all-bundles</key><false/><key>ram</key><real>4</real>` +
+			`<key>sysctl-requirements</key><string>hw.optional.arm64 == 1</string>` + gl +
+			`<key>home</key><true/><key>arch</key><array><string>arm64</string></array>`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			work := t.TempDir()
+			req := filepath.Join(work, "requirements.plist")
+			writeFile(t, req, `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	`+tc.body+`
+</dict>
+</plist>
+`, 0o644)
+			ours := filepath.Join(work, "ours.xml")
+			theirs := filepath.Join(work, "theirs.xml")
+			mustRun(t, "product", ours, "--package", first, "--product", req, "--synthesize")
+			hostTool(t, "productbuild", "--quiet", "--synthesize", "--product", req, "--package", first, theirs)
+
+			apple, err := os.ReadFile(theirs)
+			require.NoError(t, err)
+			mine, err := os.ReadFile(ours)
+			require.NoError(t, err)
+			require.Equal(t, string(apple), string(mine))
+		})
+	}
+	attest(t, "the requirements property list maps onto a Distribution as productbuild maps it")
+}
+
+// TestSysctlImpliesNoFloor pins a rule the manual gets wrong. It says
+// sysctl-requirements raises the minimum system version to 10.10. Current
+// productbuild adds no version check at all for it, and this follows the
+// tool rather than the manual.
+func TestSysctlImpliesNoFloor(t *testing.T) {
+	requireTools(t, "pkgbuild", "productbuild")
+	first, _, _ := twoComponents(t)
+	work := t.TempDir()
+	req := filepath.Join(work, "requirements.plist")
+	writeFile(t, req, `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>sysctl-requirements</key><string>hw.physicalcpu &gt; 1</string>
+</dict>
+</plist>
+`, 0o644)
+	theirs := filepath.Join(work, "theirs.xml")
+	hostTool(t, "productbuild", "--quiet", "--synthesize", "--product", req, "--package", first, theirs)
+	apple, err := os.ReadFile(theirs)
+	require.NoError(t, err)
+	assert.NotContains(t, string(apple), "allowed-os-versions",
+		"if productbuild starts applying the 10.10 floor the manual describes, we should follow it")
+}

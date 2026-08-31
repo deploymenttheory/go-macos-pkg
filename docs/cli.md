@@ -327,13 +327,40 @@ This is the form to distribute and the form notarization expects.
 | `--resources DIR` | Embed a directory as `Resources/`, for the welcome, licence and background files the Distribution names. |
 | `--title T` | Title for the synthesised Distribution. |
 | `--product-id ID`, `--product-version V` | Identity for the synthesised Distribution. |
-| `--min-os-version V` | Adds a `volume-check` with an `allowed-os-versions` floor. |
+| `--product FILE` | Pre-install requirements property list: what the machine must have before the Installer will proceed. See below. |
+| `--min-os-version V` | Adds a `volume-check` with an `allowed-os-versions` floor. A shorthand for a `--product` list carrying only `os`. |
 | `--host-architectures A,B` | Comma-separated `hostArchitectures`. Defaults to `x86_64,arm64`, which is what productbuild writes. |
 | `--sign-*`, `--notarize` | As for `build`. |
 
 Without `--distribution` the synthesised document installs every package
 with no customisation, byte for byte as productbuild writes it. Supply
 your own when you need choices, localisation or scripts.
+
+**Pre-install requirements.** `--product` takes the property list
+`productbuild --product` takes, and each key drives one part of the
+Distribution:
+
+| Key | Becomes |
+|---|---|
+| `os` (array of strings) | `<allowed-os-versions>`. The highest is open-ended; each other one is capped just below the next release of its line, so `10.5.4` is capped `before 10.6` and `13.4` `before 13.5`. |
+| `arch` (array) | `hostArchitectures` on `<options>`. |
+| `ram` (real, gigabytes) | `<installation-check><ram min-gb="…"/>`. |
+| `bundle` (array), `all-bundles` (bool) | `<volume-check><required-bundles>`: bundles that must already be installed. |
+| `gl-renderer`, `cl-device`, `metal-device`, `single-graphics-device` | `<installation-check><required-graphics>`. |
+| `sysctl-requirements` (predicate) | `<installation-check><hardware-properties>`. |
+| `home` (bool) | `<domains>`, opening installation into a user's home directory. |
+
+A graphics requirement implies a system version that can run the check:
+10.6.8 for OpenGL, 10.7 for OpenCL, 10.14.4 for Metal. A version you asked
+for that is below the floor is dropped rather than raised, since no such
+system could run the check anyway.
+
+Two notes on fidelity. The manual says `sysctl-requirements` raises the
+floor to 10.10; current productbuild adds no version check for it, and this
+follows the tool. And productbuild passes the three graphics predicates
+through `NSPredicate`, which rewrites them (`version >= 2.0` comes back as
+`version >= 2`); there is no `NSPredicate` here, so they are written as you
+gave them.
 
 **Two shapes of Distribution.** The document `--synthesize` writes is not
 the one a package carries, and productbuild rewrites one into the other as

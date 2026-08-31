@@ -21,6 +21,7 @@ var (
 	productVersion      string
 	productSynthesize   bool
 	productPackagePaths []string
+	productRequirements string
 )
 
 var productCmd = &cobra.Command{
@@ -51,6 +52,7 @@ func init() {
 	f.StringArrayVar(&productPackages, "package", nil, "component package to embed; repeatable (required)")
 	f.StringVar(&productDistribution, "distribution", "", "Distribution XML to use instead of synthesising one")
 	f.StringArrayVar(&productPackagePaths, "package-path", nil, "directory to search for the packages a --distribution names; repeatable, and the working directory is searched too")
+	f.StringVar(&productRequirements, "product", "", "pre-install requirements property list: the os, arch, ram, bundle, graphics and sysctl checks the Installer runs before it will install")
 	f.BoolVar(&productSynthesize, "synthesize", false, "write the synthesised Distribution to the output path instead of building an archive")
 	f.StringVar(&productResources, "resources", "", "directory to embed as Resources/")
 	f.StringVar(&productTitle, "title", "", "title for the synthesised Distribution")
@@ -95,7 +97,12 @@ func runProduct(cmd *cobra.Command, args []string) error {
 	if len(productPackages) == 0 {
 		return usageErrorf("at least one --package is required (or a --distribution that names them)")
 	}
+	requirements, err := loadProductRequirements()
+	if err != nil {
+		return err
+	}
 	o := flatpkg.ProductOptions{
+		Requirements:   requirements,
 		Packages:       productPackages,
 		Resources:      productResources,
 		Title:          productTitle,
@@ -173,7 +180,12 @@ func runSynthesize(out string) error {
 	if len(productPackages) == 0 {
 		return usageErrorf("--synthesize needs at least one --package")
 	}
+	requirements, err := loadProductRequirements()
+	if err != nil {
+		return err
+	}
 	data, err := flatpkg.SynthesizeDistribution(flatpkg.ProductOptions{
+		Requirements:   requirements,
 		Packages:       productPackages,
 		Title:          productTitle,
 		MinOSVersion:   productMinOS,
@@ -192,4 +204,22 @@ func runSynthesize(out string) error {
 	}
 	progressf("wrote %s for %d package(s)", out, len(productPackages))
 	return nil
+}
+
+// loadProductRequirements reads the --product property list, if there is
+// one. It is a usage error rather than a build failure: the file is named on
+// the command line and a bad one is a mistake in the invocation.
+func loadProductRequirements() (*flatpkg.ProductRequirements, error) {
+	if productRequirements == "" {
+		return nil, nil
+	}
+	data, err := os.ReadFile(productRequirements)
+	if err != nil {
+		return nil, usageErrorf("unable to read --product: %v", err)
+	}
+	r, err := flatpkg.ParseProductRequirements(data)
+	if err != nil {
+		return nil, usageErrorf("--product: %v", err)
+	}
+	return r, nil
 }
