@@ -28,6 +28,7 @@ var (
 	buildNoBundleRelocation bool
 	buildPreserveXattr      bool
 	buildExclude            []string
+	buildFilter             []string
 	buildExecutable         []string
 	buildManifest           string
 	buildCompression        string
@@ -100,7 +101,8 @@ func init() {
 	f.BoolVar(&buildRelocatable, "relocatable", false, "mark the package relocatable")
 	f.BoolVar(&buildNoBundleRelocation, "no-bundle-relocation", false, "always install bundles at their packaged paths")
 	f.BoolVar(&buildPreserveXattr, "preserve-xattr", false, "set preserve-xattr on the package")
-	f.StringArrayVar(&buildExclude, "exclude", nil, "payload paths to leave out (regular expression on ./path); repeatable")
+	f.StringArrayVar(&buildFilter, "filter", nil, "payload paths to leave out (regular expression on ./path), as pkgbuild's --filter; giving any inhibits the default filters; repeatable")
+	f.StringArrayVar(&buildExclude, "exclude", nil, "alias for --filter; repeatable")
 	f.StringArrayVar(&buildExecutable, "executable", nil, "payload paths that are executable, for hosts without execute bits (regular expression); repeatable")
 	f.StringVar(&buildManifest, "manifest", "", "build-info.yaml/.json/.plist to read options from")
 	f.StringVar(&buildCompression, "compression", "", "payload container: gzip (default, every macOS), pbzx/latest (smaller; macOS 12 or later) or lzfse/lzbitmap (pbze/pbzb; macOS reads them, pkgbuild writes neither)")
@@ -212,9 +214,18 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 	o.XattrOverrides = overrides
 
-	excludes, err := compilePatterns(append(buildExclude, m.Exclude...))
+	// pkgbuild's rule: the default filters apply only when the caller
+	// names none of its own, so a filter list is a replacement and not an
+	// addition. To keep everything, pass a pattern that cannot match, such
+	// as --filter 'a^'.
+	filters := append(append([]string{}, buildFilter...), buildExclude...)
+	filters = append(filters, m.Exclude...)
+	if len(filters) == 0 {
+		filters = flatpkg.DefaultFilters
+	}
+	excludes, err := compilePatterns(filters)
 	if err != nil {
-		return usageErrorf("invalid --exclude: %v", err)
+		return usageErrorf("invalid --filter: %v", err)
 	}
 	if len(excludes) > 0 {
 		o.Exclude = func(rel string) bool { return anyMatch(excludes, rel) }

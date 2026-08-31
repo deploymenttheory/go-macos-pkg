@@ -23,6 +23,21 @@ import (
 	"github.com/deploymenttheory/go-macos-pkg/pkg/xar"
 )
 
+// DefaultFilters are the paths pkgbuild leaves out of a payload when it is
+// given no --filter of its own: any path component named exactly .svn, CVS
+// or .DS_Store, whether it is a file or a directory. A directory that
+// matches takes its whole subtree with it.
+//
+// The expressions are matched against the "./path" form, which is what
+// pkgbuild matches: "^keep" and "^/.*keep" both miss where "^\./keep" and
+// "/keep$" hit. The names are matched exactly, so CVSdir, notCVS.txt and
+// .DS_Store_dir are all kept.
+//
+// Applying these is the caller's decision, not BuildComponent's: a library
+// caller that sets no Exclude gets no filtering, while the command line
+// applies them exactly as pkgbuild does.
+var DefaultFilters = []string{`/\.svn$`, `/CVS$`, `/\.DS_Store$`}
+
 // DefaultScriptTimeout is the timeout, in seconds, that current pkgbuild
 // writes on every script it records in a PackageInfo. Versions before
 // InstallCmds-860 wrote no timeout attribute at all; the fixtures record
@@ -590,6 +605,10 @@ func collectPayload(o ComponentOptions, epoch time.Time) ([]payloadEntry, error)
 	}
 	var entries []payloadEntry
 	childCount := map[string]int{}
+	// sourceHadChild records the directories that held anything on disk,
+	// filtered or not, which is what tells an emptied directory apart from
+	// one that was already empty. See pruneEmptiedDirs.
+	sourceHadChild := map[string]bool{}
 	linkKeys := &linkKeySet{}
 	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -602,6 +621,9 @@ func collectPayload(o ComponentOptions, epoch time.Time) ([]payloadEntry, error)
 		relSlash := "."
 		if rel != "." {
 			relSlash = "./" + filepath.ToSlash(rel)
+		}
+		if relSlash != "." {
+			sourceHadChild[parentPath(relSlash)] = true
 		}
 		if relSlash != "." && o.Exclude != nil && o.Exclude(relSlash) {
 			if d.IsDir() {
@@ -668,6 +690,7 @@ func collectPayload(o ComponentOptions, epoch time.Time) ([]payloadEntry, error)
 	if err != nil {
 		return nil, fmt.Errorf("flatpkg: walking payload root: %w", err)
 	}
+	entries = pruneEmptiedDirs(entries, childCount, sourceHadChild)
 	entries, err = liftSidecarFiles(entries, childCount, o.ExcludeXattr)
 	if err != nil {
 		return nil, err
@@ -810,6 +833,39 @@ func mergeXattrs(base, extra *appledouble.File, exclude func(string) bool) *appl
 // packages the same way. A "._" file with no owner, or that is not
 // AppleDouble, stays an ordinary file. exclude prunes the lifted names
 // as it prunes the ones read from the host, so the two hosts agree.
+// pruneEmptiedDirs drops the directories that held something in the source
+// tree but hold nothing once the filters have run, which is what pkgbuild
+// does: a directory that was already empty on disk is packaged, and one the
+// filters emptied is not. The prune cascades, so a parent left with nothing
+// goes too.
+//
+// childCount is the live count of surviving children, so it doubles as the
+// test and is kept correct as directories are dropped. Walk order puts a
+// parent before its children, so one backwards pass reaches the deepest
+// directory first and the cascade needs no second sweep.
+func pruneEmptiedDirs(entries []payloadEntry, childCount map[string]int, sourceHadChild map[string]bool) []payloadEntry {
+	drop := map[string]bool{}
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
+		if e.rel == "." || !e.isDir() || !sourceHadChild[e.rel] || childCount[e.rel] > 0 {
+			continue
+		}
+		drop[e.rel] = true
+		delete(childCount, e.rel)
+		childCount[parentPath(e.rel)]--
+	}
+	if len(drop) == 0 {
+		return entries
+	}
+	kept := make([]payloadEntry, 0, len(entries)-len(drop))
+	for _, e := range entries {
+		if !drop[e.rel] {
+			kept = append(kept, e)
+		}
+	}
+	return kept
+}
+
 func liftSidecarFiles(entries []payloadEntry, childCount map[string]int, exclude func(string) bool) ([]payloadEntry, error) {
 	index := map[string]int{}
 	for i, e := range entries {

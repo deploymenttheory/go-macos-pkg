@@ -16,8 +16,11 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strings"
 	"testing"
 )
 
@@ -163,4 +166,136 @@ func TestDistributionBytesMatchProductbuild(t *testing.T) {
 	mustRun(t, "product", ours, "--package", first, "--package", second, "--source-date-epoch", epoch)
 
 	requireSameBytes(t, "Distribution", xarEntry(t, theirs, "Distribution"), xarEntry(t, ours, "Distribution"))
+}
+
+// filterTree writes a root holding everything pkgbuild's default filters
+// are supposed to catch and, just as importantly, the near misses they must
+// not: CVSdir, notCVS.txt and .DS_Store_dir are all kept.
+func filterTree(t *testing.T) string {
+	t.Helper()
+	base := t.TempDir()
+	root := filepath.Join(base, "root")
+	write := func(rel string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Caught: as directories, and as plain files of the same name.
+	write("a/.svn/entries")
+	write("a/CVS/Root")
+	write("CVS/Root")
+	write(".DS_Store")
+	write("b/.DS_Store")
+	write("b/sub/.DS_Store")
+	write("plain/CVS")
+	write("plain/.svn")
+	// Kept: the names only look like the filtered ones.
+	write("CVSdir/f.txt")
+	write("notCVS.txt")
+	write("a/.svnfile")
+	write(".DS_Store_dir/f")
+	write("keep/file.txt")
+	write("b/sub/real.txt")
+	return root
+}
+
+// payloadPaths lists what a package installs, sidecars aside: a "._" entry
+// only exists because its owner does, so comparing owners is enough.
+func payloadPaths(t *testing.T, pkg string) []string {
+	t.Helper()
+	var out []string
+	for _, l := range nonEmptyLines(hostTool(t, "pkgutil", "--payload-files", pkg)) {
+		if strings.HasPrefix(path.Base(l), "._") {
+			continue
+		}
+		out = append(out, l)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// TestDefaultFiltersMatchPkgbuild pins the payload pkgbuild produces when
+// neither tool is given a filter: .svn, CVS and .DS_Store are dropped, and
+// the names that merely resemble them are not.
+func TestDefaultFiltersMatchPkgbuild(t *testing.T) {
+	requireTools(t, "pkgbuild", "pkgutil")
+	root := filterTree(t)
+	hostTool(t, "sh", "-c", `find "$1" -exec touch -h -t 202401020304.05 {} +`, "sh", root)
+
+	work := t.TempDir()
+	ours := filepath.Join(work, "ours.pkg")
+	theirs := filepath.Join(work, "theirs.pkg")
+	mustRun(t, "build", root, ours, "--identifier", "com.deploymenttheory.filters",
+		"--version", "1.0", "--install-location", "/", "--source-date-epoch", epoch)
+	hostTool(t, "pkgbuild", "--quiet", "--root", root,
+		"--identifier", "com.deploymenttheory.filters", "--version", "1.0",
+		"--install-location", "/", "--ownership", "recommended", theirs)
+
+	a, b := payloadPaths(t, theirs), payloadPaths(t, ours)
+	if !equalStrings(a, b) {
+		t.Errorf("default filters differ\npkgbuild:\n%s\nours:\n%s", strings.Join(a, "\n"), strings.Join(b, "\n"))
+	}
+	for _, gone := range []string{"./a/.svn", "./a/CVS", "./CVS", "./.DS_Store", "./plain/CVS", "./plain/.svn"} {
+		for _, got := range b {
+			if got == gone {
+				t.Errorf("%s should have been filtered out", gone)
+			}
+		}
+	}
+	for _, kept := range []string{"./CVSdir", "./notCVS.txt", "./a/.svnfile", "./.DS_Store_dir"} {
+		found := false
+		for _, got := range b {
+			if got == kept {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s should have been kept", kept)
+		}
+	}
+	attest(t, "default filters agree with pkgbuild on %d payload entries", len(a))
+}
+
+// TestFilterInhibitsDefaults pins the other half of pkgbuild's rule: naming
+// even one filter replaces the defaults rather than adding to them.
+func TestFilterInhibitsDefaults(t *testing.T) {
+	requireTools(t, "pkgbuild", "pkgutil")
+	root := filterTree(t)
+	hostTool(t, "sh", "-c", `find "$1" -exec touch -h -t 202401020304.05 {} +`, "sh", root)
+
+	work := t.TempDir()
+	ours := filepath.Join(work, "ours.pkg")
+	theirs := filepath.Join(work, "theirs.pkg")
+	mustRun(t, "build", root, ours, "--identifier", "com.deploymenttheory.filters",
+		"--version", "1.0", "--install-location", "/", "--filter", "/keep$",
+		"--source-date-epoch", epoch)
+	hostTool(t, "pkgbuild", "--quiet", "--root", root,
+		"--identifier", "com.deploymenttheory.filters", "--version", "1.0",
+		"--install-location", "/", "--ownership", "recommended", "--filter", "/keep$", theirs)
+
+	a, b := payloadPaths(t, theirs), payloadPaths(t, ours)
+	if !equalStrings(a, b) {
+		t.Errorf("--filter differs\npkgbuild:\n%s\nours:\n%s", strings.Join(a, "\n"), strings.Join(b, "\n"))
+	}
+	// The defaults are off, so .DS_Store is back and keep/ is gone.
+	var sawDS, sawKeep bool
+	for _, p := range b {
+		if p == "./.DS_Store" {
+			sawDS = true
+		}
+		if strings.HasPrefix(p, "./keep") {
+			sawKeep = true
+		}
+	}
+	if !sawDS {
+		t.Error("--filter should have inhibited the default .DS_Store filter")
+	}
+	if sawKeep {
+		t.Error("--filter /keep$ should have dropped ./keep")
+	}
+	attest(t, "a named filter replaces the defaults, as pkgbuild does (%d entries)", len(a))
 }

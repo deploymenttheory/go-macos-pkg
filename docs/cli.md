@@ -219,7 +219,8 @@ manifest supplies them.
 | Flag | Default | What it does |
 |---|---|---|
 | `--ownership recommended\|preserve\|preserve-other` | `recommended` | `recommended` records everything as `root:wheel`, which is what an installer package should carry. `preserve` records the tree's real owners and is refused on Windows. |
-| `--exclude RE` | none | Payload paths to leave out, as a regular expression on `./path`. Repeatable. |
+| `--filter RE` | the defaults below | Payload paths to leave out, as a regular expression on `./path`. Repeatable. Naming any filter replaces the defaults rather than adding to them, as pkgbuild does. |
+| `--exclude RE` | none | An alias for `--filter`. |
 | `--executable RE` | none | Paths to mark executable, for hosts with no execute bit. Repeatable, and the reason a Windows build can produce a working package. |
 | `--compression gzip\|pbzx\|latest\|lzfse\|lzbitmap` | `gzip` | The payload container. See below. |
 | `--pbzx-block-size N` | 16 MiB | Block size for any `pbz*` container. The default is pkgbuild's. |
@@ -245,6 +246,18 @@ manifest supplies them.
 | `--manifest FILE` | Read options from a `build-info.yaml`, `.json` or `.plist`. |
 | `--sign-*` | Sign in the same run. Same flags as `sign`, prefixed `sign-`. |
 | `--notarize` | Notarize and staple in the same run. Requires a signing identity. |
+
+**Default filters.** With no `--filter`, `build` leaves out any path
+component named exactly `.svn`, `CVS` or `.DS_Store`, whether it is a file
+or a directory, which is what `pkgbuild` does. Names that merely resemble
+those, such as `CVSdir` or `.svnfile`, are kept. A directory the filters
+empty is dropped too, and that cascades to its parents; a directory that
+was already empty on disk is packaged.
+
+Naming even one filter turns the defaults off, so to keep everything pass
+a pattern that cannot match, such as `--filter 'a^'`. That matters when
+rebuilding a tree you got from `expand` or `extract`, where you want
+fidelity rather than source-tree hygiene.
 
 **Choosing a compression.** `gzip` is pkgbuild's default and the only
 container every macOS can install, so it is the right answer unless you
