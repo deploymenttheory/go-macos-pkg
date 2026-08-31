@@ -55,6 +55,12 @@ func ReadFile(path string) (*BOM, error) {
 
 // Parse parses a bill of materials held in memory.
 func Parse(data []byte) (*BOM, error) {
+	// Cap here, not only in Read: ReadFile and the receipts reader hand
+	// os.ReadFile output straight to Parse, so without this the maxBOMSize
+	// bound would apply to streamed input but not to on-disk files.
+	if len(data) > maxBOMSize {
+		return nil, fmt.Errorf("bom: file exceeds %d bytes", maxBOMSize)
+	}
 	if len(data) < headerSize || string(data[:8]) != Magic {
 		return nil, fmt.Errorf("%w: bad magic", ErrInvalid)
 	}
@@ -128,7 +134,9 @@ func (b *BOM) slice(offset, length uint32) ([]byte, error) {
 
 // Block returns the bytes of block i.
 func (b *BOM) Block(i uint32) ([]byte, error) {
-	if int(i) >= len(b.blocks) {
+	// uint64 on both sides: int(i) is negative for i >= 2^31 on a 32-bit
+	// build, which would slip past a signed compare and panic on the index.
+	if uint64(i) >= uint64(len(b.blocks)) {
 		return nil, fmt.Errorf("%w: block %d out of range (%d blocks)", ErrInvalid, i, len(b.blocks))
 	}
 	blk := b.blocks[i]
@@ -233,6 +241,12 @@ func (b *BOM) leaves(t *tree) ([]pathsEntry, error) {
 		}
 		index = p.Entries[0].Index0
 	}
+	// An on-disk Paths entry is 8 bytes, so a file cannot legitimately hold
+	// more than this many. The chain's cycle check catches a leaf that links
+	// back to itself, but distinct block indices addressing overlapping
+	// windows of one region each decode as a leaf with its own Forward,
+	// escaping it; this bounds the total the chain can yield.
+	maxEntries := len(b.data) / 8
 	var out []pathsEntry
 	chain := map[uint32]bool{}
 	for index != 0 {
@@ -245,6 +259,9 @@ func (b *BOM) leaves(t *tree) ([]pathsEntry, error) {
 			return nil, err
 		}
 		out = append(out, p.Entries...)
+		if len(out) > maxEntries {
+			return nil, fmt.Errorf("%w: paths tree yields more entries than the file can hold", ErrInvalid)
+		}
 		index = p.Forward
 	}
 	return out, nil
@@ -370,7 +387,11 @@ func (b *BOM) fillRecord(e *Entry, index uint32) error {
 	}
 	if len(rec) >= pathRecordSize {
 		linkLen := binary.BigEndian.Uint32(rec[27:31])
-		if e.Type == TypeLink && linkLen > 0 && int(pathRecordSize+linkLen) <= len(rec) {
+		// pathRecordSize is an untyped constant, so pathRecordSize+linkLen
+		// would be computed in uint32 and wrap for a large linkLen, passing a
+		// bound the slice below then overruns. Compare in uint64, which cannot
+		// wrap for these values, on every architecture.
+		if e.Type == TypeLink && linkLen > 0 && uint64(pathRecordSize)+uint64(linkLen) <= uint64(len(rec)) {
 			e.LinkTarget = cstring(rec[pathRecordSize : pathRecordSize+int(linkLen)])
 		}
 	}

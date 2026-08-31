@@ -75,7 +75,7 @@ func CheckRevocation(ctx context.Context, client *http.Client, cert, issuer *x50
 	// is not an answer.
 	var lastErr error
 	for _, responder := range cert.OCSPServer {
-		status, err := askResponder(ctx, client, responder, request, issuer)
+		status, err := askResponder(ctx, client, responder, request, cert, issuer)
 		if err != nil {
 			lastErr = err
 			continue
@@ -87,7 +87,7 @@ func CheckRevocation(ctx context.Context, client *http.Client, cert, issuer *x50
 }
 
 // askResponder posts one OCSP request and reads the answer.
-func askResponder(ctx context.Context, client *http.Client, responder string, request []byte, issuer *x509.Certificate) (*RevocationStatus, error) {
+func askResponder(ctx context.Context, client *http.Client, responder string, request []byte, cert, issuer *x509.Certificate) (*RevocationStatus, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, responder, bytes.NewReader(request))
 	if err != nil {
 		return nil, err
@@ -107,11 +107,28 @@ func askResponder(ctx context.Context, client *http.Client, responder string, re
 	if err != nil {
 		return nil, err
 	}
-	// ParseResponseForCert checks the responder's own signature against
-	// the issuer, so a forged answer is not believed.
-	parsed, err := ocsp.ParseResponse(body, issuer)
+	// ParseResponseForCert checks the responder's own signature against the
+	// issuer, so a forged answer is not believed, and binds the answer to
+	// cert's serial number. Passing a nil cert (as ParseResponse does) would
+	// accept a Good status issued for any certificate the same CA signed,
+	// including a throwaway leaf, so the revoked certificate would read as
+	// good.
+	parsed, err := ocsp.ParseResponseForCert(body, cert, issuer)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", responder, err)
+	}
+	// Refuse a stale answer. x/crypto/ocsp does not check the validity
+	// window, and the request carries no nonce (its RequestOptions has no
+	// field for one and it would not validate the echo), so without this a
+	// captured pre-revocation Good response replays indefinitely over the
+	// plaintext responder connection. A small skew tolerates clock drift.
+	const skew = 5 * time.Minute
+	now := time.Now()
+	if !parsed.ThisUpdate.IsZero() && parsed.ThisUpdate.After(now.Add(skew)) {
+		return nil, fmt.Errorf("%s: response is not yet valid (thisUpdate %s)", responder, parsed.ThisUpdate)
+	}
+	if !parsed.NextUpdate.IsZero() && parsed.NextUpdate.Before(now.Add(-skew)) {
+		return nil, fmt.Errorf("%s: response expired (nextUpdate %s)", responder, parsed.NextUpdate)
 	}
 	status := &RevocationStatus{Checked: true}
 	switch parsed.Status {

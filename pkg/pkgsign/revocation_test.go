@@ -175,3 +175,71 @@ func TestCheckRevocationNeedsBoth(t *testing.T) {
 		t.Error("a check with no certificate should fail")
 	}
 }
+
+// respondForSerial serves a Good status for a fixed serial, ignoring the
+// serial the request asked about: a substituted response a same-CA responder
+// (or a network attacker) could return to make a revoked certificate read as
+// good if the answer were not bound to the certificate under test.
+func respondForSerial(t *testing.T, serial *big.Int, issuer *x509.Certificate, issuerKey *rsa.PrivateKey) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		template := ocsp.Response{
+			Status:       ocsp.Good,
+			SerialNumber: serial,
+			ThisUpdate:   time.Now().Add(-time.Minute),
+			NextUpdate:   time.Now().Add(time.Hour),
+		}
+		resp, err := ocsp.CreateResponse(issuer, issuer, template, issuerKey)
+		if err != nil {
+			t.Errorf("building the response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/ocsp-response")
+		_, _ = w.Write(resp)
+	}))
+}
+
+// TestCheckRevocationRejectsMismatchedSerial pins F8: an OCSP answer for a
+// different certificate of the same CA must not settle this certificate.
+func TestCheckRevocationRejectsMismatchedSerial(t *testing.T) {
+	issuer, key := makeIssuer(t)
+	// The leaf has serial 2 (see makeLeaf); answer for serial 999 instead.
+	srv := respondForSerial(t, big.NewInt(999), issuer, key)
+	defer srv.Close()
+	leaf := makeLeaf(t, issuer, key, srv.URL)
+
+	_, err := CheckRevocation(context.Background(), srv.Client(), leaf, issuer)
+	if err == nil {
+		t.Fatal("a Good response for a different serial was accepted; the answer is not bound to the certificate")
+	}
+}
+
+// TestCheckRevocationRejectsStaleResponse pins F9: an expired response is a
+// replay and must not settle the certificate.
+func TestCheckRevocationRejectsStaleResponse(t *testing.T) {
+	issuer, key := makeIssuer(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		req, err := ocsp.ParseRequest(body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		template := ocsp.Response{
+			Status:       ocsp.Good,
+			SerialNumber: req.SerialNumber,
+			ThisUpdate:   time.Now().Add(-48 * time.Hour),
+			NextUpdate:   time.Now().Add(-24 * time.Hour), // expired yesterday
+		}
+		resp, _ := ocsp.CreateResponse(issuer, issuer, template, key)
+		w.Header().Set("Content-Type", "application/ocsp-response")
+		_, _ = w.Write(resp)
+	}))
+	defer srv.Close()
+	leaf := makeLeaf(t, issuer, key, srv.URL)
+
+	if _, err := CheckRevocation(context.Background(), srv.Client(), leaf, issuer); err == nil {
+		t.Fatal("an expired OCSP response was accepted")
+	}
+}
