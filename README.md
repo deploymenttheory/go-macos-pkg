@@ -267,7 +267,7 @@ the bare variable outranks `MACOSPKG_SOURCE_DATE_EPOCH`.
 | 2 | usage error |
 | 3 | not a flat package (missing, not a xar, or a xar without PackageInfo/Distribution) |
 | 4 | credentials missing or rejected (PKCS#12 password, key mismatch, notary API key) |
-| 5 | unsupported (Apple Archive payload, ownership on Windows, non-RSA key, >5 GiB upload) |
+| 5 | unsupported (Apple Archive payload, ownership on Windows, non-RSA key) |
 | 6 | partial result (some entries skipped) |
 | 7 | signature or ticket check failed, or no ticket available |
 | 8 | notarization rejected |

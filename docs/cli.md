@@ -82,7 +82,7 @@ Distinct codes exist so a script can branch without parsing text.
 | 2 | usage error | A flag is wrong or missing. Not retryable. |
 | 3 | not a flat package | Missing, not a xar, or a xar with no `PackageInfo` or `Distribution`. |
 | 4 | credentials missing or rejected | A password, key or API key is absent or wrong. Not retryable without new secrets. |
-| 5 | unsupported | An Apple Archive payload, ownership on Windows, a non-RSA key, an upload over 5 GiB. |
+| 5 | unsupported | An Apple Archive payload, ownership on Windows, a non-RSA key. |
 | 6 | partial result | Some entries were skipped. The output is usable but incomplete. |
 | 7 | signature or ticket check failed | Treat as a hard failure in a release job. |
 | 8 | notarization rejected | Apple refused the package. The log prints the issues. Not retryable unchanged. |
@@ -506,7 +506,28 @@ optionally wait for the verdict and staple the ticket.
 | `--poll-interval D` | `30s` | How often it polls. |
 | `--log` | off | Print the developer log when finished. Always printed on rejection. |
 | `--name N` | the file name | The submission name shown in App Store Connect. |
-| `--force` | off | Submit a package that is not signed. Apple will reject it; useful only for testing the pipeline. |
+| `--force` | off | Submit a file without checking it first. |
+| `--webhook URL` | none | A public URL for Apple to post the verdict to when notarization finishes, so a job need not sit and poll. |
+| `--s3-acceleration` | off | Upload through S3 transfer acceleration. |
+
+**What can be submitted.** Apple's service takes a flat package, a disk
+image or a zip archive. A package is opened and its signature checked
+before anything is uploaded, because that can be done locally and an
+unsigned package would only be rejected later. A `.dmg` or `.zip` goes up
+as it is: the signature that matters is on what it contains, which Apple
+checks and reports in the log. An `.app` bundle is a directory, so archive
+it first, which `notarize` says rather than letting the upload fail.
+
+`--force` skips the check entirely.
+
+**On `--s3-acceleration`.** `notarytool` turns this on by default. It is
+off here: whether Apple's bucket has acceleration enabled cannot be checked
+from outside, and an upload that fails outright is a worse trade than one
+that takes longer. Turn it on if it is faster for you.
+
+**Large files.** There is no size limit. A file over 5 GiB, which is what
+S3 will take in one request, is uploaded in parts, and a failure aborts the
+upload rather than leaving an incomplete one in Apple's bucket.
 
 Credentials come from `--key-id`, `--issuer-id` and `--private-key`
 (an App Store Connect `AuthKey.p8`), or from `APPLE_KEY_ID`,

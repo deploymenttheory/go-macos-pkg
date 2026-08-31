@@ -53,7 +53,7 @@ func (s *Status) Done() bool { return s.Status != StatusInProgress && s.Status !
 
 // Service is the notary API as this package uses it.
 type Service interface {
-	Submit(ctx context.Context, name, sha256Hex string) (*Submission, error)
+	Submit(ctx context.Context, name, sha256Hex string, o SubmitOptions) (*Submission, error)
 	Status(ctx context.Context, id string) (*Status, error)
 	LogURL(ctx context.Context, id string) (string, error)
 	List(ctx context.Context) ([]Status, error)
@@ -133,11 +133,20 @@ func NewService(c *Credentials, userAgent string) (Service, error) {
 	return &sdkService{client: client}, nil
 }
 
-func (s *sdkService) Submit(ctx context.Context, name, sha256Hex string) (*Submission, error) {
-	resp, _, err := s.client.NotaryAPI.Submissions.SubmitSoftwareV2(ctx, &submissions.NewSubmissionRequest{
+func (s *sdkService) Submit(ctx context.Context, name, sha256Hex string, o SubmitOptions) (*Submission, error) {
+	req := &submissions.NewSubmissionRequest{
 		SHA256:         sha256Hex,
 		SubmissionName: name,
-	})
+	}
+	if o.Webhook != "" {
+		// Apple posts the verdict to the URL when notarization finishes,
+		// so a build does not have to sit and poll for it. "webhook" is
+		// the only channel the service defines.
+		req.Notifications = []submissions.NewSubmissionRequestNotification{
+			{Channel: WebhookChannel, Target: o.Webhook},
+		}
+	}
+	resp, _, err := s.client.NotaryAPI.Submissions.SubmitSoftwareV2(ctx, req)
 	if err != nil {
 		return nil, apiError("submit", err)
 	}
@@ -206,13 +215,27 @@ func FileSHA256(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// WebhookChannel is the only notification channel Apple's notary service
+// defines.
+const WebhookChannel = "webhook"
+
+// SubmitOptions carries what a submission can ask for beyond its name and
+// its hash.
+type SubmitOptions struct {
+	// Webhook is a public URL Apple posts the verdict to when
+	// notarization finishes, so a job need not sit and poll. Apple's own
+	// documentation warns it is best effort: treat it as a way to be told
+	// sooner, not as the only way you will ever hear.
+	Webhook string
+}
+
 // Submit hashes the file, registers the submission and uploads the file.
-func Submit(ctx context.Context, svc Service, up Uploader, path, name string, progress func(written, total int64)) (*Submission, string, error) {
+func Submit(ctx context.Context, svc Service, up Uploader, path, name string, o SubmitOptions, progress func(written, total int64)) (*Submission, string, error) {
 	sum, err := FileSHA256(path)
 	if err != nil {
 		return nil, "", err
 	}
-	sub, err := svc.Submit(ctx, name, sum)
+	sub, err := svc.Submit(ctx, name, sum, o)
 	if err != nil {
 		return nil, sum, err
 	}

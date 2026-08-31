@@ -18,9 +18,13 @@ type fakeService struct {
 	calls    int
 	submits  []string
 	logURL   string
+	// submitOptions records what the last submission asked for, so a test
+	// can check a webhook reached the request.
+	submitOptions SubmitOptions
 }
 
-func (f *fakeService) Submit(_ context.Context, name, sha string) (*Submission, error) {
+func (f *fakeService) Submit(_ context.Context, name, sha string, o SubmitOptions) (*Submission, error) {
+	f.submitOptions = o
 	f.submits = append(f.submits, name+":"+sha)
 	return &Submission{ID: "sub-1", Creds: S3Credentials{AccessKeyID: "a", SecretAccessKey: "s", SessionToken: "t", Bucket: "b", Object: "o"}}, nil
 }
@@ -49,7 +53,7 @@ func TestSubmitAndWait(t *testing.T) {
 	os.WriteFile(path, []byte("hello"), 0o644)
 	svc := &fakeService{statuses: []string{StatusInProgress, StatusInProgress, StatusAccepted}}
 	up := &fakeUploader{}
-	sub, sum, err := Submit(context.Background(), svc, up, path, "x.pkg", nil)
+	sub, sum, err := Submit(context.Background(), svc, up, path, "x.pkg", SubmitOptions{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,5 +113,35 @@ func TestCredentials(t *testing.T) {
 	// A real ES256 key must be parseable by the SDK.
 	if _, err := NewService(&Credentials{KeyID: "K", IssuerID: "I", PrivateKey: []byte("junk")}, "test"); !errors.Is(err, ErrCredentials) {
 		t.Errorf("junk key: %v", err)
+	}
+}
+
+// TestSubmitCarriesAWebhook checks the notification reaches the request.
+//
+// A webhook is the difference between a build that waits for Apple and one
+// that gets told, so it is worth pinning that asking for one is not quietly
+// dropped on the way to the service.
+func TestSubmitCarriesAWebhook(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "x.pkg")
+	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc := &fakeService{statuses: []string{StatusAccepted}}
+	if _, _, err := Submit(context.Background(), svc, &fakeUploader{}, path, "x.pkg",
+		SubmitOptions{Webhook: "https://example.invalid/hook"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := svc.submitOptions.Webhook; got != "https://example.invalid/hook" {
+		t.Errorf("the submission did not carry the webhook: %q", got)
+	}
+
+	// And that asking for none leaves none, so a submission without one
+	// does not grow an empty notification.
+	svc = &fakeService{statuses: []string{StatusAccepted}}
+	if _, _, err := Submit(context.Background(), svc, &fakeUploader{}, path, "x.pkg", SubmitOptions{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if svc.submitOptions.Webhook != "" {
+		t.Errorf("a submission with no webhook asked for one: %q", svc.submitOptions.Webhook)
 	}
 }

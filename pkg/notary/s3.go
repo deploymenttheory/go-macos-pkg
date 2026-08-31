@@ -1,20 +1,26 @@
-// Uploading to the S3 bucket Apple's notary service hands out: one PUT,
-// signed with AWS Signature Version 4, using the temporary credentials
-// the submission response carries.
+// Uploading to the S3 bucket Apple's notary service hands out, signed with
+// AWS Signature Version 4 using the temporary credentials the submission
+// response carries.
+//
+// A file goes up in one PUT where S3 will take it, and in parts where it
+// will not: S3 refuses a single request over 5 GiB, which a package can
+// exceed.
 //
 // The region is not in Apple's documentation; us-west-2 is what every
 // working client uses.
 package notary
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
+	urlpkg "net/url"
 	"os"
 	"sort"
 	"strings"
@@ -24,8 +30,21 @@ import (
 // S3Region is where Apple's submission buckets live.
 const S3Region = "us-west-2"
 
-// maxSinglePut is S3's limit for one PUT.
+// maxSinglePut is S3's limit for one PUT. Anything larger has to go up in
+// parts, which is what multipartUpload does.
 const maxSinglePut = 5 << 30
+
+// DefaultPartSize is how much of the file each part carries when a upload
+// is split. S3 allows 5 MiB to 5 GiB per part and at most 10,000 parts, so
+// 100 MiB covers a terabyte while keeping a failed part cheap to retry.
+const DefaultPartSize = 100 << 20
+
+// minPartSize is S3's floor for every part but the last.
+const minPartSize = 5 << 20
+
+// accelerateHost is S3's transfer acceleration endpoint, which routes the
+// upload over Amazon's edge network rather than straight to the region.
+const accelerateHost = ".s3-accelerate.amazonaws.com"
 
 // S3Credentials are the temporary credentials a submission returns.
 type S3Credentials struct {
@@ -48,6 +67,16 @@ type S3Uploader struct {
 	Endpoint string
 	// Now overrides the clock (tests).
 	Now func() time.Time
+	// Accelerate routes the upload through S3 transfer acceleration.
+	//
+	// notarytool turns this on by default. It is off here, because
+	// whether Apple's bucket has acceleration enabled cannot be checked
+	// from outside, and an upload that fails outright is a worse trade
+	// than one that takes longer. Turn it on if it is faster for you.
+	Accelerate bool
+	// PartSize is how much each part of a split upload carries. Zero
+	// means DefaultPartSize.
+	PartSize int64
 }
 
 // NewS3Uploader returns an uploader with a generous timeout: a package
@@ -68,19 +97,9 @@ func (u *S3Uploader) Upload(ctx context.Context, creds S3Credentials, path, sha2
 	if err != nil {
 		return err
 	}
+	target := u.targetURL(creds)
 	if st.Size() > maxSinglePut {
-		return fmt.Errorf("%w: %d bytes exceeds the 5 GiB single-upload limit", ErrUnsupported, st.Size())
-	}
-
-	endpoint := u.Endpoint
-	if endpoint == "" {
-		endpoint = "https://" + creds.Bucket + ".s3." + S3Region + ".amazonaws.com"
-	}
-	target := endpoint + "/" + escapePath(creds.Object)
-	// Virtual-hosted URLs carry the bucket in the host; a test endpoint
-	// does not, so put it in the path there.
-	if u.Endpoint != "" {
-		target = endpoint + "/" + creds.Bucket + "/" + escapePath(creds.Object)
+		return u.multipartUpload(ctx, creds, f, st.Size(), target, progress)
 	}
 
 	const maxAttempts = 4
@@ -237,7 +256,7 @@ func signV4(req *http.Request, creds S3Credentials, region, service, payloadHash
 		creds.AccessKeyID, scope, signedHeaders, signature))
 }
 
-func canonicalPath(u *url.URL) string {
+func canonicalPath(u *urlpkg.URL) string {
 	p := u.EscapedPath()
 	if p == "" {
 		return "/"
@@ -247,11 +266,11 @@ func canonicalPath(u *url.URL) string {
 	return p
 }
 
-func canonicalQuery(u *url.URL) string {
+func canonicalQuery(u *urlpkg.URL) string {
 	if u.RawQuery == "" {
 		return ""
 	}
-	values, _ := url.ParseQuery(u.RawQuery)
+	values, _ := urlpkg.ParseQuery(u.RawQuery)
 	var keys []string
 	for k := range values {
 		keys = append(keys, k)
@@ -277,4 +296,221 @@ func hmacSHA256(key []byte, data string) []byte {
 	m := hmac.New(sha256.New, key)
 	m.Write([]byte(data))
 	return m.Sum(nil)
+}
+
+// targetURL is where the object goes.
+//
+// A real upload uses a virtual-hosted URL, where the bucket is part of the
+// host: either the regional endpoint or, with acceleration, Amazon's edge
+// one. A test endpoint has no bucket in its host, so the bucket goes in the
+// path instead.
+func (u *S3Uploader) targetURL(creds S3Credentials) string {
+	if u.Endpoint != "" {
+		return u.Endpoint + "/" + creds.Bucket + "/" + escapePath(creds.Object)
+	}
+	host := creds.Bucket + ".s3." + S3Region + ".amazonaws.com"
+	if u.Accelerate {
+		host = creds.Bucket + accelerateHost
+	}
+	return "https://" + host + "/" + escapePath(creds.Object)
+}
+
+// partSize is how much of the file each part carries.
+func (u *S3Uploader) partSize(size int64) int64 {
+	part := u.PartSize
+	if part <= 0 {
+		part = DefaultPartSize
+	}
+	if part < minPartSize {
+		part = minPartSize
+	}
+	// S3 takes at most 10,000 parts, so a big enough file needs bigger
+	// parts however small the caller asked for.
+	if needed := (size + maxParts - 1) / maxParts; needed > part {
+		part = needed
+	}
+	return part
+}
+
+// maxParts is S3's limit on how many parts one upload may have.
+const maxParts = 10000
+
+// completedPart is one finished part, as the completion request names it.
+type completedPart struct {
+	PartNumber int    `xml:"PartNumber"`
+	ETag       string `xml:"ETag"`
+}
+
+// multipartUpload sends a file too large for one request, in parts.
+//
+// Every part is signed on its own, so each is hashed before it is sent: the
+// file is read twice, once to hash and once to upload, rather than held in
+// memory. A failure aborts the upload, so a half-finished one does not sit
+// in Apple's bucket accruing storage nobody asked for.
+func (u *S3Uploader) multipartUpload(ctx context.Context, creds S3Credentials, f *os.File, size int64, target string, progress func(written, total int64)) error {
+	uploadID, err := u.startMultipart(ctx, creds, target)
+	if err != nil {
+		return err
+	}
+	parts, err := u.uploadParts(ctx, creds, f, size, target, uploadID, progress)
+	if err != nil {
+		// Best effort: the upload has already failed, and the abort
+		// failing too is not what the caller needs to hear about.
+		if aerr := u.abortMultipart(ctx, creds, target, uploadID); aerr != nil {
+			// Nothing to do but leave a trace for a reader of the logs.
+			err = fmt.Errorf("%w (the incomplete upload could not be aborted: %v)", err, aerr)
+		}
+		return err
+	}
+	return u.completeMultipart(ctx, creds, target, uploadID, parts)
+}
+
+// uploadParts sends each part in turn and collects what completion needs.
+func (u *S3Uploader) uploadParts(ctx context.Context, creds S3Credentials, f *os.File, size int64, target, uploadID string, progress func(written, total int64)) ([]completedPart, error) {
+	part := u.partSize(size)
+	var parts []completedPart
+	var sent int64
+	for offset, number := int64(0), 1; offset < size; number++ {
+		length := part
+		if remaining := size - offset; remaining < length {
+			length = remaining
+		}
+		sum, err := hashSection(f, offset, length)
+		if err != nil {
+			return nil, err
+		}
+		etag, err := u.uploadPart(ctx, creds, f, offset, length, target, uploadID, number, sum, func(written int64) {
+			if progress != nil {
+				progress(sent+written, size)
+			}
+		})
+		if err != nil {
+			return nil, fmt.Errorf("notary: part %d: %w", number, err)
+		}
+		parts = append(parts, completedPart{PartNumber: number, ETag: etag})
+		offset += length
+		sent += length
+	}
+	return parts, nil
+}
+
+// hashSection returns the SHA-256 of a stretch of the file, which is what
+// signing a part needs.
+func hashSection(f *os.File, offset, length int64) (string, error) {
+	h := sha256.New()
+	if _, err := io.Copy(h, io.NewSectionReader(f, offset, length)); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// startMultipart asks S3 to open an upload and returns its identifier.
+func (u *S3Uploader) startMultipart(ctx context.Context, creds S3Credentials, target string) (string, error) {
+	body, err := u.do(ctx, creds, http.MethodPost, target+"?uploads=", nil, 0, emptyPayloadHash)
+	if err != nil {
+		return "", fmt.Errorf("notary: starting a multipart upload: %w", err)
+	}
+	var out struct {
+		UploadID string `xml:"UploadId"`
+	}
+	if err := xml.Unmarshal(body, &out); err != nil || out.UploadID == "" {
+		return "", fmt.Errorf("notary: S3 did not return an upload id: %s", strings.TrimSpace(string(body)))
+	}
+	return out.UploadID, nil
+}
+
+// uploadPart sends one part and returns the ETag completion will quote.
+func (u *S3Uploader) uploadPart(ctx context.Context, creds S3Credentials, f *os.File, offset, length int64, target, uploadID string, number int, sum string, progress func(int64)) (string, error) {
+	url := fmt.Sprintf("%s?partNumber=%d&uploadId=%s", target, number, urlpkg.QueryEscape(uploadID))
+	section := io.NewSectionReader(f, offset, length)
+	body := &progressReader{r: section, total: length, fn: func(written, _ int64) { progress(written) }}
+	resp, err := u.doRequest(ctx, creds, http.MethodPut, url, body, length, sum)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10)); err != nil {
+		return "", err
+	}
+	etag := resp.Header.Get("ETag")
+	if etag == "" {
+		return "", fmt.Errorf("S3 returned no ETag for part %d", number)
+	}
+	return etag, nil
+}
+
+// completeMultipart tells S3 the parts are all there.
+func (u *S3Uploader) completeMultipart(ctx context.Context, creds S3Credentials, target, uploadID string, parts []completedPart) error {
+	payload, err := xml.Marshal(struct {
+		XMLName xml.Name        `xml:"CompleteMultipartUpload"`
+		Parts   []completedPart `xml:"Part"`
+	}{Parts: parts})
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(payload)
+	url := target + "?uploadId=" + urlpkg.QueryEscape(uploadID)
+	body, err := u.do(ctx, creds, http.MethodPost, url, bytes.NewReader(payload), int64(len(payload)), hex.EncodeToString(sum[:]))
+	if err != nil {
+		return fmt.Errorf("notary: completing the upload: %w", err)
+	}
+	// S3 can report a failure inside a 200 response on this call alone,
+	// so the body has to be read rather than trusted.
+	if bytes.Contains(body, []byte("<Error")) {
+		return fmt.Errorf("notary: completing the upload: %s", strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+// abortMultipart discards an upload that will not be completed.
+func (u *S3Uploader) abortMultipart(ctx context.Context, creds S3Credentials, target, uploadID string) error {
+	_, err := u.do(ctx, creds, http.MethodDelete, target+"?uploadId="+urlpkg.QueryEscape(uploadID), nil, 0, emptyPayloadHash)
+	return err
+}
+
+// emptyPayloadHash is the SHA-256 of no bytes, which S3 wants on a request
+// that carries no body.
+const emptyPayloadHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+// do performs a signed request and returns its body.
+func (u *S3Uploader) do(ctx context.Context, creds S3Credentials, method, url string, body io.Reader, length int64, payloadHash string) ([]byte, error) {
+	resp, err := u.doRequest(ctx, creds, method, url, body, length, payloadHash)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+}
+
+// doRequest signs and sends one request, and fails on any status that is
+// not a success. The caller closes the body.
+func (u *S3Uploader) doRequest(ctx context.Context, creds S3Credentials, method, url string, body io.Reader, length int64, payloadHash string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		return nil, err
+	}
+	req.ContentLength = length
+	if length > 0 {
+		req.Header.Set("Content-Type", "application/octet-stream")
+	}
+	now := time.Now().UTC()
+	if u.Now != nil {
+		now = u.Now().UTC()
+	}
+	signV4(req, creds, S3Region, "s3", payloadHash, now)
+
+	client := u.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		resp.Body.Close()
+		return nil, fmt.Errorf("S3 returned %s: %s", resp.Status, strings.TrimSpace(string(msg)))
+	}
+	return resp, nil
 }

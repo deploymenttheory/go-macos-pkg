@@ -117,9 +117,17 @@ marker extensions are accepted, and the chain reaches the built-in Apple
 Root CA. No revocation checking.
 
 ¹⁰ The four notary API calls go through `deploymenttheory/go-sdk-appleservices`;
-the S3 upload (single PUT, 5 GiB limit), polling and log download are
-here. The end-to-end job needs Developer ID secrets and runs on the main
-repository's CI only.
+the S3 upload, polling and log download are here. A file over 5 GiB, which
+is S3's limit for one request, goes up in parts, and a failed upload is
+aborted rather than left incomplete in Apple's bucket. `--webhook` asks
+Apple to post the verdict rather than being polled for it. Two deliberate
+differences from `notarytool`: S3 transfer acceleration is off by default,
+since whether Apple's bucket allows it cannot be checked from outside, and
+authentication is by App Store Connect API key only. `notarytool` also
+accepts an Apple ID with an app-specific password, which is not part of the
+documented Notary REST API, and guessing at an undocumented endpoint that
+handles credentials is not a trade worth making. The end-to-end job needs
+Developer ID secrets and runs on the main repository's CI only.
 
 ¹¹ Expanding and flattening a package returns every entry unchanged, byte
 for byte, except the `Scripts` archives, which are built afresh from the
