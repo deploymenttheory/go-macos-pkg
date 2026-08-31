@@ -49,6 +49,13 @@ func decodeLZ4Frames(src []byte, expected int) ([]byte, error) {
 			if decoded > lz4BlockSize*16 || pos+encoded > len(src) {
 				return nil, fmt.Errorf("lz4: implausible block (%d decoded, %d encoded)", decoded, encoded)
 			}
+			// The declared decoded size is the caller's contract; enforce it
+			// here rather than only afterwards, so a stream of many blocks
+			// cannot build gigabytes in memory before the size mismatch is
+			// noticed.
+			if len(out)+decoded > expected {
+				return nil, fmt.Errorf("lz4: decoded output exceeds the expected %d bytes", expected)
+			}
 			dst := make([]byte, decoded)
 			n, err := lz4.UncompressBlock(src[pos:pos+encoded], dst)
 			if err != nil {
@@ -67,6 +74,9 @@ func decodeLZ4Frames(src []byte, expected int) ([]byte, error) {
 			pos += 4
 			if pos+size > len(src) {
 				return nil, errors.New("lz4: truncated raw block")
+			}
+			if len(out)+size > expected {
+				return nil, fmt.Errorf("lz4: decoded output exceeds the expected %d bytes", expected)
 			}
 			out = append(out, src[pos:pos+size]...)
 			pos += size

@@ -57,7 +57,7 @@ func init() {
 	f.StringVar(&verifyTeamID, "team-id", "", "require this Apple team identifier")
 	f.StringVar(&verifyAnchors, "trust-anchors", "", "PEM file of root certificates to trust instead of Apple's")
 	f.BoolVar(&verifyAllowUntrusted, "allow-untrusted", false, "report an untrusted chain without failing")
-	f.BoolVar(&verifyRequireStapled, "require-stapled", false, "fail unless a notarization ticket is stapled")
+	f.BoolVar(&verifyRequireStapled, "require-stapled", false, "fail unless a notarization ticket is present (its structure, not its Apple signature; use --online to confirm notarization with Apple)")
 	f.BoolVar(&verifyRequireDevID, "require-developer-id", false, "fail unless the signer is a Developer ID Installer certificate")
 	f.BoolVar(&verifyOnline, "online", false, "ask Apple's ticket database whether this exact package was notarized")
 	f.BoolVar(&verifyRevocation, "revocation", false, "ask the certificate authority whether the signing certificate has been revoked since it was issued, which chain verification cannot tell you")
@@ -151,6 +151,11 @@ func runVerify(cmd *cobra.Command, args []string) error {
 	}
 	if f, err := os.Open(p.Path); err == nil {
 		if st, err := f.Stat(); err == nil {
+			// staple.Read checks the trailer structure and the "s8ch" prefix
+			// only; the ticket is an Apple-signed CMS blob whose signature is
+			// not verified here (that needs Apple's ticket-signing chain and
+			// the notary service). So Stapled means "a ticket is present",
+			// not "notarized" - --online settles the latter with Apple.
 			if _, err := staple.Read(f, st.Size()); err == nil {
 				report.Stapled = true
 			}

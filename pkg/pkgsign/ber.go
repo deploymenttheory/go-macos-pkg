@@ -12,10 +12,16 @@ import (
 
 var errBER = errors.New("pkgsign: malformed BER")
 
+// maxBERDepth bounds the nesting berToDER will follow. Apple's CMS nests
+// well under ten deep; a stream of constructed indefinite-length headers
+// (30 80 30 80 ...) otherwise recurses once per two input bytes, and each
+// level re-copies its content, which is O(n^2) work and O(n) stack frames.
+const maxBERDepth = 64
+
 // berToDER re-encodes data with definite lengths. DER input passes
 // through unchanged in value (and nearly always in bytes).
 func berToDER(data []byte) ([]byte, error) {
-	out, rest, err := berElement(data)
+	out, rest, err := berElement(data, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +33,10 @@ func berToDER(data []byte) ([]byte, error) {
 
 // berElement converts one TLV at the start of data, returning its DER
 // form and the bytes that follow it.
-func berElement(data []byte) (der []byte, rest []byte, err error) {
+func berElement(data []byte, depth int) (der []byte, rest []byte, err error) {
+	if depth > maxBERDepth {
+		return nil, nil, fmt.Errorf("%w: nested deeper than %d", errBER, maxBERDepth)
+	}
 	if len(data) < 2 {
 		return nil, nil, errBER
 	}
@@ -66,7 +75,7 @@ func berElement(data []byte) (der []byte, rest []byte, err error) {
 				p += 2
 				break
 			}
-			child, r, err := berElement(data[p:])
+			child, r, err := berElement(data[p:], depth+1)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -85,7 +94,7 @@ func berElement(data []byte) (der []byte, rest []byte, err error) {
 		if constructed {
 			// Definite-length constructed: its children may still use
 			// indefinite lengths, so convert them too.
-			c, err := berChildren(content)
+			c, err := berChildren(content, depth+1)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -108,7 +117,7 @@ func berElement(data []byte) (der []byte, rest []byte, err error) {
 		content = data[p : p+n]
 		p += n
 		if constructed {
-			c, err := berChildren(content)
+			c, err := berChildren(content, depth+1)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -129,10 +138,10 @@ func berElement(data []byte) (der []byte, rest []byte, err error) {
 }
 
 // berChildren converts every element in a constructed body.
-func berChildren(body []byte) ([][]byte, error) {
+func berChildren(body []byte, depth int) ([][]byte, error) {
 	var out [][]byte
 	for len(body) > 0 {
-		child, rest, err := berElement(body)
+		child, rest, err := berElement(body, depth)
 		if err != nil {
 			return nil, err
 		}

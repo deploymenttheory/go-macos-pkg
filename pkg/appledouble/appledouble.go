@@ -229,6 +229,19 @@ func Decode(b []byte) (*File, error) {
 		return nil, fmt.Errorf("appledouble: truncated entry table")
 	}
 	f := &File{}
+	// A real sidecar stores each region (resource fork, attribute values)
+	// once and contiguously, so the bytes copied out can never exceed the
+	// file. Without this budget a table of many entries, or many attributes,
+	// each pointing at the same near-whole-file region would have every copy
+	// retained: O(entries x len(b)) memory from a small input.
+	copyBudget := len(b)
+	spend := func(nbytes int) error {
+		copyBudget -= nbytes
+		if copyBudget < 0 {
+			return fmt.Errorf("appledouble: copied data exceeds the file size")
+		}
+		return nil
+	}
 	var finderOff, finderLen int
 	for i := 0; i < n; i++ {
 		e := b[26+12*i:]
@@ -242,6 +255,9 @@ func Decode(b []byte) (*File, error) {
 		case entryFinder:
 			finderOff, finderLen = off, length
 		case entryResource:
+			if err := spend(length); err != nil {
+				return nil, err
+			}
 			f.ResourceFork = append([]byte(nil), b[off:off+length]...)
 		}
 	}
@@ -282,6 +298,9 @@ func Decode(b []byte) (*File, error) {
 		name := string(bytes.TrimRight(e[11:11+nameLen], "\x00"))
 		if valOff < 0 || valLen < 0 || valOff > len(b) || valLen > len(b)-valOff {
 			return nil, fmt.Errorf("appledouble: attribute %s value outside the file", name)
+		}
+		if err := spend(valLen); err != nil {
+			return nil, err
 		}
 		f.Attrs = append(f.Attrs, Attr{Name: name, Value: append([]byte(nil), b[valOff:valOff+valLen]...)})
 		// Advance by the length the record declared, not by the trimmed

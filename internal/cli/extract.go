@@ -119,7 +119,22 @@ func runExtract(cmd *cobra.Command, args []string) error {
 	for _, c := range components {
 		dir := args[1]
 		if len(components) > 1 && c.Name != "" {
-			dir = filepath.Join(args[1], filepath.FromSlash(c.Name))
+			// The component name comes from the archive's table of contents,
+			// so it is checked like any other entry name before it becomes an
+			// extraction directory. An unchecked "../.." here would anchor the
+			// whole payload, and the os.Root that guards every write, outside
+			// the directory the user named, defeating that protection.
+			rel, _, reason := flatpkg.SafeRelPath(c.Name)
+			if reason != "" {
+				report.Components = append(report.Components, componentReport{
+					Component: c.Name, Dir: args[1],
+					Renamed: []string{}, Skipped: []string{c.Name + ": " + reason},
+					Mismatched: []string{}, Unlisted: []string{}, Absent: []string{},
+				})
+				report.Partial = true
+				continue
+			}
+			dir = filepath.Join(args[1], filepath.FromSlash(rel))
 		}
 		o := flatpkg.ExtractOptions{
 			Pattern:     pattern,

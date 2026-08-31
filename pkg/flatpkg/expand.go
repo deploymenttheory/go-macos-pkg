@@ -169,7 +169,15 @@ func (p *Package) Expand(dir string, o ExpandOptions) (*ExpandResult, error) {
 			continue
 		}
 		entry := c.Entry(EntryPayload)
-		target := filepath.Join(baseRel, filepath.FromSlash(entry.Name()))
+		// entry.Name() is an archive-supplied name and becomes an extraction
+		// directory (and, in --full, an os.Root anchor), so it is checked for
+		// traversal like every other name rather than trusted.
+		entryRel, _, reason := SafeRelPath(entry.Name())
+		if reason != "" {
+			res.Skipped = append(res.Skipped, Skip{Path: entry.Name(), Reason: reason})
+			continue
+		}
+		target := filepath.Join(baseRel, filepath.FromSlash(entryRel))
 		if !o.Full {
 			if o.Verify {
 				if err := x.Verify(entry); err != nil {

@@ -104,9 +104,22 @@ func sniffEntry(p *Package, path string) (PayloadEncoding, error) {
 	return SniffPayload(head[:n]), nil
 }
 
+// maxPayloadNesting bounds how many compression layers OpenCPIO will peel.
+// A real payload is a plain cpio, or one gzip or pbzx layer around it; a
+// deeply nested gzip chain is a decompression bomb, since each layer
+// compresses to a few tens of bytes.
+const maxPayloadNesting = 8
+
 // OpenCPIO unwraps a Payload or Scripts stream to its cpio entries,
 // whatever container it is in.
 func OpenCPIO(r io.Reader) (*cpio.Reader, PayloadEncoding, error) {
+	return openCPIO(r, 0)
+}
+
+func openCPIO(r io.Reader, depth int) (*cpio.Reader, PayloadEncoding, error) {
+	if depth > maxPayloadNesting {
+		return nil, PayloadUnknown, fmt.Errorf("%w: payload nested more than %d layers deep", ErrUnsupportedPayload, maxPayloadNesting)
+	}
 	br := bufio.NewReaderSize(r, 64<<10)
 	head, err := br.Peek(8)
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -121,7 +134,7 @@ func OpenCPIO(r io.Reader) (*cpio.Reader, PayloadEncoding, error) {
 		}
 		// pkgbuild gzips a plain cpio, but be safe: a gzip around pbzx
 		// would be unusual, not impossible.
-		inner, innerEnc, err := OpenCPIO(gz)
+		inner, innerEnc, err := openCPIO(gz, depth+1)
 		if err != nil {
 			return nil, enc, err
 		}
