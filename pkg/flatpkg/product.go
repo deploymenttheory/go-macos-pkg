@@ -31,6 +31,21 @@ type ProductOptions struct {
 	// Distribution's architectures, domains, volume-check and
 	// installation-check.
 	Requirements *ProductRequirements
+	// Output is the archive's own path. Only the one-step modes need it,
+	// to name the component they build after it, as productbuild does.
+	Output string
+	// GeneratorVersion is written into any component built here.
+	GeneratorVersion string
+	// Root is a destination root to package as a component and embed, as
+	// productbuild --root does, installing at RootInstallPath.
+	Root            string
+	RootInstallPath string
+	// Content is a directory to package as a component and embed, as
+	// productbuild --content does.
+	Content string
+	// Components are bundles to package as components and embed, as
+	// productbuild --component does.
+	Components []ProductComponent
 	// UI names the interface a synthesised choices-outline is for, as
 	// productbuild --ui does. "mas" marks an outline meant for the Mac App
 	// Store. A distribution may carry several outlines and pick between
@@ -79,12 +94,21 @@ type ProductResult struct {
 
 // BuildProduct writes a product archive to out.
 func BuildProduct(o ProductOptions, out io.Writer) (*ProductResult, error) {
-	if len(o.Packages) == 0 {
-		return nil, fmt.Errorf("flatpkg: at least one component package is required")
-	}
 	archiveTime := time.Now()
 	if !o.Epoch.IsZero() {
 		archiveTime = o.Epoch
+	}
+
+	// The one-step modes build their component first, then carry on as if
+	// it had been given with --package.
+	built, locations, cleanup, err := buildInlineComponents(&o, archiveTime)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	o.Packages = append(append([]string{}, built...), o.Packages...)
+	if len(o.Packages) == 0 {
+		return nil, fmt.Errorf("flatpkg: at least one component package is required")
 	}
 
 	// Open every component first: the Distribution needs their identity.
@@ -121,6 +145,12 @@ func BuildProduct(o ProductOptions, out io.Writer) (*ProductResult, error) {
 		r := synthRef{ID: info.Identifier, Version: info.Version, Path: c.name}
 		if info.Payload != nil {
 			r.InstallKBytes = info.Payload.InstallKBytes
+		}
+		if loc, ok := locations[c.name]; ok {
+			r.CustomLocation = loc.installPath
+			r.Bundle = loc.bundle
+			r.ShortVersion = loc.shortVersion
+			r.Title = loc.title
 		}
 		refs = append(refs, r)
 	}
@@ -281,12 +311,34 @@ func addResources(w *xar.Writer, dir string, hdr, dirHdr xar.FileHeader, progres
 // done so since Big Sur.
 var DefaultHostArchitectures = []string{"x86_64", "arm64"}
 
+// ProductComponent is one bundle to package in place and embed.
+type ProductComponent struct {
+	Path string
+	// InstallPath is where the bundle installs, and becomes the choice's
+	// customLocation. Empty leaves the component's own location to stand.
+	InstallPath string
+}
+
 // synthRef is what a synthesised Distribution needs to know per package.
 type synthRef struct {
 	ID            string
 	Version       string
 	Path          string
 	InstallKBytes int
+	// CustomLocation overrides where the package installs, and is what
+	// the install-path argument of --root or --component becomes.
+	CustomLocation string
+	// Bundle, when the package was built from a single bundle, is written
+	// into the reference's bundle-version so the Installer can version
+	// check it without opening the payload.
+	Bundle *Bundle
+	// ShortVersion is the bundle's CFBundleShortVersionString, unpadded,
+	// which is what the product element and the default choice's versStr
+	// carry. Version alongside it is the padded three-part form.
+	ShortVersion string
+	// Title is the bundle's CFBundleName, which titles both the product
+	// and the choices when a product is built straight from a bundle.
+	Title string
 }
 
 // synthesiseDistribution writes the Distribution that productbuild puts
@@ -324,25 +376,56 @@ func synthesiseDistribution(o ProductOptions, refs []synthRef, embedded bool) []
 	// productbuild synthesises straight into an archive does not carry it.
 	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>` + "\n")
 	fmt.Fprintf(&b, "<installer-gui-script minSpecVersion=%s>\n", attr(o.Requirements.MinSpecVersion(o.MinOSVersion)))
-	if o.Title != "" {
-		fmt.Fprintf(&b, "    <title>%s</title>\n", xmlEscape(o.Title))
+	// The stubs productbuild writes ahead of <options>, one per package.
+	// Embedding fills each one in with a bundle-version element.
+	for _, r := range refs {
+		switch {
+		case !embedded:
+			fmt.Fprintf(&b, "    <pkg-ref id=%s/>\n", attr(choiceID(r.ID)))
+		case r.Bundle != nil:
+			// A component built from one bundle carries that bundle's
+			// details, so the Installer can version check without
+			// opening the payload.
+			fmt.Fprintf(&b, "    <pkg-ref id=%s>\n        <bundle-version>\n            <bundle", attr(choiceID(r.ID)))
+			if v := r.Bundle.CFBundleShortVersionString; v != "" {
+				fmt.Fprintf(&b, " CFBundleShortVersionString=%s", attr(v))
+			}
+			if v := r.Bundle.CFBundleVersion; v != "" {
+				fmt.Fprintf(&b, " CFBundleVersion=%s", attr(v))
+			}
+			fmt.Fprintf(&b, " id=%s path=%s/>\n        </bundle-version>\n    </pkg-ref>\n",
+				attr(r.Bundle.ID), attr(r.Bundle.Path))
+		default:
+			fmt.Fprintf(&b, "    <pkg-ref id=%s>\n        <bundle-version/>\n    </pkg-ref>\n", attr(choiceID(r.ID)))
+		}
 	}
-	if o.ProductID != "" {
-		fmt.Fprintf(&b, "    <product id=%s", attr(o.ProductID))
-		if o.ProductVersion != "" {
-			fmt.Fprintf(&b, " version=%s", attr(o.ProductVersion))
+
+	// productbuild writes the product element after the stubs, and takes
+	// its identity from the bundle where one component is a bundle.
+	productID, productVersion := o.ProductID, o.ProductVersion
+	for _, r := range refs {
+		if r.Bundle != nil && productID == "" {
+			productID, productVersion = r.Bundle.ID, r.ShortVersion
+		}
+	}
+	if productID != "" {
+		fmt.Fprintf(&b, "    <product id=%s", attr(productID))
+		if productVersion != "" {
+			fmt.Fprintf(&b, " version=%s", attr(productVersion))
 		}
 		b.WriteString("/>\n")
 	}
 
-	// The stubs productbuild writes ahead of <options>, one per package.
-	// Embedding fills each one in with a bundle-version element.
+	// The title comes after the product element, and a product built from
+	// a bundle takes the bundle's own name where none was given.
+	title := o.Title
 	for _, r := range refs {
-		if embedded {
-			fmt.Fprintf(&b, "    <pkg-ref id=%s>\n        <bundle-version/>\n    </pkg-ref>\n", attr(choiceID(r.ID)))
-		} else {
-			fmt.Fprintf(&b, "    <pkg-ref id=%s/>\n", attr(choiceID(r.ID)))
+		if title == "" {
+			title = r.Title
 		}
+	}
+	if title != "" {
+		fmt.Fprintf(&b, "    <title>%s</title>\n", xmlEscape(title))
 	}
 
 	archs := o.HostArchitectures
@@ -372,13 +455,34 @@ func synthesiseDistribution(o ProductOptions, refs []synthRef, embedded bool) []
 		fmt.Fprintf(&b, "            <line choice=%s/>\n", attr(choiceID(r.ID)))
 	}
 	b.WriteString("        </line>\n    </choices-outline>\n")
-	fmt.Fprintf(&b, "    <choice id=%s/>\n", attr(topChoice))
+	versStr := ""
+	for _, r := range refs {
+		if r.ShortVersion != "" && versStr == "" {
+			versStr = r.ShortVersion
+		}
+	}
+	fmt.Fprintf(&b, "    <choice id=%s", attr(topChoice))
+	if title != "" {
+		fmt.Fprintf(&b, " title=%s", attr(title))
+	}
+	if versStr != "" {
+		fmt.Fprintf(&b, " versStr=%s", attr(versStr))
+	}
+	b.WriteString("/>\n")
 
 	// Each choice is followed by its own pkg-ref, interleaved. Only an
 	// embedded document carries the sizes and the "#" that names an entry
 	// inside the archive; a synthesised file names the package itself.
 	for _, r := range refs {
-		fmt.Fprintf(&b, "    <choice id=%s visible=\"false\">\n        <pkg-ref id=%s/>\n    </choice>\n", attr(choiceID(r.ID)), attr(choiceID(r.ID)))
+		fmt.Fprintf(&b, "    <choice id=%s", attr(choiceID(r.ID)))
+		if r.Title != "" {
+			fmt.Fprintf(&b, " title=%s", attr(r.Title))
+		}
+		b.WriteString(` visible="false"`)
+		if r.CustomLocation != "" {
+			fmt.Fprintf(&b, " customLocation=%s", attr(r.CustomLocation))
+		}
+		fmt.Fprintf(&b, ">\n        <pkg-ref id=%s/>\n    </choice>\n", attr(choiceID(r.ID)))
 		fmt.Fprintf(&b, "    <pkg-ref id=%s version=%s onConclusion=\"none\"", attr(choiceID(r.ID)), attr(r.Version))
 		if embedded {
 			fmt.Fprintf(&b, " installKBytes=%s updateKBytes=\"0\"", attr(strconv.Itoa(r.InstallKBytes)))
@@ -732,4 +836,120 @@ func declaredID(declared []string, id string) bool {
 		}
 	}
 	return false
+}
+
+// inlineLocation is what a one-step mode knows about the component it built
+// that reading the component back would not tell the Distribution.
+type inlineLocation struct {
+	installPath  string
+	bundle       *Bundle
+	shortVersion string
+	title        string
+}
+
+// buildInlineComponents packages whatever --root, --content and --component
+// named, and returns the component packages, what the Distribution needs to
+// say about each, and a function to clean up the scratch files.
+//
+// productbuild names each of these components for itself: a root or a
+// content directory takes the output's own base name, and a bundle takes its
+// identifier. The version is 0 for a root or a directory, since there is
+// nothing to read one from, and the bundle's own for a bundle.
+func buildInlineComponents(o *ProductOptions, archiveTime time.Time) (paths []string, locations map[string]inlineLocation, cleanup func(), err error) {
+	locations = map[string]inlineLocation{}
+	cleanup = func() {}
+	if o.Root == "" && o.Content == "" && len(o.Components) == 0 {
+		return nil, locations, cleanup, nil
+	}
+
+	scratch := o.TempDir
+	if scratch == "" {
+		scratch = os.TempDir()
+	}
+	dir, err := os.MkdirTemp(scratch, "macospkg-inline-*")
+	if err != nil {
+		return nil, nil, cleanup, err
+	}
+	cleanup = func() { _ = os.RemoveAll(dir) }
+
+	build := func(co ComponentOptions, name string, loc inlineLocation) error {
+		out := filepath.Join(dir, name)
+		f, ferr := os.Create(out)
+		if ferr != nil {
+			return ferr
+		}
+		defer f.Close()
+		co.Epoch = o.Epoch
+		co.TempDir = o.TempDir
+		co.GeneratorVersion = o.GeneratorVersion
+		if _, berr := BuildComponent(co, f); berr != nil {
+			return berr
+		}
+		paths = append(paths, out)
+		locations[name] = loc
+		return nil
+	}
+
+	// A root and a content directory are the same build with a different
+	// default install location, and both are named after the output.
+	for _, m := range []struct {
+		dir, installLocation string
+		custom               bool
+	}{
+		{o.Root, o.RootInstallPath, true},
+		{o.Content, "", false},
+	} {
+		if m.dir == "" {
+			continue
+		}
+		// Both take the source directory's own name, not the archive's.
+		name := filepath.Base(filepath.Clean(m.dir))
+		loc := inlineLocation{}
+		if m.custom {
+			loc.installPath = m.installLocation
+		}
+		if err = build(ComponentOptions{
+			Root:            m.dir,
+			Identifier:      name,
+			Version:         "0",
+			InstallLocation: m.installLocation,
+		}, name+".pkg", loc); err != nil {
+			return nil, nil, cleanup, err
+		}
+	}
+
+	for _, c := range o.Components {
+		id, ierr := InferFromBundle(c.Path)
+		if ierr != nil {
+			return nil, nil, cleanup, ierr
+		}
+		bundles, berr := findBundles(filepath.Dir(filepath.Clean(c.Path)))
+		if berr != nil {
+			return nil, nil, cleanup, berr
+		}
+		var b *Bundle
+		for i := range bundles {
+			if rootRelative(bundles[i].Path) == filepath.Base(filepath.Clean(c.Path)) {
+				// The Distribution names the bundle by its path within
+				// the payload, with no leading "./".
+				copyOf := bundles[i]
+				copyOf.Path = rootRelative(copyOf.Path)
+				b = &copyOf
+				break
+			}
+		}
+		loc := inlineLocation{installPath: c.InstallPath, bundle: b, title: id.Name}
+		if b != nil {
+			loc.shortVersion = b.CFBundleShortVersionString
+		}
+		if err = build(ComponentOptions{
+			Components:      []string{c.Path},
+			Identifier:      id.Identifier,
+			Version:         id.Version,
+			InstallLocation: c.InstallPath,
+		}, id.Identifier+".pkg", loc); err != nil {
+			return nil, nil, cleanup, err
+		}
+	}
+	return paths, locations, cleanup, nil
 }

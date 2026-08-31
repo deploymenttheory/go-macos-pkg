@@ -320,7 +320,10 @@ This is the form to distribute and the form notarization expects.
 
 | Flag | What it does |
 |---|---|
-| `--package PKG` | A component package to embed. Repeatable. Required. |
+| `--package PKG` | A component package to add. Repeatable. |
+| `--root DIR`, `--root-install-path PATH` | Package a directory tree as its own component. productbuild spells the install path as a second argument to `--root`. |
+| `--content DIR` | Package a directory's contents as their own component, for in-app content. |
+| `--component BUNDLE[:INSTALL_PATH]` | Package a bundle as its own component, reading its identity from `Info.plist`. Repeatable. |
 | `--distribution FILE` | Use this Distribution instead of synthesising one, naming its packages by file name. |
 | `--package-path DIR` | Where to look for the packages a `--distribution` names. Repeatable; the working directory is searched too. |
 | `--synthesize` | Write the synthesised Distribution to the output path instead of building an archive. |
@@ -383,6 +386,13 @@ that one attribute. Both match productbuild.
 
 A document that already names archive entries is left exactly as it is, so
 expanding a package and building it again gives back the same bytes.
+
+**Building the payload here.** `--root`, `--content` and `--component`
+save a separate `build` step. Each names the component after its source
+rather than after the archive, and gives it version `0` unless it can read
+one: `--component` takes the identifier, the version and the title from the
+bundle's `Info.plist`, and records the bundle's details in the Distribution
+so the Installer can version check without opening the payload.
 
 **On `--ui`.** It renames as well as labels. The top choice takes the
 interface's own name instead of `default`, and every package's choice and

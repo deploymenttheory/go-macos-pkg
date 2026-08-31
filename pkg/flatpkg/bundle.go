@@ -33,6 +33,9 @@ type bundleInfo struct {
 	CFBundleIdentifier         string `plist:"CFBundleIdentifier"`
 	CFBundleShortVersionString string `plist:"CFBundleShortVersionString"`
 	CFBundleVersion            string `plist:"CFBundleVersion"`
+	// CFBundleName never reaches a PackageInfo, but productbuild uses it
+	// to title a product built straight from a bundle.
+	CFBundleName string `plist:"CFBundleName"`
 }
 
 // findBundles walks root and returns a Bundle for every bundle directory

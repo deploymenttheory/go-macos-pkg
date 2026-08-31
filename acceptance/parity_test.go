@@ -1134,3 +1134,94 @@ func TestProductUIMatchesProductbuild(t *testing.T) {
 		})
 	}
 }
+
+// TestProductOneStepModesMatchProductbuild covers the three modes where
+// productbuild packages the payload itself rather than being handed a
+// component package: --root, --content and --component.
+//
+// Each names the component it builds for itself and shapes the Distribution
+// differently, and none of that is spelled out in the manual.
+func TestProductOneStepModesMatchProductbuild(t *testing.T) {
+	requireTools(t, "productbuild", "xar")
+
+	t.Run("root", func(t *testing.T) {
+		base := t.TempDir()
+		root := filepath.Join(base, "root")
+		writeFile(t, filepath.Join(root, "usr", "local", "bin", "tool"), "#!/bin/sh\n", 0o755)
+		stampTree(t, root)
+
+		// The component takes the source directory's own name, not the
+		// archive's, and version 0 since there is nothing to read one
+		// from. The install path becomes the choice's customLocation.
+		theirs := filepath.Join(base, "theirs", "product.pkg")
+		ours := filepath.Join(base, "ours", "product.pkg")
+		require.NoError(t, os.MkdirAll(filepath.Dir(theirs), 0o755))
+		require.NoError(t, os.MkdirAll(filepath.Dir(ours), 0o755))
+		hostTool(t, "productbuild", "--quiet", "--root", root, "/", theirs)
+		mustRun(t, "product", ours, "--root", root, "--root-install-path", "/", "--source-date-epoch", epoch)
+
+		mine := xarEntry(t, ours, "Distribution")
+		requireSameBytes(t, "Distribution (--root)", xarEntry(t, theirs, "Distribution"), mine)
+		assert.Contains(t, string(mine), `customLocation="/"`)
+		assert.Contains(t, string(mine), `id="root"`, "the component is named after the source directory")
+		assert.Contains(t, string(mine), `version="0"`, "there is no version to read, so it is 0")
+		assert.Equal(t, sortedXarEntries(t, theirs), sortedXarEntries(t, ours))
+	})
+
+	t.Run("content", func(t *testing.T) {
+		base := t.TempDir()
+		content := filepath.Join(base, "payload")
+		writeFile(t, filepath.Join(content, "data", "f.txt"), "x\n", 0o644)
+		stampTree(t, content)
+
+		theirs := filepath.Join(base, "theirs.pkg")
+		ours := filepath.Join(base, "ours.pkg")
+		runIn(t, base, "productbuild", "--quiet", "--content", content, theirs)
+		mustRun(t, "product", ours, "--content", content, "--source-date-epoch", epoch)
+
+		mine := xarEntry(t, ours, "Distribution")
+		requireSameBytes(t, "Distribution (--content)", xarEntry(t, theirs, "Distribution"), mine)
+		assert.Contains(t, string(mine), `id="payload"`, "content takes the directory's own name")
+		assert.NotContains(t, string(mine), "customLocation", "content has no install path to record")
+	})
+
+	t.Run("component", func(t *testing.T) {
+		base := t.TempDir()
+		app := filepath.Join(base, "App.app")
+		writeFile(t, filepath.Join(app, "Contents", "Info.plist"), infoPlist("com.example.App", "5.1", "510"), 0o644)
+		writeFile(t, filepath.Join(app, "Contents", "MacOS", "App"), "#!/bin/sh\n", 0o755)
+		stampTree(t, app)
+
+		theirs := filepath.Join(base, "theirs.pkg")
+		ours := filepath.Join(base, "ours.pkg")
+		runIn(t, base, "productbuild", "--quiet", "--component", app, "/Applications", theirs)
+		mustRun(t, "product", ours, "--component", app+":/Applications", "--source-date-epoch", epoch)
+
+		mine := xarEntry(t, ours, "Distribution")
+		requireSameBytes(t, "Distribution (--component)", xarEntry(t, theirs, "Distribution"), mine)
+
+		got := string(mine)
+		// A bundle component says considerably more than a root does: the
+		// product's identity, the bundle's own details in the reference so
+		// the Installer can version check without opening the payload, and
+		// the unpadded short version on the default choice. The pkg-ref's
+		// own version is the padded three-part form.
+		assert.Contains(t, got, `<product id="com.example.App" version="5.1"/>`)
+		assert.Contains(t, got, `<bundle CFBundleShortVersionString="5.1" CFBundleVersion="510" id="com.example.App" path="App.app"/>`)
+		// CFBundleName titles the product and both choices.
+		assert.Contains(t, got, `<title>Example</title>`)
+		assert.Contains(t, got, `<choice id="default" title="Example" versStr="5.1"/>`)
+		assert.Contains(t, got, `version="5.1.0"`)
+		assert.Contains(t, got, `customLocation="/Applications"`)
+		assert.Contains(t, sortedXarEntries(t, ours), "com.example.App.pkg",
+			"a bundle component is named after its identifier")
+	})
+}
+
+// sortedXarEntries lists an archive's entries in a stable order.
+func sortedXarEntries(t *testing.T, pkg string) []string {
+	t.Helper()
+	e := nonEmptyLines(hostTool(t, "xar", "-tf", pkg))
+	sort.Strings(e)
+	return e
+}

@@ -72,6 +72,9 @@ type BundleIdentity struct {
 	// presents the shorter form to Apple's own path APIs while the kernel
 	// reports the resolved one. Anywhere else they agree.
 	InstallLocation string
+	// Name is CFBundleName, which productbuild titles a product with when
+	// it builds one straight from a bundle.
+	Name string
 }
 
 // InferFromBundle reads a bundle's Info.plist and returns the identity
@@ -93,6 +96,7 @@ func InferFromBundle(bundlePath string) (BundleIdentity, error) {
 		Identifier:      info.CFBundleIdentifier,
 		Version:         NormalizeBundleVersion(info.CFBundleShortVersionString),
 		InstallLocation: abs,
+		Name:            info.CFBundleName,
 	}, nil
 }
 

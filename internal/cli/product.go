@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/deploymenttheory/go-macos-pkg/internal/tools"
 	"github.com/deploymenttheory/go-macos-pkg/pkg/flatpkg"
 	"github.com/spf13/cobra"
 )
@@ -24,48 +25,78 @@ var (
 	productRequirements string
 	productScripts      string
 	productUI           string
+	productRoot         string
+	productRootInstall  string
+	productContent      string
+	productComponents   []string
 	productPlugins      string
 )
 
 var productCmd = &cobra.Command{
-	Use:   "product OUT.pkg --package X.pkg [--package Y.pkg ...]",
-	Short: "Build a product archive (distribution) from component packages",
-	Long: `Build a product archive (what productbuild makes) from one or more
-component packages. A product archive carries a Distribution script that
-the Installer runs to present choices and decide what to install; it is
-the form to distribute, and the form notarization expects.
+	Use:   "product OUT.pkg [--package X.pkg | --root DIR | --content DIR | --component B.app]",
+	Short: "Build a product archive from component packages",
+	Long: `Build a product archive, which is what productbuild makes and what you
+distribute. It holds one or more component packages and a Distribution:
+the document the Installer runs to present choices and decide what to
+install. Notarization expects this form rather than a bare component.
 
-Without --distribution a Distribution is synthesised that installs every
-package, as productbuild --synthesize does; --title, --min-os-version and
---host-architectures shape it. With --distribution the document is used as
-given and must refer to the packages by their file names (#Foo.pkg).
---resources embeds a directory the Distribution's welcome, license and
-background elements refer to.
+The payload can come in already built, as --package, or be built here:
+--root packages a directory tree, --content the contents of a directory,
+and --component a bundle, each becoming its own component package. The
+last three name that package for you, after the source rather than the
+archive, and --component reads the identity out of the bundle's
+Info.plist.
+
+Without --distribution a Distribution is synthesised that installs
+everything with no customisation. --title, --product-id, --min-os-version,
+--host-architectures and --ui shape it, and --product supplies the
+requirements the Installer checks first. --synthesize writes that document
+out instead of building an archive, so you can edit it and pass it back.
+
+With --distribution the document is used as given, and the packages it
+names are found with --package-path. Its references are rewritten to point
+inside the archive, so it can name them as plain file names.
 
 Examples:
   macospkg product Foo-1.0.pkg --package Foo.pkg --title "Foo 1.0"
-  macospkg product Suite.pkg --package A.pkg --package B.pkg \
-      --distribution Distribution.xml --resources ./resources`,
+  macospkg product Foo.pkg --component Foo.app:/Applications
+  macospkg product dist.xml --package A.pkg --package B.pkg --synthesize
+  macospkg product Suite.pkg --distribution dist.xml --package-path ./out \
+      --resources ./resources`,
 	Args: exactArgs(1, "OUT.pkg"),
 	RunE: runProduct,
 }
 
 func init() {
 	f := productCmd.Flags()
-	f.StringArrayVar(&productPackages, "package", nil, "component package to embed; repeatable (required)")
-	f.StringVar(&productDistribution, "distribution", "", "Distribution XML to use instead of synthesising one")
-	f.StringArrayVar(&productPackagePaths, "package-path", nil, "directory to search for the packages a --distribution names; repeatable, and the working directory is searched too")
-	f.StringVar(&productRequirements, "product", "", "pre-install requirements property list: the os, arch, ram, bundle, graphics and sysctl checks the Installer runs before it will install")
-	f.BoolVar(&productSynthesize, "synthesize", false, "write the synthesised Distribution to the output path instead of building an archive")
-	f.StringVar(&productResources, "resources", "", "directory to embed as Resources/")
-	f.StringVar(&productUI, "ui", "", "interface the synthesised choices-outline is for, as productbuild --ui; \"mas\" marks one meant for the Mac App Store")
-	f.StringVar(&productScripts, "scripts", "", "directory to embed as the Scripts entry, for the system.run() commands a Distribution invokes")
-	f.StringVar(&productPlugins, "plugins", "", "directory to embed as the PlugIns entry: InstallerSections.plist and the Installer plug-in bundles")
-	f.StringVar(&productTitle, "title", "", "title for the synthesised Distribution")
-	f.StringVar(&productMinOS, "min-os-version", "", "minimum macOS version for the synthesised Distribution")
-	f.StringVar(&productArchs, "host-architectures", "", "comma-separated hostArchitectures, e.g. arm64,x86_64")
-	f.StringVar(&productID, "product-id", "", "product identifier for the synthesised Distribution")
-	f.StringVar(&productVersion, "product-version", "", "product version for the synthesised Distribution")
+
+	// What goes in. Each of these adds a component package to the archive
+	// and a reference to the synthesised Distribution; the last three
+	// build that component here rather than taking one already built.
+	f.StringArrayVar(&productPackages, "package", nil, "component package to add to the archive and to the synthesised Distribution; repeatable")
+	f.StringVar(&productRoot, "root", "", "directory tree to add as its own component package, the way a destination root from a build is packaged")
+	f.StringVar(&productRootInstall, "root-install-path", "", "default install location for --root; productbuild spells this as a second argument to --root")
+	f.StringVar(&productContent, "content", "", "directory whose contents are added as their own component package, for in-app content")
+	f.StringArrayVar(&productComponents, "component", nil, "bundle to add as its own component package; repeatable, and PATH:INSTALL_PATH gives it a default install location")
+
+	// The Distribution: the document the Installer runs to decide what to
+	// show and what to install. Supply one, or shape the synthesised one.
+	f.StringVar(&productDistribution, "distribution", "", "Distribution defining the presentation, choices and packages to install, used instead of synthesising one")
+	f.StringArrayVar(&productPackagePaths, "package-path", nil, "directory to search for the component packages a Distribution names; repeatable, and the working directory is always searched")
+	f.BoolVar(&productSynthesize, "synthesize", false, "write the synthesised Distribution to the output path instead of building an archive with it")
+	f.StringVar(&productRequirements, "product", "", "requirements property list the synthesised Distribution takes its os, arch, ram, bundle, graphics and sysctl checks from")
+	f.StringVar(&productTitle, "title", "", "title the synthesised Distribution shows")
+	f.StringVar(&productID, "product-id", "", "unique product identifier the synthesised Distribution carries; productbuild spells this --identifier")
+	f.StringVar(&productVersion, "product-version", "", "product version the synthesised Distribution carries; productbuild spells this --version")
+	f.StringVar(&productMinOS, "min-os-version", "", "oldest macOS the synthesised Distribution allows; a shorthand for a --product list carrying only os")
+	f.StringVar(&productArchs, "host-architectures", "", "architectures the synthesised Distribution allows, comma separated (default x86_64,arm64)")
+	f.StringVar(&productUI, "ui", "", "value for the synthesised choices-outline's ui attribute, which also namespaces its choices; \"mas\" marks one meant for the Mac App Store")
+
+	// Everything else the archive carries alongside the packages.
+	f.StringVar(&productResources, "resources", "", "directory of resources to copy in: images, and lproj directories of localised strings, that the Distribution's welcome, licence and background elements name")
+	f.StringVar(&productScripts, "scripts", "", "directory to carry for the system.run() commands a Distribution invokes; the macOS Installer reads these, the App Store does not")
+	f.StringVar(&productPlugins, "plugins", "", "directory to carry for the Installer's plug-in mechanism, normally an InstallerSections.plist and one or more plug-in bundles")
+
 	addSigningFlags(productCmd, "sign-")
 	addNotarizeFlags(productCmd)
 }
@@ -100,27 +131,37 @@ func runProduct(cmd *cobra.Command, args []string) error {
 		}
 		productPackages = found
 	}
-	if len(productPackages) == 0 {
-		return usageErrorf("at least one --package is required (or a --distribution that names them)")
+	inlineComponents, err := parseInlineComponents(productComponents)
+	if err != nil {
+		return err
+	}
+	if len(productPackages) == 0 && productRoot == "" && productContent == "" && len(inlineComponents) == 0 {
+		return usageErrorf("at least one --package, --root, --content or --component is required (or a --distribution that names the packages)")
 	}
 	requirements, err := loadProductRequirements()
 	if err != nil {
 		return err
 	}
 	o := flatpkg.ProductOptions{
-		Requirements:   requirements,
-		Packages:       productPackages,
-		Resources:      productResources,
-		Scripts:        productScripts,
-		Plugins:        productPlugins,
-		UI:             productUI,
-		Title:          productTitle,
-		MinOSVersion:   productMinOS,
-		ProductID:      productID,
-		ProductVersion: productVersion,
-		Epoch:          opts.SourceDateEpoch,
-		TempDir:        opts.TempDir,
-		Progress:       func(p string) { verbosef("packaged %s", p) },
+		Output:           productOutput,
+		GeneratorVersion: "go-macos-pkg " + tools.Version(),
+		Root:             productRoot,
+		RootInstallPath:  productRootInstall,
+		Content:          productContent,
+		Components:       inlineComponents,
+		Requirements:     requirements,
+		Packages:         productPackages,
+		Resources:        productResources,
+		Scripts:          productScripts,
+		Plugins:          productPlugins,
+		UI:               productUI,
+		Title:            productTitle,
+		MinOSVersion:     productMinOS,
+		ProductID:        productID,
+		ProductVersion:   productVersion,
+		Epoch:            opts.SourceDateEpoch,
+		TempDir:          opts.TempDir,
+		Progress:         func(p string) { verbosef("packaged %s", p) },
 	}
 	if productArchs != "" {
 		for _, a := range strings.Split(productArchs, ",") {
@@ -235,4 +276,24 @@ func loadProductRequirements() (*flatpkg.ProductRequirements, error) {
 		return nil, usageErrorf("--product: %v", err)
 	}
 	return r, nil
+}
+
+// parseInlineComponents reads the --component arguments. productbuild takes
+// the install path as a second positional argument, which cobra has no way
+// to express, so it is spelled PATH:INSTALL_PATH here.
+func parseInlineComponents(args []string) ([]flatpkg.ProductComponent, error) {
+	var out []flatpkg.ProductComponent
+	for _, a := range args {
+		c := flatpkg.ProductComponent{Path: a}
+		// A Windows drive letter is not a separator, so split on the last
+		// colon and only when what follows looks like a path.
+		if i := strings.LastIndex(a, ":"); i > 1 && strings.HasPrefix(a[i+1:], "/") {
+			c = flatpkg.ProductComponent{Path: a[:i], InstallPath: a[i+1:]}
+		}
+		if c.Path == "" {
+			return nil, usageErrorf("--component needs a bundle path")
+		}
+		out = append(out, c)
+	}
+	return out, nil
 }
