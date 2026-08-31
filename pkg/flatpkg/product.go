@@ -294,13 +294,13 @@ type synthRef struct {
 // package, all selected, no customisation.
 //
 // The shape is productbuild's, byte for byte, and it is worth being precise
-// about which shape that is. "productbuild --synthesize" writes a slightly
-// different document to a file: no standalone attribute, bare <pkg-ref id/>
-// stubs, bare package paths, and no size attributes. When productbuild then
-// embeds a distribution into an archive it rewrites it, and that rewritten
-// form is what a package actually carries and what this function produces:
-// standalone="yes", stubs carrying <bundle-version/>, "#name.pkg" paths, and
-// installKBytes plus updateKBytes on every reference.
+// about which shape that is. "productbuild --synthesize" writes a document
+// to a file with bare <pkg-ref id/> stubs, bare package paths and no size
+// attributes. Synthesising straight into an archive instead fills the stubs
+// in with a bundle-version, names each package as an entry with a leading
+// "#", and adds installKBytes and updateKBytes. Neither declares standalone;
+// only a document productbuild re-serialises does, which is embedDistribution's
+// job.
 //
 // Two attributes are deliberately absent because productbuild does not write
 // them either: auth, which every component's PackageInfo carries but which
@@ -318,11 +318,11 @@ func synthesiseDistribution(o ProductOptions, refs []synthRef, embedded bool) []
 		choiceID = func(id string) string { return o.UI + "-" + id }
 	}
 
-	if embedded {
-		b.WriteString(`<?xml version="1.0" encoding="utf-8" standalone="yes"?>` + "\n")
-	} else {
-		b.WriteString(`<?xml version="1.0" encoding="utf-8"?>` + "\n")
-	}
+	// No standalone, whichever form this is. productbuild declares it only
+	// when it re-serialises a document somebody else wrote, which is the
+	// --distribution path and is handled in embedDistribution. A document
+	// productbuild synthesises straight into an archive does not carry it.
+	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>` + "\n")
 	fmt.Fprintf(&b, "<installer-gui-script minSpecVersion=%s>\n", attr(o.Requirements.MinSpecVersion(o.MinOSVersion)))
 	if o.Title != "" {
 		fmt.Fprintf(&b, "    <title>%s</title>\n", xmlEscape(o.Title))

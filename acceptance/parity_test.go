@@ -599,19 +599,21 @@ func TestDistributionBytesMatchProductbuild(t *testing.T) {
 		"--identifier", "com.deploymenttheory.acceptance.second", "--version", "2.1",
 		"--install-location", "/opt/fixture", "--ownership", "recommended", second)
 
-	// productbuild --synthesize writes the file shape; feeding it back
-	// through --distribution gives the shape a package actually carries.
-	synth := filepath.Join(work, "synth.xml")
-	hostTool(t, "productbuild", "--quiet", "--synthesize", "--package", first, "--package", second, synth)
+	// Compared against productbuild synthesising straight into an archive,
+	// which is the same thing "product --package" does. Feeding a
+	// synthesised file back through --distribution is a different path and
+	// gives a document that differs, so it is covered separately by
+	// TestSuppliedDistributionIsRewritten.
 	theirs := filepath.Join(work, "theirs.pkg")
-	cmd := exec.Command("productbuild", "--quiet", "--distribution", synth, "--package-path", work, theirs)
-	out, err := cmd.CombinedOutput()
-	require.NoErrorf(t, err, "productbuild --distribution: %s", out)
+	runIn(t, work, "productbuild", "--quiet", "--package", first, "--package", second, theirs)
 
 	ours := filepath.Join(work, "ours.pkg")
 	mustRun(t, "product", ours, "--package", first, "--package", second, "--source-date-epoch", epoch)
 
-	requireSameBytes(t, "Distribution", xarEntry(t, theirs, "Distribution"), xarEntry(t, ours, "Distribution"))
+	mine := xarEntry(t, ours, "Distribution")
+	requireSameBytes(t, "Distribution", xarEntry(t, theirs, "Distribution"), mine)
+	assert.NotContains(t, string(mine), "standalone",
+		"a document productbuild synthesises into an archive declares no standalone")
 }
 
 // TestComponentModeMatchesPkgbuild covers pkgbuild's third mode, where the

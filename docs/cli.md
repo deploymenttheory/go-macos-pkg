@@ -372,10 +372,14 @@ name its packages as plain file names:
 
 | | written by `--synthesize` | carried in a package |
 |---|---|---|
-| declaration | `<?xml … ?>` | `<?xml … standalone="yes"?>` |
 | package reference | `Foo.pkg` | `#Foo.pkg` |
 | sizes | none | `installKBytes`, `updateKBytes` |
 | per-package stub | `<pkg-ref id="X"/>` | `<pkg-ref id="X"><bundle-version/></pkg-ref>` |
+
+A document handed to `--distribution` is re-serialised rather than edited,
+which additionally declares `standalone="yes"` on it. One synthesised
+straight into a package does not, so the two routes to a package differ by
+that one attribute. Both match productbuild.
 
 A document that already names archive entries is left exactly as it is, so
 expanding a package and building it again gives back the same bytes.
