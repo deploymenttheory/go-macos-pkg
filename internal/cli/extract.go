@@ -79,6 +79,8 @@ type componentReport struct {
 	Renamed    []string `json:"renamed"`
 	Skipped    []string `json:"skipped"`
 	Mismatched []string `json:"mismatched"`
+	Unlisted   []string `json:"unlisted"`
+	Absent     []string `json:"absent"`
 }
 
 func runExtract(cmd *cobra.Command, args []string) error {
@@ -160,9 +162,16 @@ func runExtract(cmd *cobra.Command, args []string) error {
 			Files: res.Files, Dirs: res.Dirs, Symlinks: res.Symlinks, HardLinks: res.HardLinks,
 			Xattrs: res.Xattrs, XattrFiles: res.XattrFiles,
 			Renamed: []string{}, Skipped: []string{}, Mismatched: res.Mismatched,
+			Unlisted: res.Unlisted, Absent: res.Absent,
 		}
 		if cr.Mismatched == nil {
 			cr.Mismatched = []string{}
+		}
+		if cr.Unlisted == nil {
+			cr.Unlisted = []string{}
+		}
+		if cr.Absent == nil {
+			cr.Absent = []string{}
 		}
 		for _, r := range res.Renamed {
 			cr.Renamed = append(cr.Renamed, r.Path+": "+r.Reason)
@@ -193,6 +202,12 @@ func runExtract(cmd *cobra.Command, args []string) error {
 			}
 			for _, m := range cr.Mismatched {
 				fmt.Fprintln(cmd.ErrOrStderr(), "checksum mismatch:", m)
+			}
+			for _, u := range cr.Unlisted {
+				fmt.Fprintln(cmd.ErrOrStderr(), "not in the bill of materials:", u)
+			}
+			for _, a := range cr.Absent {
+				fmt.Fprintln(cmd.ErrOrStderr(), "missing from the payload:", a)
 			}
 		}
 	}
