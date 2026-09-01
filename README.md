@@ -37,11 +37,15 @@ Notarized: yes (ticket on record with Apple)
 
 Apple ships no way to build, sign, notarize or staple a `.pkg` off a Mac.
 `pkgbuild`, `productbuild`, `productsign`, `pkgutil`, `notarytool` and
-`stapler` are macOS-only, so any pipeline that produces an installer keeps a
-Mac on its critical path: a hosted macOS runner that costs several times a
-Linux one, or a self-hosted machine to provision, patch and hold signing keys
-on. For a team whose product is otherwise built on Linux, that single step is
-the reason the Mac exists.
+`stapler` are macOS-only, so any pipeline that produces an installer puts macOS
+availability on its critical path. For many teams that availability is not a
+given at all: plenty of CI environments offer no macOS runners, and
+locked-down, on-premise or air-gapped ones cannot bring a Mac in to fix that.
+Where macOS is available it is a standing cost and a bottleneck instead, a
+hosted runner that bills several times a Linux one, or a self-hosted machine to
+provision, patch and hold signing keys on. Either way, for a team whose product
+is otherwise built on Linux, that single step is the reason a Mac has to be in
+the picture at all.
 
 The formats underneath are not the real obstacle. A `.pkg` is a xar archive
 holding a cpio payload, a bill of materials and XML metadata, signed with CMS
