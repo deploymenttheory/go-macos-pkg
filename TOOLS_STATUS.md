@@ -156,8 +156,10 @@ here is one `pkgutil` reports; 32 of its 123 on that machine. The writes,
 believes it installed, and neither belongs to a tool that is not the
 Installer.
 
-¹¹ Flat packages only. `stapler` also staples `.app` bundles and UDIF disk
-images, which this does not: a bundle's ticket is keyed on the CDHash of
-its Mach-O code signature, which needs a reader this tool does not have,
-and a disk image is `go-apfs-v2`'s domain. The design for bundles is worked
-out and proven against a stapled application; see issue #30.
+¹¹ Flat packages and `.app` bundles. A bundle's ticket is keyed on the
+CDHash of its main executable's Mach-O code signature (read without
+codesign, one per architecture for a universal binary) and written to
+`Contents/CodeResources`; verified end to end against a stapled application.
+UDIF disk images, which `stapler` also handles, are not done here: a disk
+image is `go-apfs-v2`'s domain and needs a notarized image to work out where
+the ticket goes. See issue #30.
