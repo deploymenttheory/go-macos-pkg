@@ -33,6 +33,37 @@ Staple:    notarization ticket present
 Notarized: yes (ticket on record with Apple)
 ```
 
+## Why
+
+Apple ships no way to build, sign, notarize or staple a `.pkg` outside of a macOS device.
+`pkgbuild`, `productbuild`, `productsign`, `pkgutil`, `notarytool` and
+`stapler` are macOS-only, so any pipeline that produces an installer puts macOS
+availability on its critical path. For many teams that availability is not a
+given at all: plenty of CI environments offer no macOS runners, and
+locked-down, on-premise or air-gapped ones cannot bring a Mac in to fix that.
+Where macOS is available it is a standing cost and a bottleneck instead, a
+hosted runner that bills several times a Linux one, or a self-hosted machine to
+provision, patch and hold signing keys on. Either way, for a team whose product
+is otherwise built on Linux, that single step is the reason a Mac has to be in
+the picture at all.
+
+The formats underneath are not the real obstacle. A `.pkg` is a xar archive
+holding a cpio payload, a bill of materials and XML metadata, signed with CMS
+over the table of contents; none of it depends on a macOS kernel or framework.
+What was missing was a complete, faithful reimplementation, because the pieces
+are under-documented and each one (the BOM layout, the `pbzx` and LZBITMAP
+containers, the exact bytes Apple signs) has to be recovered by measurement
+against the real tools.
+
+macospkg is that reimplementation, in one static Go binary with no cgo and no
+runtime dependencies. It runs the whole lifecycle, inspect through to staple, on
+Linux, Windows or macOS, and aims to produce byte-for-byte the packages Apple's
+own tools do, checked continuously against them (see
+[How it is tested](#how-it-is-tested)). The payoff is a CI job that ships a
+signed, notarized installer on a cheaper Linux runner as every other workload,
+and a library other Go programs can embed instead of shelling out to tools that
+are available.
+
 ## Features
 
 | | macOS | Linux | Windows |
