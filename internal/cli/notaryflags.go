@@ -43,8 +43,8 @@ func addNotaryFlags(cmd *cobra.Command, prefix string) {
 }
 
 // notaryService resolves credentials from flags, then the manifest, then
-// the environment, and opens the service. Exit 4 when they are missing.
-func notaryService(cmd *cobra.Command, m *manifestFile) (notary.Service, error) {
+// the environment, and opens the client. Exit 4 when they are missing.
+func notaryService(cmd *cobra.Command, m *manifestFile) (*notary.Client, error) {
 	nf := notaryByCommand[cmd]
 	c := &notary.Credentials{}
 	if nf != nil {

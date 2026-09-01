@@ -1,64 +1,66 @@
-// Package notary submits packages to Apple's notary service, waits for
-// the verdict and fetches the log (the parts of notarytool a CI job
-// needs) on any platform.
+// Package notary submits packages to Apple's notary service, waits for the
+// verdict and fetches the log (the parts of notarytool a CI job needs) on any
+// platform.
 //
-// The four REST calls go through the deploymenttheory Apple services SDK;
-// everything the SDK does not do (the S3 upload, polling, log download,
-// stapling) is here. The SDK is wrapped behind Service so the rest of the
-// package, and its tests, never see it.
+// The submit, upload, poll and log-download workflow lives in the
+// deploymenttheory Apple services SDK. This package is a thin layer over it:
+// it keeps the credential handling and environment-variable UX macospkg
+// documents, and wraps the SDK behind a small Client the CLI talks to.
 package notary
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	sdk "github.com/deploymenttheory/go-sdk-appleservices/notary"
-	"github.com/deploymenttheory/go-sdk-appleservices/notary/notary_api/submissions"
 )
+
+// Status is the state of a submission, as the SDK reports it.
+type Status = sdk.Status
+
+// LogIssue is one entry from the issues list of a developer log.
+type LogIssue = sdk.LogIssue
+
+// SubmitInput describes a file to notarize.
+type SubmitInput = sdk.SubmitInput
+
+// Result is the outcome of SubmitAndWait.
+type Result = sdk.Result
+
+// WaitOptions configures Wait and SubmitAndWait.
+type WaitOptions = sdk.WaitOptions
 
 // Submission statuses, as Apple reports them.
 const (
-	StatusAccepted   = "Accepted"
-	StatusInProgress = "In Progress"
-	StatusInvalid    = "Invalid"
-	StatusRejected   = "Rejected"
+	StatusAccepted   = sdk.StatusAccepted
+	StatusInProgress = sdk.StatusInProgress
+	StatusInvalid    = sdk.StatusInvalid
+	StatusRejected   = sdk.StatusRejected
 )
 
-// Submission is what Apple returns for a new submission: an id and where
-// to upload.
-type Submission struct {
-	ID    string
-	Creds S3Credentials
-}
+// WebhookChannel is the only notification channel Apple's notary service
+// defines.
+const WebhookChannel = sdk.WebhookChannel
 
-// Status is the state of a submission.
-type Status struct {
-	ID          string
-	Name        string
-	Status      string
-	CreatedDate string
-}
+// ErrRejected and ErrTimeout come from the SDK so errors.Is keeps matching
+// after the workflow moved there.
+var (
+	// ErrRejected reports a submission Apple marked Invalid or Rejected.
+	ErrRejected = sdk.ErrRejected
+	// ErrTimeout reports a wait that ended while still in progress.
+	ErrTimeout = sdk.ErrTimeout
+)
 
-// Done reports whether Apple has finished with the submission.
-func (s *Status) Done() bool { return s.Status != StatusInProgress && s.Status != "" }
+// ParseLogIssues pulls the issues out of a developer log for display.
+var ParseLogIssues = sdk.ParseLogIssues
 
-// Service is the notary API as this package uses it.
-type Service interface {
-	Submit(ctx context.Context, name, sha256Hex string, o SubmitOptions) (*Submission, error)
-	Status(ctx context.Context, id string) (*Status, error)
-	LogURL(ctx context.Context, id string) (string, error)
-	List(ctx context.Context) ([]Status, error)
-}
+// FileSHA256 hashes a file and returns the lowercase hexadecimal digest.
+var FileSHA256 = sdk.FileSHA256
 
 // Credentials are the App Store Connect API key details Apple's notary
 // service authenticates with.
@@ -151,13 +153,15 @@ func (c *Credentials) Validate() error {
 	return nil
 }
 
-// sdkService adapts the SDK to Service.
-type sdkService struct {
-	client *sdk.Client
+// Client is macospkg's handle on the notary service: a thin wrapper over the
+// SDK client that keeps the CLI free of the SDK's package layout and maps
+// failures onto this package's error sentinels.
+type Client struct {
+	sdk *sdk.Client
 }
 
 // NewService opens the SDK client with the credentials.
-func NewService(c *Credentials, userAgent string) (Service, error) {
+func NewService(c *Credentials, userAgent string) (*Client, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
@@ -173,54 +177,47 @@ func NewService(c *Credentials, userAgent string) (Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrCredentials, err)
 	}
-	return &sdkService{client: client}, nil
+	return &Client{sdk: client}, nil
 }
 
-func (s *sdkService) Submit(ctx context.Context, name, sha256Hex string, o SubmitOptions) (*Submission, error) {
-	req := &submissions.NewSubmissionRequest{
-		SHA256:         sha256Hex,
-		SubmissionName: name,
-	}
-	if o.Webhook != "" {
-		// Apple posts the verdict to the URL when notarization finishes,
-		// so a build does not have to sit and poll for it. "webhook" is
-		// the only channel the service defines.
-		req.Notifications = []submissions.NewSubmissionRequestNotification{
-			{Channel: WebhookChannel, Target: o.Webhook},
-		}
-	}
-	resp, _, err := s.client.NotaryAPI.Submissions.SubmitSoftwareV2(ctx, req)
-	if err != nil {
-		return nil, apiError("submit", err)
-	}
-	a := resp.Data.Attributes
-	return &Submission{
-		ID: resp.Data.ID,
-		Creds: S3Credentials{
-			AccessKeyID: a.AWSAccessKeyID, SecretAccessKey: a.AWSSecretAccessKey, SessionToken: a.AWSSessionToken,
-			Bucket: a.Bucket, Object: a.Object,
-		},
-	}, nil
+// SubmitAndWait notarizes a file end to end via the SDK: hash, register,
+// upload and poll for a verdict. On a non-Accepted verdict it returns
+// ErrRejected (wrapped) with the Result populated, including the log's issues.
+func (c *Client) SubmitAndWait(ctx context.Context, in SubmitInput, wo WaitOptions) (*Result, error) {
+	return c.sdk.SubmitAndWait(ctx, in, wo)
 }
 
-func (s *sdkService) Status(ctx context.Context, id string) (*Status, error) {
-	resp, _, err := s.client.NotaryAPI.Submissions.GetSubmissionStatusV2(ctx, id)
+// Wait polls an existing submission until it is done or the timeout passes.
+func (c *Client) Wait(ctx context.Context, id string, o WaitOptions) (*Status, error) {
+	return sdk.Wait(ctx, c.sdk, id, o)
+}
+
+// FetchLog downloads the developer log, a JSON document, for a submission.
+func (c *Client) FetchLog(ctx context.Context, id string) (json.RawMessage, error) {
+	return sdk.FetchLog(ctx, c.sdk, nil, id)
+}
+
+// Status returns the current state of a submission.
+func (c *Client) Status(ctx context.Context, id string) (*Status, error) {
+	resp, _, err := c.sdk.NotaryAPI.Submissions.GetSubmissionStatusV2(ctx, id)
 	if err != nil {
 		return nil, apiError("status", err)
 	}
 	return &Status{ID: resp.Data.ID, Name: resp.Data.Attributes.Name, Status: resp.Data.Attributes.Status, CreatedDate: resp.Data.Attributes.CreatedDate}, nil
 }
 
-func (s *sdkService) LogURL(ctx context.Context, id string) (string, error) {
-	resp, _, err := s.client.NotaryAPI.Submissions.GetSubmissionLogV2(ctx, id)
+// LogURL returns the temporary URL Apple hands out for a submission's log.
+func (c *Client) LogURL(ctx context.Context, id string) (string, error) {
+	resp, _, err := c.sdk.NotaryAPI.Submissions.GetSubmissionLogV2(ctx, id)
 	if err != nil {
 		return "", apiError("log", err)
 	}
 	return resp.Data.Attributes.DeveloperLogURL, nil
 }
 
-func (s *sdkService) List(ctx context.Context) ([]Status, error) {
-	resp, _, err := s.client.NotaryAPI.Submissions.GetPreviousSubmissionsV2(ctx)
+// List returns the team's recent submissions, newest first.
+func (c *Client) List(ctx context.Context) ([]Status, error) {
+	resp, _, err := c.sdk.NotaryAPI.Submissions.GetPreviousSubmissionsV2(ctx)
 	if err != nil {
 		return nil, apiError("list", err)
 	}
@@ -231,8 +228,8 @@ func (s *sdkService) List(ctx context.Context) ([]Status, error) {
 	return out, nil
 }
 
-// apiError classifies SDK failures: authentication problems are
-// credential errors, the rest are reported as they are.
+// apiError classifies SDK failures: authentication problems are credential
+// errors, a missing submission is reported as such, the rest as they are.
 func apiError(op string, err error) error {
 	msg := err.Error()
 	if strings.Contains(msg, "401") || strings.Contains(msg, "403") || strings.Contains(strings.ToLower(msg), "unauthorized") || strings.Contains(strings.ToLower(msg), "forbidden") {
@@ -242,146 +239,4 @@ func apiError(op string, err error) error {
 		return fmt.Errorf("notary: %s: no such submission", op)
 	}
 	return fmt.Errorf("notary: %s: %w", op, err)
-}
-
-// FileSHA256 hashes a file.
-func FileSHA256(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-// WebhookChannel is the only notification channel Apple's notary service
-// defines.
-const WebhookChannel = "webhook"
-
-// SubmitOptions carries what a submission can ask for beyond its name and
-// its hash.
-type SubmitOptions struct {
-	// Webhook is a public URL Apple posts the verdict to when
-	// notarization finishes, so a job need not sit and poll. Apple's own
-	// documentation warns it is best effort: treat it as a way to be told
-	// sooner, not as the only way you will ever hear.
-	Webhook string
-}
-
-// Submit hashes the file, registers the submission and uploads the file.
-func Submit(ctx context.Context, svc Service, up Uploader, path, name string, o SubmitOptions, progress func(written, total int64)) (*Submission, string, error) {
-	sum, err := FileSHA256(path)
-	if err != nil {
-		return nil, "", err
-	}
-	sub, err := svc.Submit(ctx, name, sum, o)
-	if err != nil {
-		return nil, sum, err
-	}
-	if err := up.Upload(ctx, sub.Creds, path, sum, progress); err != nil {
-		return sub, sum, err
-	}
-	return sub, sum, nil
-}
-
-// WaitOptions configures Wait.
-type WaitOptions struct {
-	Interval time.Duration // default 30s
-	Timeout  time.Duration // default 30m
-	// Progress, when set, is called after each poll.
-	Progress func(status *Status)
-}
-
-// Wait polls until the submission is done or the timeout passes. A
-// finished submission that Apple did not accept returns ErrRejected with
-// the status.
-func Wait(ctx context.Context, svc Service, id string, o WaitOptions) (*Status, error) {
-	if o.Interval <= 0 {
-		o.Interval = 30 * time.Second
-	}
-	if o.Timeout <= 0 {
-		o.Timeout = 30 * time.Minute
-	}
-	deadline := time.Now().Add(o.Timeout)
-	var last *Status
-	for {
-		st, err := svc.Status(ctx, id)
-		if err != nil {
-			return last, err
-		}
-		last = st
-		if o.Progress != nil {
-			o.Progress(st)
-		}
-		if st.Done() {
-			if st.Status != StatusAccepted {
-				return st, fmt.Errorf("%w: %s", ErrRejected, st.Status)
-			}
-			return st, nil
-		}
-		if time.Now().After(deadline) {
-			return st, ErrTimeout
-		}
-		select {
-		case <-ctx.Done():
-			return st, ctx.Err()
-		case <-time.After(o.Interval):
-		}
-	}
-}
-
-// FetchLog downloads the developer log, a JSON document.
-func FetchLog(ctx context.Context, svc Service, client *http.Client, id string) (json.RawMessage, error) {
-	u, err := svc.LogURL(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if u == "" {
-		return nil, errors.New("notary: no log is available for the submission yet")
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	if client == nil {
-		client = &http.Client{Timeout: 60 * time.Second}
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("notary: log download: %w", err)
-	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("notary: log download returned %s", resp.Status)
-	}
-	if !json.Valid(data) {
-		return nil, errors.New("notary: the log is not JSON")
-	}
-	return json.RawMessage(data), nil
-}
-
-// LogIssues extracts the issues list from a developer log for display.
-type LogIssue struct {
-	Severity string `json:"severity"`
-	Message  string `json:"message"`
-	Path     string `json:"path"`
-	Code     any    `json:"code"`
-	DocURL   string `json:"docUrl"`
-}
-
-// ParseLogIssues pulls the issues out of a developer log.
-func ParseLogIssues(log json.RawMessage) []LogIssue {
-	var doc struct {
-		Issues []LogIssue `json:"issues"`
-	}
-	_ = json.Unmarshal(log, &doc)
-	return doc.Issues
 }

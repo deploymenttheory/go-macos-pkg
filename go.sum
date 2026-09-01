@@ -1,6 +1,6 @@
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
-github.com/deploymenttheory/go-sdk-appleservices v0.8.1 h1:pLATGwn85pcfo1/EM8WPFAtE15mjdjg2lRfybP61Das=
-github.com/deploymenttheory/go-sdk-appleservices v0.8.1/go.mod h1:W2jCBbiU1zNNUq9Esh3Tyl3cKN0pGYDiVGjj6BJKJC4=
+github.com/deploymenttheory/go-sdk-appleservices v0.9.1-0.20260901092848-89d1a0036978 h1:VtxE0oIlXCwqHrQYFWBsd4yhiDAddkULG8p1RGwxjSw=
+github.com/deploymenttheory/go-sdk-appleservices v0.9.1-0.20260901092848-89d1a0036978/go.mod h1:W2jCBbiU1zNNUq9Esh3Tyl3cKN0pGYDiVGjj6BJKJC4=
 github.com/frankban/quicktest v1.14.6 h1:7Xjx+VpznH+oBnejlPUj8oUpdxnVs4f8XU8WnHkI4W8=
 github.com/frankban/quicktest v1.14.6/go.mod h1:4ptaffx2x8+WTWXmUCuVU6aPUX1/Mz7zb5vbUoiM6w0=
 github.com/fsnotify/fsnotify v1.9.0 h1:2Ml+OJNzbYCTzsxtv8vKSFD9PbJjmhYF14k/jKC7S9k=

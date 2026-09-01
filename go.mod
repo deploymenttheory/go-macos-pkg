@@ -3,7 +3,7 @@ module github.com/deploymenttheory/go-macos-pkg
 go 1.26.6
 
 require (
-	github.com/deploymenttheory/go-sdk-appleservices v0.8.1
+	github.com/deploymenttheory/go-sdk-appleservices v0.9.1-0.20260901092848-89d1a0036978
 	github.com/go-compressions/lzfse v0.3.0
 	github.com/pierrec/lz4/v4 v4.1.29
 	github.com/spf13/cobra v1.10.2
