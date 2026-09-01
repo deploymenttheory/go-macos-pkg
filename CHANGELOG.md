@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.4.3...v0.5.0) (2026-09-01)
+
+
+### Features
+
+* **staple:** staple .app bundles, not only flat packages ([46b4617](https://github.com/deploymenttheory/go-macos-pkg/commit/46b4617c9f34fa362278d26f9ebe3f4c136e7c58))
+* **staple:** staple and unstaple .app bundles, not only flat packages ([43eca5e](https://github.com/deploymenttheory/go-macos-pkg/commit/43eca5e5629a8e0cdbf73308012ec6bf6f30acc2))
+
 ## [0.4.3](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.4.2...v0.4.3) (2026-08-31)
 
 
