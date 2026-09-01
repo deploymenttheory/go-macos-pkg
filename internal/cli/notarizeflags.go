@@ -4,7 +4,6 @@ package cli
 import (
 	"fmt"
 
-	"github.com/deploymenttheory/go-macos-pkg/pkg/notary"
 	"github.com/spf13/cobra"
 )
 
@@ -32,7 +31,7 @@ func notarizeAfterBuild(cmd *cobra.Command, m *manifestFile, path string, signed
 	if err != nil {
 		return err
 	}
-	_, err = notarizeFile(svc, path, "", true, true, false, notary.SubmitOptions{})
+	_, err = notarizeFile(svc, path, "", true, true, false, "")
 	if err != nil {
 		return fmt.Errorf("%s was built and signed, but notarization failed: %w", path, err)
 	}

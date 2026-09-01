@@ -106,7 +106,7 @@ Examples:
 		if err != nil {
 			return err
 		}
-		log, err := notary.FetchLog(context.Background(), svc, nil, args[0])
+		log, err := svc.FetchLog(context.Background(), args[0])
 		if err != nil {
 			return notaryError(err)
 		}
@@ -275,8 +275,7 @@ func runNotarize(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	report, err := notarizeFile(svc, args[0], notarizeName, notarizeWait || notarizeStaple, notarizeStaple, notarizeLog,
-		notary.SubmitOptions{Webhook: notarizeWebhook})
+	report, err := notarizeFile(svc, args[0], notarizeName, notarizeWait || notarizeStaple, notarizeStaple, notarizeLog, notarizeWebhook)
 	if structured() && report != nil {
 		if jerr := jsonOut(report); jerr != nil {
 			return jerr
@@ -287,43 +286,72 @@ func runNotarize(cmd *cobra.Command, args []string) error {
 
 // notarizeFile runs the submit / wait / staple sequence used by notarize
 // and by build --notarize.
-func notarizeFile(svc notary.Service, path, name string, wait, doStaple, printLog bool, o notary.SubmitOptions) (*notarizeReport, error) {
+func notarizeFile(svc *notary.Client, path, name string, wait, doStaple, printLog bool, webhook string) (*notarizeReport, error) {
 	if name == "" {
 		name = filepath.Base(path)
 	}
 	ctx := context.Background()
+	sum, err := notary.FileSHA256(path)
+	if err != nil {
+		return &notarizeReport{Package: path, Name: name}, withCode(ExitBadPackage, err)
+	}
+	report := &notarizeReport{Package: path, Name: name, SHA256: sum}
+
+	if !wait {
+		// Without --wait the file still has to go up and register, but the
+		// command returns the id rather than sitting on the poll. A zero
+		// timeout makes SubmitAndWait return the moment it sees the first
+		// status, which for a fresh submission is In Progress.
+		return submitNoWait(ctx, svc, report, path, name, webhook)
+	}
+
 	progressf("submitting %s to Apple's notary service", path)
 	var lastPct int64 = -1
-	sub, sum, err := notary.Submit(ctx, svc, notary.NewS3Uploader(), path, name, o, func(written, total int64) {
-		if total > 0 {
-			if pct := written * 100 / total; pct/10 != lastPct/10 {
-				lastPct = pct
-				verbosef("uploaded %d%%", pct)
+	progressf("waiting for Apple (poll every %s, up to %s)", notarizeInterval, notarizeTimeout)
+	res, err := svc.SubmitAndWait(ctx, notary.SubmitInput{
+		FilePath: path,
+		Name:     name,
+		Webhook:  webhook,
+		UploadProgress: func(written, total int64) {
+			if total > 0 {
+				if pct := written * 100 / total; pct/10 != lastPct/10 {
+					lastPct = pct
+					verbosef("uploaded %d%%", pct)
+				}
 			}
-		}
+		},
+	}, notary.WaitOptions{
+		Interval: notarizeInterval,
+		Timeout:  notarizeTimeout,
+		Progress: func(s *notary.Status) { verbosef("%s: %s", s.ID, s.Status) },
 	})
-	report := &notarizeReport{Package: path, Name: name, SHA256: sum}
-	if sub != nil {
-		report.SubmissionID = sub.ID
+	if res != nil {
+		if res.SubmissionID != "" {
+			report.SubmissionID = res.SubmissionID
+		}
+		if res.Status != nil {
+			report.Status = res.Status.Status
+		}
+	}
+	rejected := errors.Is(err, notary.ErrRejected)
+	if rejected && res != nil {
+		// SubmitAndWait already fetched and parsed the log for a rejection,
+		// so use what it returned rather than fetching it again.
+		if len(res.Log) > 0 {
+			report.Log = res.Log
+		}
+		if !structured() {
+			printIssues(res.Issues)
+		}
 	}
 	if err != nil {
 		return report, notaryError(err)
 	}
-	progressf("submission id %s", sub.ID)
-	if !wait {
-		report.Status = notary.StatusInProgress
-		if !structured() {
-			fmt.Println(sub.ID)
-		}
-		return report, nil
+	if report.SubmissionID != "" {
+		progressf("submission id %s", report.SubmissionID)
 	}
-	st, err := waitFor(svc, sub.ID)
-	if st != nil {
-		report.Status = st.Status
-	}
-	rejected := errors.Is(err, notary.ErrRejected)
-	if (printLog || rejected) && st != nil && st.Done() {
-		if log, lerr := notary.FetchLog(ctx, svc, nil, sub.ID); lerr == nil {
+	if printLog && res != nil && report.SubmissionID != "" {
+		if log, lerr := svc.FetchLog(ctx, report.SubmissionID); lerr == nil {
 			report.Log = log
 			if !structured() {
 				printLogIssues(log)
@@ -331,9 +359,6 @@ func notarizeFile(svc notary.Service, path, name string, wait, doStaple, printLo
 		} else {
 			verbosef("unable to fetch the log: %v", lerr)
 		}
-	}
-	if err != nil {
-		return report, err
 	}
 	if doStaple {
 		if err := stapleFile(path, path); err != nil {
@@ -345,9 +370,48 @@ func notarizeFile(svc notary.Service, path, name string, wait, doStaple, printLo
 	return report, nil
 }
 
-func waitFor(svc notary.Service, id string) (*notary.Status, error) {
+// submitNoWait registers and uploads the file, then returns its id without
+// polling for a verdict.
+func submitNoWait(ctx context.Context, svc *notary.Client, report *notarizeReport, path, name, webhook string) (*notarizeReport, error) {
+	progressf("submitting %s to Apple's notary service", path)
+	var lastPct int64 = -1
+	res, err := svc.SubmitAndWait(ctx, notary.SubmitInput{
+		FilePath: path,
+		Name:     name,
+		Webhook:  webhook,
+		UploadProgress: func(written, total int64) {
+			if total > 0 {
+				if pct := written * 100 / total; pct/10 != lastPct/10 {
+					lastPct = pct
+					verbosef("uploaded %d%%", pct)
+				}
+			}
+		},
+	}, notary.WaitOptions{Timeout: time.Nanosecond})
+	if res != nil && res.SubmissionID != "" {
+		report.SubmissionID = res.SubmissionID
+	}
+	// Without an id the register or upload failed, which is a real error.
+	// With one, the file is up and the id is all --wait-less mode promises;
+	// the immediate timeout (a fresh submission is still In Progress) or any
+	// other poll error is not the caller's concern here.
+	if report.SubmissionID == "" {
+		if err != nil {
+			return report, notaryError(err)
+		}
+		return report, nil
+	}
+	report.Status = notary.StatusInProgress
+	progressf("submission id %s", report.SubmissionID)
+	if !structured() {
+		fmt.Println(report.SubmissionID)
+	}
+	return report, nil
+}
+
+func waitFor(svc *notary.Client, id string) (*notary.Status, error) {
 	progressf("waiting for Apple (poll every %s, up to %s)", notarizeInterval, notarizeTimeout)
-	st, err := notary.Wait(context.Background(), svc, id, notary.WaitOptions{
+	st, err := svc.Wait(context.Background(), id, notary.WaitOptions{
 		Interval: notarizeInterval,
 		Timeout:  notarizeTimeout,
 		Progress: func(s *notary.Status) { verbosef("%s: %s", s.ID, s.Status) },
@@ -357,6 +421,17 @@ func waitFor(svc notary.Service, id string) (*notary.Status, error) {
 	}
 	progressf("%s: %s", id, st.Status)
 	return st, nil
+}
+
+// printIssues writes the parsed issues from a rejected submission's log.
+func printIssues(issues []notary.LogIssue) {
+	for _, i := range issues {
+		fmt.Fprintf(os.Stderr, "%s: %s", i.Severity, i.Message)
+		if i.Path != "" {
+			fmt.Fprintf(os.Stderr, " (%s)", i.Path)
+		}
+		fmt.Fprintln(os.Stderr)
+	}
 }
 
 func printLogIssues(log json.RawMessage) {
