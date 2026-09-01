@@ -150,7 +150,7 @@ reference: every flag, its default, and when to reach for it.
 | `sign PKG OUT.pkg` | An RSA and a CMS signature over the table of contents, chain embedded, timestamped |
 | `verify PKG` | Digest, signatures, chain to Apple's roots, team, timestamp, staple, each reported separately |
 | `notarize PKG` | Submit to Apple's notary service; `--wait` for the verdict, `--staple` to attach the ticket |
-| `staple PKG` | Fetch the ticket from Apple's database and attach it; `unstaple` removes one |
+| `staple PKG\|APP` | Fetch the ticket from Apple's database and attach it, to a flat package or a `.app` bundle; `unstaple` removes one |
 | `receipts` | What a volume records about the packages installed on it |
 
 Three things are worth knowing before reading the reference.

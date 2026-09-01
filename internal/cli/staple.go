@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/deploymenttheory/go-macos-pkg/pkg/staple"
 	"github.com/spf13/cobra"
@@ -17,45 +18,59 @@ var (
 )
 
 var stapleCmd = &cobra.Command{
-	Use:   "staple PKG [OUT.pkg]",
+	Use:   "staple PKG|APP [OUT.pkg]",
 	Short: "Attach a notarization ticket; unstaple removes one",
-	Long: `Retrieve the notarization ticket Apple issued for a package and attach it,
-so the Installer can verify notarization without going online.
+	Long: `Retrieve the notarization ticket Apple issued and attach it, so Gatekeeper
+can verify notarization without going online.
 
-The ticket is looked up in Apple's public ticket database by the package's
-signature digest, so no credentials are needed. Flat packages only.
+Works on flat packages and application bundles (.app). The ticket is looked
+up in Apple's public ticket database, so no credentials are needed: for a
+package by its signature digest, for an application by its main executable's
+CDHash. A package carries the ticket as a trailer; an application carries it
+in Contents/CodeResources, and is always stapled in place.
 
 --check reports whether a ticket is already stapled (exit 7 if not).
 --ticket FILE staples a ticket from a file instead of looking it up, for
 air-gapped builds where the ticket was fetched elsewhere.
-OUT.pkg writes the stapled package to a new path; without it the package
-is updated in place.
+OUT.pkg writes a stapled flat package to a new path; without it the package
+is updated in place. It does not apply to an application bundle.
 
 Examples:
   macospkg staple Foo.pkg
   macospkg staple --check Foo.pkg
-  macospkg staple Foo.pkg Foo-stapled.pkg`,
+  macospkg staple Foo.pkg Foo-stapled.pkg
+  macospkg staple Foo.app`,
 	Args: rangeArgs(1, 2, "PKG [OUT.pkg]"),
 	RunE: runStaple,
 }
 
 var unstapleCmd = &cobra.Command{
-	Use:   "unstaple PKG [OUT.pkg]",
+	Use:   "unstaple PKG|APP [OUT.pkg]",
 	Short: "Remove a stapled notarization ticket",
-	Long: `Remove a notarization ticket from a package.
+	Long: `Remove a notarization ticket from a package or application bundle.
 
-The ticket is a trailer appended after the archive, so removing it returns the
-package to the bytes it had when it was signed. Re-signing does this too, since
-a ticket cannot survive a change to what it covers.
+For a package the ticket is a trailer appended after the archive, so removing
+it returns the package to the bytes it had when it was signed. Re-signing does
+this too, since a ticket cannot survive a change to what it covers. For an
+application the ticket is Contents/CodeResources, which is removed in place.
 
 OUT.pkg writes the result to a new path; without it the package is updated in
-place. A package with no ticket is copied unchanged.
+place (it does not apply to an application bundle). A target with no ticket is
+left unchanged.
 
 Examples:
   macospkg unstaple Foo.pkg
-  macospkg unstaple Foo.pkg Foo-clean.pkg`,
+  macospkg unstaple Foo.pkg Foo-clean.pkg
+  macospkg unstaple Foo.app`,
 	Args: rangeArgs(1, 2, "PKG [OUT.pkg]"),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if staple.IsAppBundle(args[0]) {
+			if err := staple.UnstapleApp(args[0]); err != nil {
+				return err
+			}
+			progressf("removed any stapled ticket: %s", args[0])
+			return nil
+		}
 		x, err := openXAR(args[0])
 		if err != nil {
 			return err
@@ -88,6 +103,9 @@ type stapleReport struct {
 }
 
 func runStaple(cmd *cobra.Command, args []string) error {
+	if staple.IsAppBundle(args[0]) {
+		return runStapleApp(args)
+	}
 	x, err := openXAR(args[0])
 	if err != nil {
 		return err
@@ -149,4 +167,90 @@ func runStaple(cmd *cobra.Command, args []string) error {
 	}
 	progressf("stapled a %d-byte notarization ticket to %s", len(ticket), dst)
 	return nil
+}
+
+// runStapleApp staples an application bundle. Unlike a flat package, the
+// ticket is a file (Contents/CodeResources), the lookup is keyed on the main
+// executable's CDHash, and stapling is always in place.
+func runStapleApp(args []string) error {
+	bundle := args[0]
+	if len(args) > 1 {
+		return usageErrorf("an application bundle is stapled in place; OUT is only for flat packages")
+	}
+	has, err := staple.AppHasTicket(bundle)
+	if err != nil {
+		return err
+	}
+	if stapleCheck {
+		report := stapleReport{Path: bundle, Stapled: has}
+		if names, nerr := staple.AppRecordNames(bundle); nerr == nil && len(names) > 0 {
+			report.RecordName = names[0]
+		}
+		switch {
+		case structured():
+			if err := jsonOut(report); err != nil {
+				return err
+			}
+		case has:
+			fmt.Printf("%s: notarization ticket stapled\n", bundle)
+		default:
+			fmt.Printf("%s: no notarization ticket\n", bundle)
+		}
+		if !has {
+			return withCode(ExitSignature, fmt.Errorf("%s has no stapled ticket", bundle))
+		}
+		return nil
+	}
+
+	var ticket []byte
+	var record string
+	if stapleTicket != "" {
+		ticket, err = os.ReadFile(stapleTicket)
+		if err != nil {
+			return usageErrorf("unable to read --ticket: %v", err)
+		}
+	} else {
+		names, nerr := staple.AppRecordNames(bundle)
+		if nerr != nil {
+			return withCode(ExitSignature, nerr)
+		}
+		ticket, record, err = fetchAppTicket(names)
+		if err != nil {
+			if errors.Is(err, staple.ErrNoTicket) {
+				return withCode(ExitSignature, fmt.Errorf("no notarization ticket on record for %s (tried %s): it has not been notarized, or the ticket is not published yet; retry shortly", bundle, strings.Join(names, ", ")))
+			}
+			return err
+		}
+	}
+	if err := staple.StapleApp(bundle, ticket); err != nil {
+		return err
+	}
+	report := stapleReport{Path: bundle, Stapled: true, TicketBytes: len(ticket), RecordName: record, Replaced: has}
+	if structured() {
+		return jsonOut(report)
+	}
+	progressf("stapled a %d-byte notarization ticket to %s", len(ticket), bundle)
+	return nil
+}
+
+// fetchAppTicket tries each record name until one resolves. A universal
+// binary offers one per architecture, and Apple's ticket answers to any.
+func fetchAppTicket(names []string) (ticket []byte, record string, err error) {
+	l := stapleLookup()
+	noneFound := false
+	for _, name := range names {
+		t, e := l.Fetch(context.Background(), name)
+		if e == nil {
+			return t, name, nil
+		}
+		if errors.Is(e, staple.ErrNoTicket) {
+			noneFound = true
+			continue
+		}
+		return nil, name, e
+	}
+	if noneFound {
+		return nil, "", staple.ErrNoTicket
+	}
+	return nil, "", fmt.Errorf("staple: no record names to look up")
 }

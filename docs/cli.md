@@ -601,10 +601,19 @@ Rejections are code 8 and timeouts are code 9 for a reason: a timeout
 says nothing about the verdict, so retry it with `notarize info`
 rather than failing the build.
 
-### `staple PKG [OUT.pkg]` and `unstaple PKG [OUT.pkg]`
+### `staple PKG|APP [OUT.pkg]` and `unstaple PKG|APP [OUT.pkg]`
 
 What `stapler staple` does: fetch the ticket from Apple's public database
-and append it, so Gatekeeper can check it with no network.
+and attach it, so Gatekeeper can check it with no network.
+
+Works on flat packages and application bundles (`.app`). The lookup key
+differs: a package is found by its signature digest, an application by its
+main executable's CDHash (the SHA-256 of the Mach-O CodeDirectory, read
+without codesign; a universal binary has one per architecture and Apple's
+ticket answers to any). A package carries the ticket as a trailer and can be
+written to a new `OUT.pkg`; an application carries it in
+`Contents/CodeResources` and is always stapled in place, so `OUT` does not
+apply.
 
 | Flag | What it does |
 |---|---|
