@@ -240,7 +240,7 @@ for _, c := range p.Components {
 Key packages: `pkg/xar` (container), `pkg/bom` (bill of materials),
 `pkg/cpio` and `pkg/pbzx` (payloads), `pkg/appledouble` (the `._` sidecars
 that carry extended attributes), `pkg/flatpkg` (packages, build, expand,
-extract), `pkg/pkgsign` (sign, verify), `pkg/notary`, `pkg/staple`.
+extract), `pkg/pkgsign` (sign, verify), `pkg/notary`, `pkg/staple`, and `pkg/machoidentity` (portable Mach-O signing identifiers and code-directory hashes; metadata reading does not verify signatures).
 The format details are written down in [`docs/formats/`](docs/formats/).
 
 ## How it is tested
