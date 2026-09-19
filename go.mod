@@ -5,7 +5,7 @@ go 1.26.6
 require (
 	github.com/deploymenttheory/go-sdk-appleservices v0.10.0
 	github.com/go-compressions/lzfse v0.3.0
-	github.com/pierrec/lz4/v4 v4.1.29
+	github.com/pierrec/lz4/v4 v4.1.30
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.12.1
