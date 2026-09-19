@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.5.0...v0.6.0) (2026-09-19)
+
+
+### Features
+
+* **machoidentity:** expose portable application signing identities ([82c3787](https://github.com/deploymenttheory/go-macos-pkg/commit/82c378728f31fbbfc0b647524df1a3fc3539f2a4))
+* **machoidentity:** expose portable signing identifiers and code-directory hashes ([744399d](https://github.com/deploymenttheory/go-macos-pkg/commit/744399d318259899a3a71f176bd4e0729126d2b5))
+
 ## [0.5.0](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.4.3...v0.5.0) (2026-09-01)
 
 
