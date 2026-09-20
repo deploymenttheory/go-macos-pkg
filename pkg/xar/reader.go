@@ -4,6 +4,7 @@
 package xar
 
 import (
+	"bufio"
 	"bytes"
 	"compress/bzip2"
 	"compress/gzip"
@@ -294,7 +295,7 @@ func (x *Reader) OpenEA(ea *EA) (io.ReadCloser, error) {
 }
 
 // decode wraps stored bytes in the decoder their encoding style names.
-func decode(raw *io.SectionReader, style string) (io.ReadCloser, error) {
+func decode(raw io.Reader, style string) (io.ReadCloser, error) {
 	switch strings.ToLower(strings.TrimSpace(style)) {
 	case EncodingNone, "":
 		return io.NopCloser(raw), nil
@@ -302,15 +303,16 @@ func decode(raw *io.SectionReader, style string) (io.ReadCloser, error) {
 		// The style says gzip; the bytes are zlib. Sniff anyway, because a
 		// writer that took the name literally would produce real gzip and
 		// there is no reason to refuse it.
-		var magic [2]byte
-		if _, err := raw.ReadAt(magic[:], 0); err == nil && magic[0] == 0x1f && magic[1] == 0x8b {
-			gz, err := gzip.NewReader(raw)
+		buffer := bufio.NewReader(raw)
+		magic, err := buffer.Peek(2)
+		if err == nil && magic[0] == 0x1f && magic[1] == 0x8b {
+			gz, err := gzip.NewReader(buffer)
 			if err != nil {
 				return nil, fmt.Errorf("xar: %w", err)
 			}
 			return gz, nil
 		}
-		zr, err := zlib.NewReader(raw)
+		zr, err := zlib.NewReader(buffer)
 		if err != nil {
 			return nil, fmt.Errorf("xar: %w", err)
 		}
