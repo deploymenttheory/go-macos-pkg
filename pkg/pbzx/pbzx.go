@@ -31,6 +31,7 @@ import (
 
 	"github.com/deploymenttheory/go-macos-pkg/pkg/lzbitmap"
 	"github.com/go-compressions/lzfse"
+	xzdecode "github.com/mikelolasagasti/xz"
 	"github.com/ulikunitz/xz"
 )
 
@@ -234,7 +235,10 @@ func newChunkReader(algo Algorithm, source io.Reader, header chunkHeader) (*chun
 		if head, err := chunk.buffer.Peek(6); err == nil && !bytes.Equal(head, xzMagic) {
 			return nil, fmt.Errorf("pbzx: chunk is not an xz stream")
 		}
-		xr, err := xz.NewReader(chunk.buffer)
+		// Match the writer's 8 MiB dictionary floor, but do not let a
+		// small chunk request an independently large decoder allocation.
+		dictionaryLimit := uint32(min(maxBufferedChunk, max(8<<20, inflated)))
+		xr, err := xzdecode.NewReader(chunk.buffer, dictionaryLimit)
 		if err != nil {
 			return nil, fmt.Errorf("pbzx: bad xz chunk: %w", err)
 		}
@@ -258,6 +262,9 @@ func newChunkReader(algo Algorithm, source io.Reader, header chunkHeader) (*chun
 		}
 		if stored.N != 0 {
 			return nil, fmt.Errorf("pbzx: truncated chunk: %w", io.ErrUnexpectedEOF)
+		}
+		if err := checkBufferedSize(algo, data, inflated); err != nil {
+			return nil, err
 		}
 		var out []byte
 		switch algo {

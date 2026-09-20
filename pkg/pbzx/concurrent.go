@@ -15,6 +15,16 @@ import (
 // read-ahead independently of the total payload size. The caller chooses the
 // worker count to fit its CPU and memory budget.
 //
+// Chunk buffers are bounded by the block size. XZ dictionaries are limited to
+// the greater of 8 MiB (the writer's default) and the chunk's decoded size.
+// Whole-buffer codecs also retain decoded output and allocation slack. A
+// malformed LZFSE frame may produce up to 26 MiB beyond its declared output
+// before the codec detects the mismatch. This is not a process RSS limit.
+//
+// Cancellation stops scheduling and interrupts streaming decoding between
+// reads. LZFSE, LZ4 and LZBITMAP cannot be interrupted inside a codec call:
+// Close waits for an active bounded chunk decode to return.
+//
 // The caller owns r and must unblock any pending Read on cancellation or before
 // calling Close. Call Close when finished, including after an early read failure.
 func NewConcurrentReader(ctx context.Context, r io.Reader, workers int) (*Reader, error) {
@@ -150,6 +160,9 @@ func (c *concurrentChunk) decode(ctx context.Context, algo Algorithm) error {
 		return err
 	}
 	defer func() { _ = r.Close() }()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	size := int(c.header.inflated)
 	if cap(c.dst) < size {
 		c.dst = make([]byte, size)
