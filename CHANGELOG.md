@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.7.0](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.6.0...v0.7.0) (2026-09-20)
+
+
+### Features
+
+* Add concurrent PBZX decoding and streaming XAR verification ([47fca71](https://github.com/deploymenttheory/go-macos-pkg/commit/47fca713260e73b7c3dcf0fd679b3acdb2138d4b))
+* **pbzx:** add bounded concurrent decoding ([13b3ea2](https://github.com/deploymenttheory/go-macos-pkg/commit/13b3ea223ffd777b67cfea2b0cd3a59acce5d561))
+* **xar:** verify entries while streaming ([7e31d2c](https://github.com/deploymenttheory/go-macos-pkg/commit/7e31d2c8a79e985302e476c4d595368fffa31f56))
+
+
+### Bug Fixes
+
+* **pbzx:** bound decoder allocations ([5632602](https://github.com/deploymenttheory/go-macos-pkg/commit/56326027c7e00c701bfc5a925adbb55496f68596))
+* **pbzx:** cancel active chunk decoding ([e561e27](https://github.com/deploymenttheory/go-macos-pkg/commit/e561e27b72a9def5f27584cca2b649d418052438))
+* **xar:** preserve checksum-only verification ([167fcc8](https://github.com/deploymenttheory/go-macos-pkg/commit/167fcc81663250c9778c31f1931644d4a0bb8900))
+
 ## [0.6.0](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.5.0...v0.6.0) (2026-09-19)
 
 
