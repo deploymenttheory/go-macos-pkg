@@ -119,6 +119,34 @@ func TestOpenVerifiedAllowsAbsentChecksums(t *testing.T) {
 	}
 }
 
+func TestVerifyPreservesChecksumOnlyContract(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func(*Data)
+	}{
+		{"archived only, unsupported encoding", func(d *Data) { d.ExtractedChecksum = nil; d.Encoding.Style = "unknown" }},
+		{"no checksums, unsupported encoding", func(d *Data) { d.ArchivedChecksum = nil; d.ExtractedChecksum = nil; d.Encoding.Style = "unknown" }},
+		{"incorrect declared size", func(d *Data) { d.Size++ }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			x, _ := verifiedFixture(t, EncodingGzip, false)
+			f := x.Lookup("Payload")
+			test.change(f.Data)
+			if err := x.Verify(f); err != nil {
+				t.Fatal(err)
+			}
+			r, err := x.OpenVerified(f)
+			if err == nil {
+				_, err = io.Copy(io.Discard, r)
+				r.Close()
+			}
+			if err == nil {
+				t.Fatal("OpenVerified accepted invalid decoding or size")
+			}
+		})
+	}
+}
+
 func TestOpenEAVerified(t *testing.T) {
 	x, want := verifiedFixture(t, EncodingGzip, false)
 	d := x.Lookup("Payload").Data

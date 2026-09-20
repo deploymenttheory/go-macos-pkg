@@ -10,6 +10,7 @@ import (
 	"compress/gzip"
 	"compress/zlib"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -335,17 +336,53 @@ func decode(raw io.Reader, style string) (io.ReadCloser, error) {
 	}
 }
 
-// Verify checks the entry's stored and decoded lengths and any checksums present.
-// Entries without data verify trivially.
+// Verify checks the entry's archived checksum against its stored bytes and
+// its extracted checksum against its decoded bytes. Entries without
+// checksums verify trivially.
 func (x *Reader) Verify(f *File) error {
 	if f.Data == nil {
 		return nil
 	}
-	r, err := x.OpenVerified(f)
+	if d := f.Data.ArchivedChecksum; d != nil && d.Value != "" {
+		raw, err := x.OpenRaw(f)
+		if err != nil {
+			return err
+		}
+		if err := checkDigest(raw, d, "archived"); err != nil {
+			return fmt.Errorf("xar: %s: %w", f.Path(), err)
+		}
+	}
+	if d := f.Data.ExtractedChecksum; d != nil && d.Value != "" {
+		rc, err := x.Open(f)
+		if err != nil {
+			return err
+		}
+		defer rc.Close()
+		if err := checkDigest(rc, d, "extracted"); err != nil {
+			return fmt.Errorf("xar: %s: %w", f.Path(), err)
+		}
+	}
+	return nil
+}
+
+func checkDigest(r io.Reader, d *Digest, what string) error {
+	alg, err := ParseChecksumStyle(d.Style)
 	if err != nil {
 		return err
 	}
-	defer r.Close()
-	_, err = io.Copy(io.Discard, r)
-	return err
+	h, err := alg.New()
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(h, r); err != nil {
+		return err
+	}
+	want, err := hex.DecodeString(strings.TrimSpace(d.Value))
+	if err != nil {
+		return fmt.Errorf("malformed %s checksum %q", what, d.Value)
+	}
+	if !bytes.Equal(h.Sum(nil), want) {
+		return fmt.Errorf("%s checksum mismatch", what)
+	}
+	return nil
 }
