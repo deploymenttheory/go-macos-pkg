@@ -105,7 +105,7 @@ func TestConcurrentRealDecoderCancellation(t *testing.T) {
 			chunk := &concurrentChunk{header: header, src: data[28 : 28+header.deflated]}
 			ctx, cancel := context.WithCancel(t.Context())
 			progress := &cancelOnOutput{Context: ctx, cancel: cancel, chunk: chunk}
-			if err := chunk.decode(progress, algo); !errors.Is(err, context.Canceled) {
+			if err := chunk.decode(progress, algo, decoderConfig{buffered: decodeBuffered}); !errors.Is(err, context.Canceled) {
 				cancel()
 				t.Fatalf("cancellation after decoded output: %v", err)
 			}

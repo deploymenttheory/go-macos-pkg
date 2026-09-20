@@ -5,7 +5,33 @@ import (
 	"fmt"
 
 	"github.com/deploymenttheory/go-macos-pkg/pkg/lzbitmap"
+	"github.com/go-compressions/lzfse"
 )
+
+type bufferedDecoder func(Algorithm, []byte, int) ([]byte, error)
+
+// call contains recoverable codec panics at the dependency boundary. A panic
+// escaping a concurrent worker cannot be recovered by the reader's caller.
+func (decode bufferedDecoder) call(algo Algorithm, src []byte, size int) (out []byte, err error) {
+	defer func() {
+		if failure := recover(); failure != nil {
+			out = nil
+			err = fmt.Errorf("%s decoder panic: %v", algo, failure)
+		}
+	}()
+	return decode(algo, src, size)
+}
+
+func decodeBuffered(algo Algorithm, src []byte, size int) ([]byte, error) {
+	switch algo {
+	case LZFSE:
+		return lzfse.Decompress(src)
+	case LZBitmap:
+		return lzbitmap.Decompress(src)
+	default: // The caller dispatches only the three buffered algorithms.
+		return decodeLZ4Frames(src, size)
+	}
+}
 
 // checkBufferedSize checks allocation-driving frame fields before handing a
 // whole stream to a codec that cannot accept an output limit. The codecs still
@@ -56,6 +82,9 @@ func checkBufferedSize(algo Algorithm, src []byte, remaining uint64) error {
 					if len(src) < 772 {
 						return fmt.Errorf("pbzx: truncated LZFSE v1 frame")
 					}
+					if err := checkLZFSEV1States(src); err != nil {
+						return err
+					}
 					literals = uint64(binary.LittleEndian.Uint32(src[12:]))
 					matches = uint64(binary.LittleEndian.Uint32(src[16:]))
 					stored = 772 + uint64(binary.LittleEndian.Uint32(src[20:])) + uint64(binary.LittleEndian.Uint32(src[24:]))
@@ -88,6 +117,22 @@ func checkBufferedSize(algo Algorithm, src []byte, remaining uint64) error {
 		}
 		remaining -= raw
 		src = src[stored:]
+	}
+	return nil
+}
+
+// Unlike the v2 decoder, the dependency's v1 path indexes its FSE tables
+// without checking initial states. Validate them before entering the codec.
+func checkLZFSEV1States(src []byte) error {
+	for offset := 32; offset < 40; offset += 2 {
+		if binary.LittleEndian.Uint16(src[offset:]) >= 1024 {
+			return fmt.Errorf("pbzx: invalid LZFSE v1 literal state")
+		}
+	}
+	if binary.LittleEndian.Uint16(src[44:]) >= 64 ||
+		binary.LittleEndian.Uint16(src[46:]) >= 64 ||
+		binary.LittleEndian.Uint16(src[48:]) >= 256 {
+		return fmt.Errorf("pbzx: invalid LZFSE v1 match state")
 	}
 	return nil
 }

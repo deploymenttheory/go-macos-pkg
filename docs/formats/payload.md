@@ -134,6 +134,58 @@ blocks are `"bv41"` + LE u32 decoded size + LE u32 encoded size + an LZ4
 block, `"bv4-"` + LE u32 size + raw bytes, and `"bv4$"` ends the stream;
 blocks decode to at most 64 KiB.
 
+### Concurrent reading and decoder limits
+
+Library callers can use `pbzx.NewConcurrentReader(ctx, source, workers)` to
+decode chunks concurrently while preserving their byte and error order. The
+worker count must be positive. A completed chunk keeps its worker slot until
+the caller consumes it, so read-ahead is bounded by the worker count. The CLI
+uses `NewReader` and decodes sequentially.
+
+Both reader modes accept an optional XZ dictionary limit:
+
+```go
+opts := pbzx.ReaderOptions{MaxXZDictionarySize: 32 << 20}
+r, err := pbzx.NewConcurrentReaderWithOptions(ctx, source, 4, opts)
+if err != nil {
+    return err
+}
+defer r.Close()
+_, err = io.Copy(destination, r)
+return err
+```
+
+`NewReaderWithOptions(source, opts)` applies the same limit to sequential
+reading. Zero chooses the largest of 8 MiB, the container's block size, and
+the current chunk's decoded size, capped at 1 GiB. This allows a short final
+chunk to use the same dictionary as earlier full chunks. A positive limit
+overrides the automatic value, including its 8 MiB floor; values above 1 GiB
+are rejected. Streams requesting a larger dictionary fail before allocating
+it. Compared with versions that had no dictionary bound, some valid streams
+now need an explicit limit, and dictionaries larger than 1 GiB are rejected.
+
+The concurrent reader accepts block sizes from 1 byte through 1 GiB and
+requires each chunk to fit its declared block size. The automatic limit uses
+metadata supplied by the input; callers needing a smaller dictionary budget
+should set an explicit limit. Workers also retain stored and decoded buffers.
+LZFSE, LZ4 and LZBITMAP decode whole chunks, with additional output buffers and
+allocation slack. A malformed LZFSE frame can expand up to approximately
+26 MiB beyond its declared output before the codec reports a mismatch. These
+limits describe decoder allocations, not total process RSS.
+
+Cancellation stops scheduling and interrupts XZ/zlib decoding between reads.
+Whole-buffer codec calls finish before `Close` returns. A cancelled `Read`
+can therefore finish before `Close`. The caller owns the source and must
+unblock any pending source read before waiting in `Close`, for example by
+closing a pipe. Always close the concurrent reader after use, including after
+an early error. Recoverable buffered codec panics are returned as decoding
+errors; malformed LZFSE v1 decoder states are rejected before codec entry.
+
+PBZX XZ decoding uses `github.com/mikelolasagasti/xz` for its enforceable
+dictionary limit. XZ encoding continues to use `github.com/ulikunitz/xz`.
+See [decoding benchmarks and coverage checks](../pbzx-benchmarks.md) for
+reproducible measurements and the review validation commands.
+
 ## numberOfFiles and installKBytes
 
 PackageInfo's payload element records `numberOfFiles`, the count of cpio

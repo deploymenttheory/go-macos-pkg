@@ -109,10 +109,42 @@ type Reader struct {
 	chunk     *chunkReader
 	err       error
 	parallel  *concurrentReader
+	decoder   decoderConfig
 }
 
 // NewReader validates the header and returns a streaming decoder.
 func NewReader(r io.Reader) (*Reader, error) {
+	return NewReaderWithOptions(r, ReaderOptions{})
+}
+
+// ReaderOptions controls decoder memory limits for both reader modes.
+type ReaderOptions struct {
+	// MaxXZDictionarySize is the maximum XZ dictionary allocation in bytes.
+	// Zero selects the largest of 8 MiB, the container block size and the
+	// decoded chunk size, capped at 1 GiB. A positive value overrides that
+	// default, including its 8 MiB floor, and must not exceed 1 GiB.
+	// Limits apply before allocation; they do not bound total process memory.
+	MaxXZDictionarySize uint64
+}
+
+type decoderConfig struct {
+	blockSize uint64
+	options   ReaderOptions
+	buffered  bufferedDecoder
+}
+
+func (c decoderConfig) dictionaryLimit(inflated uint64) uint32 {
+	if c.options.MaxXZDictionarySize != 0 {
+		return uint32(c.options.MaxXZDictionarySize)
+	}
+	return uint32(min(maxBufferedChunk, max(8<<20, c.blockSize, inflated)))
+}
+
+// NewReaderWithOptions is NewReader with explicit decoder memory limits.
+func NewReaderWithOptions(r io.Reader, options ReaderOptions) (*Reader, error) {
+	if options.MaxXZDictionarySize > maxBufferedChunk {
+		return nil, fmt.Errorf("pbzx: XZ dictionary limit must not exceed %d bytes", maxBufferedChunk)
+	}
 	var hdr [12]byte
 	if _, err := io.ReadFull(r, hdr[:4]); err != nil {
 		return nil, ErrNotPBZ
@@ -124,7 +156,9 @@ func NewReader(r io.Reader) (*Reader, error) {
 	if _, err := io.ReadFull(r, hdr[4:]); err != nil {
 		return nil, fmt.Errorf("pbzx: unable to read header: %w", err)
 	}
-	return &Reader{r: r, algo: algo, blockSize: binary.BigEndian.Uint64(hdr[4:12])}, nil
+	blockSize := binary.BigEndian.Uint64(hdr[4:12])
+	return &Reader{r: r, algo: algo, blockSize: blockSize,
+		decoder: decoderConfig{blockSize: blockSize, options: options, buffered: decodeBuffered}}, nil
 }
 
 // Algorithm returns the container's compression algorithm.
@@ -153,7 +187,7 @@ func (pr *Reader) Read(p []byte) (int, error) {
 		if pr.chunk == nil {
 			header, err := readChunkHeader(pr.r)
 			if err == nil {
-				pr.chunk, err = newChunkReader(pr.algo, pr.r, header)
+				pr.chunk, err = newChunkReader(pr.algo, pr.r, header, pr.decoder)
 			}
 			if err != nil {
 				pr.err = err
@@ -220,7 +254,7 @@ type chunkReader struct {
 	left    int64
 }
 
-func newChunkReader(algo Algorithm, source io.Reader, header chunkHeader) (*chunkReader, error) {
+func newChunkReader(algo Algorithm, source io.Reader, header chunkHeader, config decoderConfig) (*chunkReader, error) {
 	inflated, deflated := header.inflated, header.deflated
 	stored := &io.LimitedReader{R: source, N: int64(deflated)}
 	chunk := &chunkReader{stored: stored, left: int64(inflated)}
@@ -235,10 +269,8 @@ func newChunkReader(algo Algorithm, source io.Reader, header chunkHeader) (*chun
 		if head, err := chunk.buffer.Peek(6); err == nil && !bytes.Equal(head, xzMagic) {
 			return nil, fmt.Errorf("pbzx: chunk is not an xz stream")
 		}
-		// Match the writer's 8 MiB dictionary floor, but do not let a
-		// small chunk request an independently large decoder allocation.
-		dictionaryLimit := uint32(min(maxBufferedChunk, max(8<<20, inflated)))
-		xr, err := xzdecode.NewReader(chunk.buffer, dictionaryLimit)
+		// A short final chunk can use the same dictionary as full chunks.
+		xr, err := xzdecode.NewReader(chunk.buffer, config.dictionaryLimit(inflated))
 		if err != nil {
 			return nil, fmt.Errorf("pbzx: bad xz chunk: %w", err)
 		}
@@ -266,15 +298,7 @@ func newChunkReader(algo Algorithm, source io.Reader, header chunkHeader) (*chun
 		if err := checkBufferedSize(algo, data, inflated); err != nil {
 			return nil, err
 		}
-		var out []byte
-		switch algo {
-		case LZFSE:
-			out, err = lzfse.Decompress(data)
-		case LZBitmap:
-			out, err = lzbitmap.Decompress(data)
-		default:
-			out, err = decodeLZ4Frames(data, int(inflated))
-		}
+		out, err := config.buffered.call(algo, data, int(inflated))
 		if err != nil {
 			return nil, fmt.Errorf("pbzx: bad %s chunk: %w", algo, err)
 		}
