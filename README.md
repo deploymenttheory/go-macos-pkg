@@ -285,6 +285,11 @@ Fixtures are regenerated with `scripts/gen-fixtures.sh` on macOS. See
 MIT. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE) for the reference
 implementations that informed the format code; none is vendored.
 
+## Related Projects
+
+- [go-apfs-v2](https://github.com/deploymenttheory/go-apfs-v2) — Pure Go toolkit for reading, creating, and repacking Apple disk images with APFS and HFS+ support.
+- [go-macos-codesign](https://github.com/deploymenttheory/go-macos-codesign) — Pure Go library and CLI for signing, inspecting, and verifying supported Mach-O binaries, macOS app bundles, and DMGs.
+
 ## Acknowledgements
 
 The flat package format is Apple's and undocumented; this tool stands on
