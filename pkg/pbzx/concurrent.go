@@ -16,7 +16,8 @@ import (
 // worker count to fit its CPU and memory budget.
 //
 // Chunk buffers are bounded by the block size. XZ dictionaries are limited to
-// the greater of 8 MiB (the writer's default) and the chunk's decoded size.
+// the largest of 8 MiB, the block size and the chunk's decoded size, capped
+// at 1 GiB. NewConcurrentReaderWithOptions can override this dictionary limit.
 // Whole-buffer codecs also retain decoded output and allocation slack. A
 // malformed LZFSE frame may produce up to 26 MiB beyond its declared output
 // before the codec detects the mismatch. This is not a process RSS limit.
@@ -28,13 +29,25 @@ import (
 // The caller owns r and must unblock any pending Read on cancellation or before
 // calling Close. Call Close when finished, including after an early read failure.
 func NewConcurrentReader(ctx context.Context, r io.Reader, workers int) (*Reader, error) {
+	return NewConcurrentReaderWithOptions(ctx, r, workers, ReaderOptions{})
+}
+
+// NewConcurrentReaderWithOptions is NewConcurrentReader with explicit decoder
+// memory limits. It has the same cancellation and Close requirements.
+func NewConcurrentReaderWithOptions(ctx context.Context, r io.Reader, workers int, options ReaderOptions) (*Reader, error) {
+	return newConcurrentReaderWithDecoder(ctx, r, workers, options, decodeBuffered)
+}
+
+// The codec is supplied per reader so tests can coordinate an active call
+// without changing another reader's decoder or relying on scheduling delays.
+func newConcurrentReaderWithDecoder(ctx context.Context, r io.Reader, workers int, options ReaderOptions, codec bufferedDecoder) (*Reader, error) {
 	if workers < 1 {
 		return nil, fmt.Errorf("pbzx: concurrent workers must be positive")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	pr, err := NewReader(r)
+	pr, err := NewReaderWithOptions(r, options)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -44,8 +57,9 @@ func NewConcurrentReader(ctx context.Context, r io.Reader, workers int) (*Reader
 	if pr.blockSize == 0 || pr.blockSize > maxBufferedChunk {
 		return nil, fmt.Errorf("pbzx: concurrent block size must be between 1 and %d", maxBufferedChunk)
 	}
+	pr.decoder.buffered = codec
 	pr.parallel = newConcurrentReader(ctx, r, pr.blockSize, workers, func(ctx context.Context, chunk *concurrentChunk) error {
-		return chunk.decode(ctx, pr.algo)
+		return chunk.decode(ctx, pr.algo, pr.decoder)
 	})
 	return pr, nil
 }
@@ -151,11 +165,11 @@ func (r *concurrentReader) decode(jobs <-chan *concurrentChunk, decode func(cont
 	}
 }
 
-func (c *concurrentChunk) decode(ctx context.Context, algo Algorithm) error {
+func (c *concurrentChunk) decode(ctx context.Context, algo Algorithm, config decoderConfig) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	r, err := newChunkReader(algo, bytes.NewReader(c.src), c.header)
+	r, err := newChunkReader(algo, bytes.NewReader(c.src), c.header, config)
 	if err != nil {
 		return err
 	}
