@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.7.0...v0.7.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* **pbzx:** harden concurrent decoding and dictionary limits ([9b252bc](https://github.com/deploymenttheory/go-macos-pkg/commit/9b252bc1d6d2c76307381a33a9758a6e31f1f253))
+
 ## [0.7.0](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.6.0...v0.7.0) (2026-09-20)
 
 
