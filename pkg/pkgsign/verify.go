@@ -177,7 +177,7 @@ func Verify(x *xar.Reader, o VerifyOptions) (*Result, error) {
 			// Trimming to the key size would let a signature with trailing
 			// bytes through on the strength of its prefix.
 			r.fail("RSA signature is %d bytes, want %d for this key", len(sig), pub.Size())
-		} else if err := rsa.VerifyPKCS1v15(pub, hash, digest, sig); err != nil {
+		} else if err := verifyTOCSignature(pub, hash, digest, sig); err != nil {
 			r.fail("RSA signature does not verify")
 		} else {
 			r.RSAValid = true
@@ -261,6 +261,17 @@ func Verify(x *xar.Reader, o VerifyOptions) (*Result, error) {
 		r.Chain = chains[0]
 	}
 	return r, nil
+}
+
+// XAR signers either pass the TOC digest as a precomputed digest or hash
+// it as message data. Both forms carry a PKCS#1 v1.5 DigestInfo.
+func verifyTOCSignature(pub *rsa.PublicKey, hash crypto.Hash, digest, sig []byte) error {
+	if err := rsa.VerifyPKCS1v15(pub, hash, digest, sig); err == nil {
+		return nil
+	}
+	h := hash.New()
+	h.Write(digest)
+	return rsa.VerifyPKCS1v15(pub, hash, h.Sum(nil), sig)
 }
 
 // appleArc is the prefix of Apple's private extension OIDs

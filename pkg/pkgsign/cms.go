@@ -3,10 +3,10 @@
 //
 // The signed content is the xar TOC digest, carried detached (the TOC
 // records where the digest lives). One SignerInfo, identified by issuer
-// and serial number, with the three signed attributes every CMS signature
-// has (contentType, signingTime, messageDigest) and, optionally, an RFC
-// 3161 timestamp token as an unsigned attribute. Certificates are
-// included, leaf first.
+// and serial number. Signed attributes are optional for id-data; the
+// encoder includes contentType, signingTime and messageDigest. An RFC
+// 3161 timestamp token may be included as an unsigned attribute.
+// Certificates are included, leaf first.
 package pkgsign
 
 import (
@@ -360,10 +360,9 @@ func parseAttrs(raw asn1.RawValue) ([]attribute, error) {
 	return attrs, nil
 }
 
-// VerifyCMS checks a detached SignedData over content: the messageDigest
-// attribute matches the content, and the signer's signature over the
-// signed attributes verifies with the embedded certificate. It does not
-// evaluate trust in the certificate.
+// VerifyCMS checks a detached SignedData over content with the embedded
+// signer certificate. When signed attributes are present, their content
+// digest and type must match. It does not evaluate certificate trust.
 func VerifyCMS(der, content []byte) (*CMSInfo, error) {
 	info, sd, err := ParseCMS(der)
 	if err != nil {
@@ -373,66 +372,67 @@ func VerifyCMS(der, content []byte) (*CMSInfo, error) {
 		return info, fmt.Errorf("%w: signer certificate is not embedded", ErrCMS)
 	}
 	si := sd.SignerInfos[0]
-	if err := verifySignedAttrs(si, info.Signer, info.Hash, content, sd.ContentInfo.ContentType); err != nil {
+	if err := verifySignerInfo(si, info.Signer, info.Hash, content, sd.ContentInfo.ContentType); err != nil {
 		return info, err
 	}
 	return info, nil
 }
 
-// verifySignedAttrs is the RFC 5652 check a SignerInfo has to pass: the
-// signed attributes carry a messageDigest matching the content and a
-// contentType matching the eContentType, and the signature verifies over
-// those attributes. Both our own SignedData and the one inside an RFC
-// 3161 timestamp token are checked here, so the two cannot drift apart.
-func verifySignedAttrs(si signerInfo, signer *x509.Certificate, hash crypto.Hash, content []byte, eContentType asn1.ObjectIdentifier) error {
+// verifySignerInfo applies RFC 5652 sections 5.3 and 5.4 to both package
+// signatures and RFC 3161 tokens. Only id-data may omit signed attributes.
+func verifySignerInfo(si signerInfo, signer *x509.Certificate, hash crypto.Hash, content []byte, eContentType asn1.ObjectIdentifier) error {
+	signatureInput := content
 	if len(si.SignedAttrs.FullBytes) == 0 {
-		return fmt.Errorf("%w: no signed attributes", ErrCMS)
-	}
-	attrs, err := parseAttrs(si.SignedAttrs)
-	if err != nil {
-		return err
-	}
-	var messageDigest []byte
-	var contentType asn1.ObjectIdentifier
-	var sawDigest, sawType bool
-	for _, a := range attrs {
-		switch {
-		case a.Type.Equal(oidAttrMessageDgst):
-			if _, err := asn1.Unmarshal(a.Values.Bytes, &messageDigest); err != nil {
-				return fmt.Errorf("%w: malformed messageDigest", ErrCMS)
-			}
-			sawDigest = true
-		case a.Type.Equal(oidAttrContentType):
-			if _, err := asn1.Unmarshal(a.Values.Bytes, &contentType); err != nil {
-				return fmt.Errorf("%w: malformed contentType", ErrCMS)
-			}
-			sawType = true
+		if !eContentType.Equal(oidData) {
+			return fmt.Errorf("%w: signed attributes required for content type %v", ErrCMS, eContentType)
 		}
-	}
-	// RFC 5652 4.5.1: when signed attributes are present both of these are
-	// mandatory. An absent messageDigest would otherwise compare equal to
-	// a nil digest, and an absent contentType would let a signature made
-	// over one content type be replayed as another.
-	if !sawDigest {
-		return fmt.Errorf("%w: no messageDigest attribute", ErrCMS)
-	}
-	if !sawType {
-		return fmt.Errorf("%w: no contentType attribute", ErrCMS)
-	}
-	if !contentType.Equal(eContentType) {
-		return fmt.Errorf("%w: signed contentType %v is not the content's %v", ErrCMS, contentType, eContentType)
+	} else {
+		attrs, err := parseAttrs(si.SignedAttrs)
+		if err != nil {
+			return err
+		}
+		var messageDigest []byte
+		var contentType asn1.ObjectIdentifier
+		var sawDigest, sawType bool
+		for _, a := range attrs {
+			switch {
+			case a.Type.Equal(oidAttrMessageDgst):
+				if _, err := asn1.Unmarshal(a.Values.Bytes, &messageDigest); err != nil {
+					return fmt.Errorf("%w: malformed messageDigest", ErrCMS)
+				}
+				sawDigest = true
+			case a.Type.Equal(oidAttrContentType):
+				if _, err := asn1.Unmarshal(a.Values.Bytes, &contentType); err != nil {
+					return fmt.Errorf("%w: malformed contentType", ErrCMS)
+				}
+				sawType = true
+			}
+		}
+		// RFC 5652 5.3: when signed attributes are present both of these are
+		// mandatory. An absent messageDigest would otherwise compare equal to
+		// a nil digest, and an absent contentType would let a signature made
+		// over one content type be replayed as another.
+		if !sawDigest {
+			return fmt.Errorf("%w: no messageDigest attribute", ErrCMS)
+		}
+		if !sawType {
+			return fmt.Errorf("%w: no contentType attribute", ErrCMS)
+		}
+		if !contentType.Equal(eContentType) {
+			return fmt.Errorf("%w: signed contentType %v is not the content's %v", ErrCMS, contentType, eContentType)
+		}
+		h := hash.New()
+		h.Write(content)
+		if subtle.ConstantTimeCompare(h.Sum(nil), messageDigest) != 1 {
+			return fmt.Errorf("%w: messageDigest does not match the content", ErrCMS)
+		}
+		// The attributes are signed as a SET OF, not as the [0] IMPLICIT they
+		// are stored in, so the leading tag becomes 0x31 before hashing.
+		signatureInput = append([]byte(nil), si.SignedAttrs.FullBytes...)
+		signatureInput[0] = 0x31
 	}
 	h := hash.New()
-	h.Write(content)
-	if subtle.ConstantTimeCompare(h.Sum(nil), messageDigest) != 1 {
-		return fmt.Errorf("%w: messageDigest does not match the content", ErrCMS)
-	}
-	// The attributes are signed as a SET OF, not as the [0] IMPLICIT they
-	// are stored in, so the leading tag becomes 0x31 before hashing.
-	set := append([]byte(nil), si.SignedAttrs.FullBytes...)
-	set[0] = 0x31
-	h = hash.New()
-	h.Write(set)
+	h.Write(signatureInput)
 	pub, ok := signer.PublicKey.(*rsa.PublicKey)
 	if !ok {
 		return fmt.Errorf("%w: signer key is not RSA", ErrCMS)

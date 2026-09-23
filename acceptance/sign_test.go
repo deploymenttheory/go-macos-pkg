@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/deploymenttheory/go-macos-pkg/pkg/exitcode"
+	"github.com/deploymenttheory/go-macos-pkg/pkg/pkgsign"
 )
 
 type verifyJSON struct {
@@ -39,6 +40,33 @@ func fixtureKeys(t *testing.T) (p12, cert, key, ca string) {
 		t.Skip("fixture keys not committed; run scripts/gen-fixtures.sh")
 	}
 	return p12, filepath.Join(dir, "fixture-installer.pem"), filepath.Join(dir, "fixture-installer.key"), filepath.Join(dir, "fixture-ca.pem")
+}
+
+func TestVerifyCMSWithoutSignedAttributesOpenSSL(t *testing.T) {
+	requireTools(t, "openssl")
+	_, cert, key, _ := fixtureKeys(t)
+	content := []byte("detached package digest")
+	dir := t.TempDir()
+	input, output := filepath.Join(dir, "content"), filepath.Join(dir, "signature.der")
+	if err := os.WriteFile(input, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, digest := range []string{"sha1", "sha256"} {
+		t.Run(digest, func(t *testing.T) {
+			hostTool(t, "openssl", "cms", "-sign", "-binary", "-noattr", "-md", digest,
+				"-signer", cert, "-inkey", key, "-in", input, "-outform", "DER", "-out", output)
+			der, err := os.ReadFile(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := pkgsign.VerifyCMS(der, content); err != nil {
+				t.Fatalf("verify OpenSSL signature: %v", err)
+			}
+			if _, err := pkgsign.VerifyCMS(der, []byte("other content")); err == nil {
+				t.Error("wrong content verified")
+			}
+		})
+	}
 }
 
 // signedFixture signs the basic fixture with the fixture identity, without

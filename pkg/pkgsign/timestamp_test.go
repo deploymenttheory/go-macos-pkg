@@ -164,16 +164,16 @@ func TestSignedAttrsNeedContentType(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := verifySignedAttrs(build([]attribute{digestAttr, typeAttr}), id.Cert, crypto.SHA256, content, oidData); err != nil {
+	if err := verifySignerInfo(build([]attribute{digestAttr, typeAttr}), id.Cert, crypto.SHA256, content, oidData); err != nil {
 		t.Fatalf("a correct signer info was rejected: %v", err)
 	}
-	if err := verifySignedAttrs(build([]attribute{digestAttr}), id.Cert, crypto.SHA256, content, oidData); err == nil {
+	if err := verifySignerInfo(build([]attribute{digestAttr}), id.Cert, crypto.SHA256, content, oidData); err == nil {
 		t.Error("signed attributes with no contentType were accepted")
 	}
-	if err := verifySignedAttrs(build([]attribute{digestAttr, wrongType}), id.Cert, crypto.SHA256, content, oidData); err == nil {
+	if err := verifySignerInfo(build([]attribute{digestAttr, wrongType}), id.Cert, crypto.SHA256, content, oidData); err == nil {
 		t.Error("a contentType naming another content type was accepted")
 	}
-	if err := verifySignedAttrs(build([]attribute{typeAttr}), id.Cert, crypto.SHA256, content, oidData); err == nil {
+	if err := verifySignerInfo(build([]attribute{typeAttr}), id.Cert, crypto.SHA256, content, oidData); err == nil {
 		t.Error("signed attributes with no messageDigest were accepted")
 	}
 }

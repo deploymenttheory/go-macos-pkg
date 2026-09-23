@@ -190,7 +190,7 @@ func VerifyTimestamp(token, signature []byte, roots *x509.CertPool) (time.Time, 
 	}
 
 	// The authority signed the TSTInfo, which carries GenTime.
-	if err := verifySignedAttrs(sd.SignerInfos[0], info.Signer, info.Hash, inner, oidTSTInfo); err != nil {
+	if err := verifySignerInfo(sd.SignerInfos[0], info.Signer, info.Hash, inner, oidTSTInfo); err != nil {
 		return time.Time{}, fmt.Errorf("%w: %v", ErrTimestampInvalid, err)
 	}
 
