@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.2](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.7.1...v0.7.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **pkgsign:** verify CMS and RSA signature variants ([a012bc6](https://github.com/deploymenttheory/go-macos-pkg/commit/a012bc692bc466f6edbc523786565fd451f239f7))
+* **pkgsign:** verify CMS and RSA signature variants ([f47e112](https://github.com/deploymenttheory/go-macos-pkg/commit/f47e1120185a363226312534debc44734869cf50))
+
 ## [0.7.1](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.7.0...v0.7.1) (2026-09-21)
 
 
