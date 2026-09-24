@@ -21,10 +21,12 @@ of the heap right after the digest, and described in the TOC:
 <x-signature style="CMS"><offset>288</offset><size>…</size>…</x-signature>
 ```
 
-The RSA one is PKCS#1 v1.5 over the digest itself. The CMS one is a
-detached SignedData whose content is the digest, with `contentType`,
-`signingTime` and `messageDigest` signed attributes and, when
-timestamped, an RFC 3161 token as an unsigned attribute. Apple writes the
+The RSA one is PKCS#1 v1.5 over the digest itself or a hash of that digest;
+`verify` accepts both forms. The CMS one is a detached SignedData whose
+`id-data` content is the digest. Signed attributes are optional for this
+content type; when present, `contentType` and `messageDigest` must match
+the content. The signer includes those attributes and `signingTime`, and,
+when timestamped, an RFC 3161 token as an unsigned attribute. Apple writes the
 CMS blob as BER with indefinite lengths; `verify` normalizes it to DER
 before parsing. Certificates are base64 DER in 72-column lines, leaf
 first.
