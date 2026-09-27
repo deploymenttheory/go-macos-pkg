@@ -35,7 +35,7 @@ func loadProbe(t *testing.T) probe {
 	t.Helper()
 	b, err := os.ReadFile("../../testdata/cli/component-links.probe.json")
 	if err != nil {
-		t.Skip("no probe fixture:", err)
+		t.Fatal("required native probe fixture:", err)
 	}
 	var p probe
 	if err := json.Unmarshal(b, &p); err != nil {
@@ -116,7 +116,7 @@ func TestGoldenSingleAttr(t *testing.T) {
 	if len(b) != 163 {
 		t.Fatalf("encoded %d bytes, pkgbuild writes 163", len(b))
 	}
-	if string(b[84:88]) != "ATTR" || string(b[8:24]) != filler {
+	if string(b[84:88]) != "ATTR" || string(b[8:24]) != "Mac OS X        " {
 		t.Errorf("frame: %x", b[:88])
 	}
 }

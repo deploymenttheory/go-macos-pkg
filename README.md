@@ -296,3 +296,8 @@ The flat package format is Apple's and undocumented; this tool stands on
 the people who worked it out before: Rob Braun's xar, Fabian Renn's
 bomutils, Gregory Szorc's apple-platform-rs, SAS's relic, libarchive, and
 Greg Neagle's munki-pkg. See [`NOTICE`](NOTICE).
+
+AppleDouble byte encoding and decoding are shared with
+[`go-apfs-v2/pkg/appledouble`](https://github.com/deploymenttheory/go-apfs-v2/tree/main/pkg/appledouble).
+The existing `pkg/appledouble` import path remains a compatibility wrapper.
+See [the migration and release gate](docs/appledouble-migration.md).
