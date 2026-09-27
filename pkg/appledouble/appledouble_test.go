@@ -152,7 +152,12 @@ func TestEmptyAndErrors(t *testing.T) {
 	if _, err := Decode([]byte("nope")); err != ErrNotAppleDouble {
 		t.Errorf("garbage: %v", err)
 	}
-	big := &File{Attrs: []Attr{{Name: "x", Value: make([]byte, MaxHeader)}}}
+	// The shared limit applies to the entry table, not ordinary value bytes.
+	// This remains valid before and after APFS's native size correction.
+	big := &File{}
+	for range MaxHeader / 16 {
+		big.Attrs = append(big.Attrs, Attr{Name: "x"})
+	}
 	if _, err := big.Encode(); err != ErrTooLarge {
 		t.Errorf("too large: %v", err)
 	}
