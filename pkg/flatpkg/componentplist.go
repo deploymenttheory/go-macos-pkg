@@ -75,15 +75,16 @@ type bundleRules struct {
 
 // defaultBundleRules is what pkgbuild applies to a bundle when it is given
 // no component property list: version-checked and upgraded whatever the
-// bundle is, relocated and strictly identified only if it is an
-// application.
-func defaultBundleRules(b Bundle) bundleRules {
+// bundle is, strictly identified only if it is an application. Relocation
+// defaults to false as in macOS 27; the legacy option restores the earlier
+// application-only default without overriding an explicit component plist.
+func defaultBundleRules(b Bundle, legacyRelocation bool) bundleRules {
 	app := isApplicationBundle(b.Path)
 	return bundleRules{
 		versionChecked:   true,
 		overwriteAction:  OverwriteUpgrade,
 		strictIdentifier: app,
-		relocatable:      app,
+		relocatable:      app && legacyRelocation,
 	}
 }
 
@@ -116,6 +117,19 @@ func rootRelative(bundlePath string) string {
 // is what pkgbuild writes: a nested bundle is installed as part of the one
 // that contains it, so it has no rules of its own.
 func AnalyzeBundles(root string) ([]ComponentBundle, error) {
+	return AnalyzeBundlesWithOptions(root, AnalyzeOptions{})
+}
+
+// AnalyzeOptions selects defaults for newly discovered bundles.
+// Explicit settings carried forward with MergeComponentPlist still win.
+type AnalyzeOptions struct {
+	// LegacyBundleRelocation restores the pre-macOS-27 application default.
+	LegacyBundleRelocation bool
+}
+
+// AnalyzeBundlesWithOptions analyzes a tree with explicit bundle defaults.
+// These defaults depend on the options, never on the build host's OS.
+func AnalyzeBundlesWithOptions(root string, options AnalyzeOptions) ([]ComponentBundle, error) {
 	all, err := findBundles(root)
 	if err != nil {
 		return nil, err
@@ -123,7 +137,7 @@ func AnalyzeBundles(root string) ([]ComponentBundle, error) {
 	top := topLevelBundles(all)
 	out := make([]ComponentBundle, 0, len(top))
 	for _, b := range top {
-		r := defaultBundleRules(b)
+		r := defaultBundleRules(b, options.LegacyBundleRelocation)
 		entry := ComponentBundle{
 			BundleOverwriteAction:  r.overwriteAction,
 			RootRelativeBundlePath: rootRelative(b.Path),
@@ -279,11 +293,11 @@ func scriptsForBundle(b Bundle, r bundleRules) []bundleScript {
 // pkgbuild describes only the bundles it names, together with their
 // children, and drops the rest. A named bundle that no longer exists in the
 // root is ignored.
-func resolveBundleRules(all []Bundle, list []ComponentBundle) ([]Bundle, map[string]bundleRules) {
+func resolveBundleRules(all []Bundle, list []ComponentBundle, legacyRelocation bool) ([]Bundle, map[string]bundleRules) {
 	if len(list) == 0 {
 		rules := make(map[string]bundleRules, len(all))
 		for _, b := range topLevelBundles(all) {
-			rules[b.Path] = defaultBundleRules(b)
+			rules[b.Path] = defaultBundleRules(b, legacyRelocation)
 		}
 		return all, rules
 	}

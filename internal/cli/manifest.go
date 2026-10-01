@@ -34,6 +34,7 @@ type manifestFile struct {
 	Ownership                string `yaml:"ownership" json:"ownership" plist:"ownership"`
 	PostinstallAction        string `yaml:"postinstall_action" json:"postinstall_action" plist:"postinstall_action"`
 	DistributionStyle        bool   `yaml:"distribution_style" json:"distribution_style" plist:"distribution_style"`
+	LegacyBundleRelocation   bool   `yaml:"legacy_bundle_relocation" json:"legacy_bundle_relocation" plist:"legacy_bundle_relocation"` // added
 	SuppressBundleRelocation bool   `yaml:"suppress_bundle_relocation" json:"suppress_bundle_relocation" plist:"suppress_bundle_relocation"`
 	MinimumOSVersion         string `yaml:"minimum_os_version" json:"minimum_os_version" plist:"minimum_os_version"`
 	PreserveXattr            bool   `yaml:"preserve_xattr" json:"preserve_xattr" plist:"preserve_xattr"`

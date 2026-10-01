@@ -305,6 +305,7 @@ manifest supplies them.
 | `--auth root\|none` | `root` | Whether the Installer needs authorization. |
 | `--postinstall-action none\|logout\|restart\|shutdown` | `none` | What the Installer does when it finishes. |
 | `--relocatable` | off | Mark the package relocatable. |
+| `--legacy-bundle-relocation` | off | Restore the pre-macOS-27 application relocation default for build and analyze. Explicit component-plist rules take precedence. |
 | `--no-bundle-relocation` | off | Always install bundles at their packaged paths, instead of following one the user moved. |
 | `--preserve-xattr` | off | Set `preserve-xattr` on the package. |
 
@@ -349,9 +350,19 @@ is pkgbuild's behaviour, not a choice made here.
 
 **Per-bundle rules.** Without a component property list every bundle in
 the payload gets the same treatment: version-checked and upgraded, and, if
-it is an application, relocated and matched on a strict identifier.
-Frameworks, plug-ins and the rest are installed where the package puts
-them.
+it is an application, matched on a strict identifier. All bundles default
+to their packaged paths, matching macOS 27, on Linux, Windows and macOS.
+`--min-os-version` sets installer compatibility; it does not select the producer's
+relocation defaults. Use `--legacy-bundle-relocation` (or the build-manifest key
+`legacy_bundle_relocation: true`) to restore the earlier application-only default.
+An explicit `--legacy-bundle-relocation=false` overrides that manifest key.
+Analyze accepts the flag directly; it does not read a build manifest.
+
+An explicit component-plist `BundleIsRelocatable` rule wins over either default,
+including explicit false or an omitted key. `--no-bundle-relocation` is the
+existing force override: it suppresses even explicit true rules. Apple's
+undocumented `--no-relocate` instead leaves explicit component-plist rules intact.
+See [the measured policy and native evidence](bundle-relocation.md).
 
 To vary that, run `build ROOT components.plist --analyze` to get a
 template, edit it, then pass it back with `--component-plist`. The keys

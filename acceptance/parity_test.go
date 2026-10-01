@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -134,8 +135,8 @@ func writeBundle(t *testing.T, dir, id, plistRel string) {
 // rather than a bundle in isolation. It holds every shape that changes what
 // pkgbuild records:
 //
-//   - an application, the only kind of bundle that is relocated and matched
-//     on a strict identifier;
+//   - an application, strictly identified and (under legacy defaults) relocated
+//     by the Installer;
 //   - a framework inside it, laid out the way a real framework is, with
 //     Versions/A, a Current link and the top-level Resources link that is
 //     how pkgbuild comes to name the framework rather than a version
@@ -187,6 +188,21 @@ func stampTree(t *testing.T, dirs ...string) {
 
 // buildBothWays builds one source tree with macospkg and with pkgbuild,
 // passing each the same options, and returns the two packages.
+// The production default is host independent. Native comparisons select the
+// documented pre-27 application default explicitly on older Apple producers;
+// no output fields or assertions are discarded for either profile.
+func nativeRelocationArgs(t *testing.T, args ...string) []string {
+	t.Helper()
+	version := strings.TrimSpace(hostTool(t, "sw_vers", "-productVersion"))
+	major, err := strconv.Atoi(strings.Split(version, ".")[0])
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, major, 10)
+	if major < 27 {
+		return append(args, "--legacy-bundle-relocation")
+	}
+	return args
+}
+
 func buildBothWays(t *testing.T, root, identifier string, extra ...string) (ours, theirs string) {
 	t.Helper()
 	work := t.TempDir()
@@ -196,7 +212,7 @@ func buildBothWays(t *testing.T, root, identifier string, extra ...string) (ours
 	oursArgs := append([]string{"build", root, ours,
 		"--identifier", identifier, "--version", "2.4.1",
 		"--install-location", "/", "--source-date-epoch", epoch}, extra...)
-	mustRun(t, oursArgs...)
+	mustRun(t, nativeRelocationArgs(t, oursArgs...)...)
 
 	theirsArgs := append([]string{"--quiet", "--root", root,
 		"--identifier", identifier, "--version", "2.4.1",
@@ -280,11 +296,19 @@ func TestProductTreePackageInfoMatchesPkgbuild(t *testing.T) {
 		assert.Containsf(t, body, "com.example.pref", "%s should reference the preference pane", list)
 	}
 
-	// Only the application is relocated and strictly identified.
-	for _, list := range []string{"strict-identifier", "relocate"} {
+	// Only the application is strictly identified.
+	for _, list := range []string{"strict-identifier"} {
 		body := element(list)
 		assert.Containsf(t, body, "com.example.Example", "%s should reference the application", list)
 		assert.NotContainsf(t, body, "com.example.pref", "%s should not reference a preference pane", list)
+	}
+
+	if len(nativeRelocationArgs(t)) != 0 {
+		assert.Contains(t, element("relocate"), "com.example.Example")
+		assert.NotContains(t, element("relocate"), "com.example.pref")
+	} else {
+		assert.Contains(t, got, "<relocate/>")
+		assert.Empty(t, element("relocate"))
 	}
 
 	// Nothing was routed to update-bundle without being asked.
@@ -324,7 +348,7 @@ func TestAnalyzeMatchesPkgbuild(t *testing.T) {
 	work := t.TempDir()
 	ours := filepath.Join(work, "ours.plist")
 	theirs := filepath.Join(work, "theirs.plist")
-	mustRun(t, "build", root, ours, "--analyze")
+	mustRun(t, nativeRelocationArgs(t, "build", root, ours, "--analyze")...)
 	hostTool(t, "pkgbuild", "--analyze", "--root", root, theirs)
 
 	apple, err := os.ReadFile(theirs)
@@ -633,7 +657,7 @@ func TestComponentModeMatchesPkgbuild(t *testing.T) {
 	ours := filepath.Join(work, "ours.pkg")
 	theirs := filepath.Join(work, "theirs.pkg")
 	runIn(t, root, "pkgbuild", "--quiet", "--component", "Example.app", theirs)
-	mustRun(t, "build", ours, "--component", app, "--source-date-epoch", epoch)
+	mustRun(t, nativeRelocationArgs(t, "build", ours, "--component", app, "--source-date-epoch", epoch)...)
 
 	apple := string(xarEntry(t, theirs, "PackageInfo"))
 	mine := string(xarEntry(t, ours, "PackageInfo"))
@@ -735,7 +759,7 @@ func TestPriorMatchesPkgbuild(t *testing.T) {
 
 			ours := filepath.Join(work, "ours.pkg")
 			theirs := filepath.Join(work, "theirs.pkg")
-			mustRun(t, "build", root, ours, "--prior", first, "--source-date-epoch", epoch)
+			mustRun(t, nativeRelocationArgs(t, "build", root, ours, "--prior", first, "--source-date-epoch", epoch)...)
 			hostTool(t, "pkgbuild", "--quiet", "--root", root, "--prior", first,
 				"--ownership", "recommended", theirs)
 

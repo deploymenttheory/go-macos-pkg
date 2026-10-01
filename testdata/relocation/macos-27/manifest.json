@@ -1,0 +1,254 @@
+{
+  "os": "ProductName:\t\tmacOS\nProductVersion:\t\t27.0.1\nBuildVersion:\t\t26A434\n",
+  "pkgbuild_sha256": "874a851be7b4776408b5f28bfa52c57e0045d99b2daa06c356849b4a0f6dea23",
+  "manual_sha256": "7c3f2a3e2880bedbc4480427d49191c0c880c2857954d7f09d9bdd94e5fe2223",
+  "captured_utc": "2026-10-01T08:50:32Z",
+  "cases": [
+    {
+      "name": "default",
+      "commands": [
+        [
+          "/usr/bin/pkgbuild",
+          "--root",
+          "$WORK/root",
+          "--identifier",
+          "org.example.relocation",
+          "--version",
+          "1",
+          "--install-location",
+          "/",
+          "$WORK/default/out.pkg"
+        ],
+        [
+          "/usr/bin/pkgbuild",
+          "--analyze",
+          "--root",
+          "$WORK/root",
+          "$WORK/default/analyze.plist"
+        ]
+      ]
+    },
+    {
+      "name": "minimum-26",
+      "min_os": "26.0",
+      "commands": [
+        [
+          "/usr/bin/pkgbuild",
+          "--root",
+          "$WORK/root",
+          "--identifier",
+          "org.example.relocation",
+          "--version",
+          "1",
+          "--install-location",
+          "/",
+          "--min-os-version",
+          "26.0",
+          "$WORK/minimum-26/out.pkg"
+        ],
+        [
+          "/usr/bin/pkgbuild",
+          "--analyze",
+          "--root",
+          "$WORK/root",
+          "$WORK/minimum-26/analyze.plist"
+        ]
+      ]
+    },
+    {
+      "name": "minimum-27",
+      "min_os": "27.0",
+      "commands": [
+        [
+          "/usr/bin/pkgbuild",
+          "--root",
+          "$WORK/root",
+          "--identifier",
+          "org.example.relocation",
+          "--version",
+          "1",
+          "--install-location",
+          "/",
+          "--min-os-version",
+          "27.0",
+          "$WORK/minimum-27/out.pkg"
+        ],
+        [
+          "/usr/bin/pkgbuild",
+          "--analyze",
+          "--root",
+          "$WORK/root",
+          "$WORK/minimum-27/analyze.plist"
+        ]
+      ]
+    },
+    {
+      "name": "explicit-true",
+      "component_plist": "true.plist",
+      "commands": [
+        [
+          "/usr/bin/pkgbuild",
+          "--root",
+          "$WORK/root",
+          "--identifier",
+          "org.example.relocation",
+          "--version",
+          "1",
+          "--install-location",
+          "/",
+          "--component-plist",
+          "$WORK/true.plist",
+          "$WORK/explicit-true/out.pkg"
+        ],
+        [
+          "/usr/bin/pkgbuild",
+          "--analyze",
+          "--root",
+          "$WORK/root",
+          "--component-plist",
+          "$WORK/true.plist",
+          "$WORK/explicit-true/analyze.plist"
+        ]
+      ]
+    },
+    {
+      "name": "explicit-false",
+      "component_plist": "false.plist",
+      "commands": [
+        [
+          "/usr/bin/pkgbuild",
+          "--root",
+          "$WORK/root",
+          "--identifier",
+          "org.example.relocation",
+          "--version",
+          "1",
+          "--install-location",
+          "/",
+          "--component-plist",
+          "$WORK/false.plist",
+          "$WORK/explicit-false/out.pkg"
+        ],
+        [
+          "/usr/bin/pkgbuild",
+          "--analyze",
+          "--root",
+          "$WORK/root",
+          "--component-plist",
+          "$WORK/false.plist",
+          "$WORK/explicit-false/analyze.plist"
+        ]
+      ]
+    },
+    {
+      "name": "explicit-omitted",
+      "component_plist": "omitted.plist",
+      "commands": [
+        [
+          "/usr/bin/pkgbuild",
+          "--root",
+          "$WORK/root",
+          "--identifier",
+          "org.example.relocation",
+          "--version",
+          "1",
+          "--install-location",
+          "/",
+          "--component-plist",
+          "$WORK/omitted.plist",
+          "$WORK/explicit-omitted/out.pkg"
+        ],
+        [
+          "/usr/bin/pkgbuild",
+          "--analyze",
+          "--root",
+          "$WORK/root",
+          "--component-plist",
+          "$WORK/omitted.plist",
+          "$WORK/explicit-omitted/analyze.plist"
+        ]
+      ]
+    },
+    {
+      "name": "suppressed",
+      "no_relocate": true,
+      "commands": [
+        [
+          "/usr/bin/pkgbuild",
+          "--root",
+          "$WORK/root",
+          "--identifier",
+          "org.example.relocation",
+          "--version",
+          "1",
+          "--install-location",
+          "/",
+          "--no-relocate",
+          "$WORK/suppressed/out.pkg"
+        ],
+        [
+          "/usr/bin/pkgbuild",
+          "--analyze",
+          "--root",
+          "$WORK/root",
+          "$WORK/suppressed/analyze.plist"
+        ]
+      ]
+    },
+    {
+      "name": "explicit-true-suppressed",
+      "component_plist": "true.plist",
+      "no_relocate": true,
+      "commands": [
+        [
+          "/usr/bin/pkgbuild",
+          "--root",
+          "$WORK/root",
+          "--identifier",
+          "org.example.relocation",
+          "--version",
+          "1",
+          "--install-location",
+          "/",
+          "--component-plist",
+          "$WORK/true.plist",
+          "--no-relocate",
+          "$WORK/explicit-true-suppressed/out.pkg"
+        ],
+        [
+          "/usr/bin/pkgbuild",
+          "--analyze",
+          "--root",
+          "$WORK/root",
+          "--component-plist",
+          "$WORK/true.plist",
+          "$WORK/explicit-true-suppressed/analyze.plist"
+        ]
+      ]
+    }
+  ],
+  "sha256": {
+    "default/PackageInfo": "dabd73b0669abfd012906c34ef362ab04ed8bcbc9c26c7acb7fed6225f5d7a61",
+    "default/analyze.plist": "ad4badf13482eb9aced98da54d51dd564be73d5c26c7468b973a9fd742ef3d3b",
+    "explicit-false/PackageInfo": "beaae6fa43b366b751bcc22e780b4dc958473eec791b50b3950a497e5821ba52",
+    "explicit-false/analyze.plist": "81d6006881f379257ea61f85427f617f06de65b2ef50ced225db0e8aab15ce14",
+    "explicit-omitted/PackageInfo": "beaae6fa43b366b751bcc22e780b4dc958473eec791b50b3950a497e5821ba52",
+    "explicit-omitted/analyze.plist": "ad4badf13482eb9aced98da54d51dd564be73d5c26c7468b973a9fd742ef3d3b",
+    "explicit-true-suppressed/PackageInfo": "d74904828df808c17b7269b6a0c1862305bba87d01d5d840534147151a0193d0",
+    "explicit-true-suppressed/analyze.plist": "ce02634fb977222aa9cd32e302abfbbf80b655bcbe7bf5d0c1e43eddcd8f1a1a",
+    "explicit-true/PackageInfo": "d74904828df808c17b7269b6a0c1862305bba87d01d5d840534147151a0193d0",
+    "explicit-true/analyze.plist": "ce02634fb977222aa9cd32e302abfbbf80b655bcbe7bf5d0c1e43eddcd8f1a1a",
+    "inputs/false.plist": "23ec856583bb7e8a5fb4160c6c052ea13b1c7e87157ed81173d9934ac9da1f68",
+    "inputs/omitted.plist": "98181f0cbebbe51dbd8f61cefd08d1549176406e1fc0d22ae2d460d143707358",
+    "inputs/true.plist": "0fcc8bda4cd355180c55d41a74b75a725f31d73a15132fafcc2d7ff7449e6c31",
+    "minimum-26/PackageInfo": "00bd99f60b97b8372b52de4d3b8a91e36980dbf7198d48900d9738854d28c9b1",
+    "minimum-26/analyze.plist": "ad4badf13482eb9aced98da54d51dd564be73d5c26c7468b973a9fd742ef3d3b",
+    "minimum-27/PackageInfo": "9547077644bb9156becce13a155f824427eb409116de91709cb9d9224d0e242f",
+    "minimum-27/analyze.plist": "ad4badf13482eb9aced98da54d51dd564be73d5c26c7468b973a9fd742ef3d3b",
+    "root/Applications/Fixture.app/Contents/Info.plist": "444e4e7dac4671e0001dc41af622ef6ce3ac015c990c2ccc8afa10c75e926aee",
+    "root/Applications/Fixture.app/Contents/PlugIns/Child.plugin/Contents/Info.plist": "80bd7f9c11cfeb3e9b4123b2588082e5971f5854985c3b1c18c2cd9ec57318da",
+    "root/Library/Fixture.bundle/Contents/Info.plist": "adf159f1cb3c8b5e42142930de0f0dca3a796e3df72e9040105d9776bfc2327a",
+    "suppressed/PackageInfo": "dabd73b0669abfd012906c34ef362ab04ed8bcbc9c26c7acb7fed6225f5d7a61",
+    "suppressed/analyze.plist": "ad4badf13482eb9aced98da54d51dd564be73d5c26c7468b973a9fd742ef3d3b"
+  }
+}

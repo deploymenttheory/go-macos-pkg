@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><array><dict><key>RootRelativeBundlePath</key><string>Applications/Fixture.app</string><key>BundleIsVersionChecked</key><true/><key>BundleOverwriteAction</key><string>upgrade</string><key>BundleHasStrictIdentifier</key><true/></dict><dict><key>RootRelativeBundlePath</key><string>Library/Fixture.bundle</string><key>BundleIsVersionChecked</key><true/><key>BundleOverwriteAction</key><string>upgrade</string></dict></array></plist>
