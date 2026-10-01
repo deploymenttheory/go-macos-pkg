@@ -135,8 +135,8 @@ func writeBundle(t *testing.T, dir, id, plistRel string) {
 // rather than a bundle in isolation. It holds every shape that changes what
 // pkgbuild records:
 //
-//   - an application, the only kind of bundle that is relocated and matched
-//     on a strict identifier;
+//   - an application, strictly identified and (under legacy defaults) relocated
+//     by the Installer;
 //   - a framework inside it, laid out the way a real framework is, with
 //     Versions/A, a Current link and the top-level Resources link that is
 //     how pkgbuild comes to name the framework rather than a version

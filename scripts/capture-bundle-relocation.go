@@ -62,7 +62,6 @@ func main() {
 		return b
 	}
 	root := filepath.Join(work, "root")
-	sources := map[string]string{}
 	for _, b := range []struct{ path, id, kind string }{
 		{"Applications/Fixture.app", "org.example.fixture", "APPL"},
 		{"Applications/Fixture.app/Contents/PlugIns/Child.plugin", "org.example.child", "BNDL"},
@@ -70,7 +69,6 @@ func main() {
 	} {
 		p := b.path + "/Contents/Info.plist"
 		body := fmt.Sprintf("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>%s</string><key>CFBundlePackageType</key><string>%s</string><key>CFBundleVersion</key><string>1</string></dict></plist>\n", b.id, b.kind)
-		sources[p] = body
 		write(filepath.Join(root, p), []byte(body))
 		write(filepath.Join(*out, "root", p), []byte(body))
 	}

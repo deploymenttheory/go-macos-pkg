@@ -136,7 +136,7 @@ jobs:
         # staples with only the macospkg binary. On macOS this leg also
         # hands what we built to Apple's pkgutil, lsbom, xar, installer
         # and openssl as independent references; those tests skip elsewhere.
-        run: go test -count=1 -timeout 20m -v ./acceptance/
+        run: go test -count=1 -v ./acceptance/
 
       - name: Cache the real-world packages
         id: pkg-cache
