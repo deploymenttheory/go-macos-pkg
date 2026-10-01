@@ -114,6 +114,7 @@ jobs:
       - name: Vet
         run: go vet ./...
       - name: Unit tests
+        shell: bash
         env:
           CGO_ENABLED: "0"
         # Everything except the acceptance suite, which runs separately below.
