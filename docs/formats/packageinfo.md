@@ -29,8 +29,11 @@ Attributes: `identifier`, `version`, `format-version` (2),
 (`none`|`logout`|`restart`|`shutdown`), `minimumSystemVersion`,
 `preserve-xattr`, `useHFSPlusCompression`. Recognized scripts:
 `preflight`, `preinstall`, `preupgrade`, `postinstall`, `postupgrade`,
-`postflight`. Every bundle found in the payload is listed in `bundle-version`, and in
-`relocate` unless bundle relocation is suppressed. A bundle is a directory
+`postflight`. Each discovered bundle has a top-level `bundle` description.
+Top-level bundles are referenced by the applicable policy lists; nested bundles
+inherit their parent's installation. `relocate` is empty by default, matching
+macOS 27. Explicit component-plist rules can enable it; the legacy option
+restores the earlier application-only default. A bundle is a directory
 with an `Info.plist` whose name ends in `.app`, `.framework`, `.bundle`,
 `.plugin`, `.kext`, `.appex`, `.xpc`, `.prefPane`, `.qlgenerator`,
 `.saver` or `.mdimporter`.

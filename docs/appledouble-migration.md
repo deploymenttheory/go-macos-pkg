@@ -48,18 +48,10 @@ AppleDouble fixtures, package build/extract round trips and independent
 pkgbuild/pkgutil/lsbom comparisons remain required here. Once those downstream
 checks pass, notify the maintainer and resume codesign against the published SDK.
 
-## Local macOS 27 qualification limitation
+## macOS 27 producer defaults
 
-With v0.15.0, unit tests and the AppleDouble forwarding package pass; the wrapper
-has 100% statement coverage. The full local native package suite reports a
-separate default bundle-relocation difference: this host's pkgbuild omits the
-application's `BundleIsRelocatable` property and `<relocate>` entry, while the
-package implementation includes them. The affected tests are
-`TestProductTreePackageInfoMatchesPkgbuild`, `TestAnalyzeMatchesPkgbuild`,
-`TestComponentModeMatchesPkgbuild` and `TestPriorMatchesPkgbuild`.
-
-The same failures reproduce using the unchanged committed v0.14.0 dependency
-manifest through a temporary external modfile. They are not introduced by the
-APFS upgrade. No assertions or skips were changed. This result must remain
-visible alongside the final CI evidence; passing CI on another macOS version
-does not establish full local macOS 27 package parity.
+The merged migration exposed a pre-existing default-relocation mismatch. Apple
+changed the producer default in macOS 27; it was independent of the APFS codec.
+The follow-up correction adopts that default on every build host and retains
+the previous behavior explicitly. See [bundle relocation](bundle-relocation.md)
+for the API/CLI options, independent native evidence and test coverage.

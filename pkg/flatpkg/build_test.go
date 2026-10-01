@@ -60,14 +60,15 @@ func TestBuildComponent(t *testing.T) {
 	build := func() ([]byte, *BuildResult) {
 		var out bytes.Buffer
 		res, err := BuildComponent(ComponentOptions{
-			ExcludeXattr:    hostNoise,
-			Root:            root,
-			Scripts:         scripts,
-			Identifier:      "com.example.test",
-			Version:         "1.2.3",
-			InstallLocation: "/",
-			Epoch:           epoch,
-			TempDir:         t.TempDir(),
+			LegacyBundleRelocation: true, // retain this test's pre-macOS-27 layout assertions
+			ExcludeXattr:           hostNoise,
+			Root:                   root,
+			Scripts:                scripts,
+			Identifier:             "com.example.test",
+			Version:                "1.2.3",
+			InstallLocation:        "/",
+			Epoch:                  epoch,
+			TempDir:                t.TempDir(),
 			Executable: func(rel string) bool {
 				return rel == "./usr/local/fixture/bin/tool" || rel == "./Applications/Fixture.app/Contents/MacOS/Fixture"
 			},

@@ -112,16 +112,9 @@ func readBundleInfo(dir string) (bundleInfo, string, bool) {
 	return bundleInfo{}, "", false
 }
 
-// isApplicationBundle reports whether a bundle is an application, which is
-// the only kind pkgbuild treats as relocatable.
-//
-// pkgbuild --analyze writes BundleIsRelocatable and BundleHasStrictIdentifier
-// for a .app and omits both, which is to say false, for a .framework,
-// .bundle, .plugin, .kext, .appex, .xpc, .prefPane, .qlgenerator, .saver and
-// .mdimporter alike. That is the whole rule: only an application can be
-// moved by the user and then found again at its new home, so only an
-// application is relocated or matched on a strict identifier. Everything
-// else is installed where the package puts it.
+// isApplicationBundle identifies applications for strict identifiers and
+// the optional pre-macOS-27 relocation default. Explicit component plists
+// can request relocation for other bundle types too.
 func isApplicationBundle(path string) bool {
 	return strings.HasSuffix(path, ".app")
 }

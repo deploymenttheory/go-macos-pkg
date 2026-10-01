@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<pkg-info overwrite-permissions="true" relocatable="false" identifier="org.example.relocation" postinstall-action="none" version="1" format-version="2" generator-version="InstallCmds-883 (26A434)" install-location="/" auth="root">
+    <payload numberOfFiles="25" installKBytes="6"/>
+    <bundle id="org.example.fixture" CFBundleVersion="1" path="./Applications/Fixture.app"/>
+    <bundle id="org.example.bundle" CFBundleVersion="1" path="./Library/Fixture.bundle"/>
+    <bundle-version>
+        <bundle id="org.example.fixture"/>
+        <bundle id="org.example.bundle"/>
+    </bundle-version>
+    <upgrade-bundle>
+        <bundle id="org.example.fixture"/>
+        <bundle id="org.example.bundle"/>
+    </upgrade-bundle>
+    <update-bundle/>
+    <atomic-update-bundle/>
+    <strict-identifier>
+        <bundle id="org.example.fixture"/>
+    </strict-identifier>
+    <relocate/>
+</pkg-info>

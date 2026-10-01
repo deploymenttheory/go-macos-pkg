@@ -15,31 +15,32 @@ import (
 )
 
 var (
-	buildIdentifier         string
-	buildVersion            string
-	buildInstallLocation    string
-	buildScripts            string
-	buildOwnership          string
-	buildMinOS              string
-	buildPostinstallAction  string
-	buildAuth               string
-	buildNoPayload          bool
-	buildRelocatable        bool
-	buildNoBundleRelocation bool
-	buildPreserveXattr      bool
-	buildFilter             []string
-	buildAnalyze            bool
-	buildComponentPlist     string
-	buildComponents         []string
-	buildPrior              string
-	buildLargePayload       bool
-	buildExecutable         []string
-	buildManifest           string
-	buildCompression        string
-	buildBlockSize          uint64
-	buildXattrs             string
-	buildExcludeXattr       []string
-	buildHardLinks          string
+	buildIdentifier             string
+	buildVersion                string
+	buildInstallLocation        string
+	buildScripts                string
+	buildOwnership              string
+	buildMinOS                  string
+	buildPostinstallAction      string
+	buildAuth                   string
+	buildNoPayload              bool
+	buildRelocatable            bool
+	buildLegacyBundleRelocation bool
+	buildNoBundleRelocation     bool
+	buildPreserveXattr          bool
+	buildFilter                 []string
+	buildAnalyze                bool
+	buildComponentPlist         string
+	buildComponents             []string
+	buildPrior                  string
+	buildLargePayload           bool
+	buildExecutable             []string
+	buildManifest               string
+	buildCompression            string
+	buildBlockSize              uint64
+	buildXattrs                 string
+	buildExcludeXattr           []string
+	buildHardLinks              string
 )
 
 var buildCmd = &cobra.Command{
@@ -123,6 +124,7 @@ func init() {
 	f.BoolVar(&buildNoPayload, "nopayload", false, "build a scripts-only package with no payload")
 	f.BoolVar(&buildLargePayload, "large-payload", false, "use the payload format that carries files of 8 GiB and over. Only macOS 12 and later can read one, so --min-os-version 12.0 or later is required")
 	f.BoolVar(&buildRelocatable, "relocatable", false, "mark the package relocatable")
+	f.BoolVar(&buildLegacyBundleRelocation, "legacy-bundle-relocation", false, "restore the pre-macOS-27 application relocation default for build and analyze; explicit component-plist rules take precedence")
 	f.BoolVar(&buildNoBundleRelocation, "no-bundle-relocation", false, "always install bundles at their packaged paths")
 	f.BoolVar(&buildPreserveXattr, "preserve-xattr", false, "set preserve-xattr on the package")
 	f.StringArrayVar(&buildFilter, "filter", nil, "regular expression matched against each \"./path\" in the payload; anything matching is left out. Repeatable, and naming even one replaces the default filters (.svn, CVS, .DS_Store) rather than adding to them")
@@ -191,24 +193,28 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return manifest
 	}
 	o := flatpkg.ComponentOptions{
-		Components:         buildComponents,
-		Root:               m.payloadRoot(src),
-		Scripts:            pick(buildScripts, m.scriptsDir(src)),
-		NoPayload:          buildNoPayload || m.NoPayload,
-		LargePayload:       buildLargePayload,
-		Identifier:         pick(buildIdentifier, m.Identifier),
-		Version:            pick(buildVersion, m.Version),
-		InstallLocation:    pick(buildInstallLocation, m.InstallLocation),
-		MinOSVersion:       pick(buildMinOS, m.MinimumOSVersion),
-		PostinstallAction:  pick(buildPostinstallAction, m.PostinstallAction),
-		Auth:               buildAuth,
-		Relocatable:        buildRelocatable,
-		NoBundleRelocation: buildNoBundleRelocation || m.SuppressBundleRelocation,
-		PreserveXattr:      buildPreserveXattr || m.PreserveXattr,
-		Epoch:              opts.SourceDateEpoch,
-		TempDir:            opts.TempDir,
-		GeneratorVersion:   "go-macos-pkg " + tools.Version(),
-		Progress:           func(rel string) { verbosef("packaged %s", rel) },
+		Components:             buildComponents,
+		Root:                   m.payloadRoot(src),
+		Scripts:                pick(buildScripts, m.scriptsDir(src)),
+		NoPayload:              buildNoPayload || m.NoPayload,
+		LargePayload:           buildLargePayload,
+		Identifier:             pick(buildIdentifier, m.Identifier),
+		Version:                pick(buildVersion, m.Version),
+		InstallLocation:        pick(buildInstallLocation, m.InstallLocation),
+		MinOSVersion:           pick(buildMinOS, m.MinimumOSVersion),
+		PostinstallAction:      pick(buildPostinstallAction, m.PostinstallAction),
+		Auth:                   buildAuth,
+		Relocatable:            buildRelocatable,
+		LegacyBundleRelocation: buildLegacyBundleRelocation || m.LegacyBundleRelocation,
+		NoBundleRelocation:     buildNoBundleRelocation || m.SuppressBundleRelocation,
+		PreserveXattr:          buildPreserveXattr || m.PreserveXattr,
+		Epoch:                  opts.SourceDateEpoch,
+		TempDir:                opts.TempDir,
+		GeneratorVersion:       "go-macos-pkg " + tools.Version(),
+		Progress:               func(rel string) { verbosef("packaged %s", rel) },
+	}
+	if cmd.Flags().Changed("legacy-bundle-relocation") {
+		o.LegacyBundleRelocation = buildLegacyBundleRelocation
 	}
 	if buildLargePayload && !flatpkg.MinOSVersionAtLeast(o.MinOSVersion, flatpkg.LargePayloadMinOS) {
 		// A flag combination, so it is a usage error rather than a build
@@ -453,7 +459,7 @@ func runAnalyze(root, out string) error {
 	if out == "" {
 		return usageErrorf("--analyze needs an output path: build ROOT PLIST --analyze")
 	}
-	fresh, err := flatpkg.AnalyzeBundles(root)
+	fresh, err := flatpkg.AnalyzeBundlesWithOptions(root, flatpkg.AnalyzeOptions{LegacyBundleRelocation: buildLegacyBundleRelocation})
 	if err != nil {
 		return buildError(err)
 	}

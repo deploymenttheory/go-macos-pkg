@@ -20,3 +20,6 @@
 # to. The second is plain ASCII, so text=auto would give it CRLF on a
 # Windows checkout and the message imprint would stop matching.
 testdata/timestamp/** binary
+
+# Hashed native relocation evidence must survive Windows checkouts unchanged.
+testdata/relocation/** -text

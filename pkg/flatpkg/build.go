@@ -291,6 +291,10 @@ type ComponentOptions struct {
 	// NoBundleRelocation omits the <relocate> references so bundles are
 	// always installed at their packaged path.
 	NoBundleRelocation bool
+	// LegacyBundleRelocation restores pre-macOS-27 application relocation
+	// defaults. Explicit ComponentPlist rules take precedence;
+	// NoBundleRelocation suppresses even an explicit true rule.
+	LegacyBundleRelocation bool
 	// PreserveXattr sets preserve-xattr on the PackageInfo, as pkgbuild
 	// --preserve-xattr does.
 	PreserveXattr bool
@@ -629,7 +633,7 @@ func BuildComponent(o ComponentOptions, out io.Writer) (*BuildResult, error) {
 		// the bundles it names, and drops any others from the payload's
 		// description entirely. Without one, every bundle found is
 		// recorded under the defaults.
-		bundles, rules := resolveBundleRules(bundles, o.ComponentPlist)
+		bundles, rules := resolveBundleRules(bundles, o.ComponentPlist, o.LegacyBundleRelocation)
 		res.Bundles = bundles
 		for _, b := range bundles {
 			// pkgbuild's layout: details once, at the top level, then id
