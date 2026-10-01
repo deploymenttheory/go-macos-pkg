@@ -3,7 +3,7 @@ module github.com/deploymenttheory/go-macos-pkg
 go 1.27.1
 
 require (
-	github.com/deploymenttheory/go-apfs-v2 v0.14.0
+	github.com/deploymenttheory/go-apfs-v2 v0.15.0
 	github.com/deploymenttheory/go-sdk-appleservices v0.10.0
 	github.com/go-compressions/lzfse v0.3.0
 	github.com/mikelolasagasti/xz v1.0.1
@@ -11,7 +11,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.12.1
-	github.com/ulikunitz/xz v0.5.16
+	github.com/ulikunitz/xz v0.5.17
 	golang.org/x/crypto v0.57.0
 	golang.org/x/sys v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
