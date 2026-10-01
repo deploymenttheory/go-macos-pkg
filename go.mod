@@ -3,7 +3,7 @@ module github.com/deploymenttheory/go-macos-pkg
 go 1.27.1
 
 require (
-	github.com/deploymenttheory/go-apfs-v2 v0.13.0
+	github.com/deploymenttheory/go-apfs-v2 v0.14.0
 	github.com/deploymenttheory/go-sdk-appleservices v0.10.0
 	github.com/go-compressions/lzfse v0.3.0
 	github.com/mikelolasagasti/xz v1.0.1

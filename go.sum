@@ -1,6 +1,6 @@
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
-github.com/deploymenttheory/go-apfs-v2 v0.13.0 h1:A1YWAz06c5bL5rhkF+qSTABL9RMnvsJb5BHrAvhdW2w=
-github.com/deploymenttheory/go-apfs-v2 v0.13.0/go.mod h1:jC8HmVg7DcuPg5mjhd5NKfCRvl+7qSS3BQjOYaoPxtE=
+github.com/deploymenttheory/go-apfs-v2 v0.14.0 h1:Yu0d1GN/EpWLXA7Y4njlvMWogAn48y2mQpMpClP2xUI=
+github.com/deploymenttheory/go-apfs-v2 v0.14.0/go.mod h1:20LoZVPM0K+JPxaPhFoaTCtFAR709/PhkBqg7AdIUOs=
 github.com/deploymenttheory/go-sdk-appleservices v0.10.0 h1:29feAhxGED52wILCRHKEkc+tIb4qqRP2coxzbVo8G0k=
 github.com/deploymenttheory/go-sdk-appleservices v0.10.0/go.mod h1:W2jCBbiU1zNNUq9Esh3Tyl3cKN0pGYDiVGjj6BJKJC4=
 github.com/frankban/quicktest v1.14.6 h1:7Xjx+VpznH+oBnejlPUj8oUpdxnVs4f8XU8WnHkI4W8=
