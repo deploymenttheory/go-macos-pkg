@@ -35,7 +35,7 @@ func loadProbe(t *testing.T) probe {
 	t.Helper()
 	b, err := os.ReadFile("../../testdata/cli/component-links.probe.json")
 	if err != nil {
-		t.Skip("no probe fixture:", err)
+		t.Fatal("required native probe fixture:", err)
 	}
 	var p probe
 	if err := json.Unmarshal(b, &p); err != nil {
@@ -116,7 +116,7 @@ func TestGoldenSingleAttr(t *testing.T) {
 	if len(b) != 163 {
 		t.Fatalf("encoded %d bytes, pkgbuild writes 163", len(b))
 	}
-	if string(b[84:88]) != "ATTR" || string(b[8:24]) != filler {
+	if string(b[84:88]) != "ATTR" || string(b[8:24]) != "Mac OS X        " {
 		t.Errorf("frame: %x", b[:88])
 	}
 }
@@ -152,7 +152,12 @@ func TestEmptyAndErrors(t *testing.T) {
 	if _, err := Decode([]byte("nope")); err != ErrNotAppleDouble {
 		t.Errorf("garbage: %v", err)
 	}
-	big := &File{Attrs: []Attr{{Name: "x", Value: make([]byte, MaxHeader)}}}
+	// The shared limit applies to the entry table, not ordinary value bytes.
+	// This remains valid before and after APFS's native size correction.
+	big := &File{}
+	for range MaxHeader / 16 {
+		big.Attrs = append(big.Attrs, Attr{Name: "x"})
+	}
 	if _, err := big.Encode(); err != ErrTooLarge {
 		t.Errorf("too large: %v", err)
 	}

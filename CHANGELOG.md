@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Delegate `pkg/appledouble` to the shared APFS SDK codec while retaining the
+  existing public API, sentinel errors and native package fixture comparisons.
+  The migration uses an immutable APFS commit pending codec qualification and
+  release; filesystem transport and codesign work remain separately gated.
+
 ## [0.7.2](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.7.1...v0.7.2) (2026-09-24)
 
 

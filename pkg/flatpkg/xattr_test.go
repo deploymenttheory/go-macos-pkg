@@ -3,6 +3,7 @@ package flatpkg
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -163,11 +164,11 @@ func TestBuildReadsHostXattrs(t *testing.T) {
 	}
 }
 
-// TestOversizeXattrsAreAnError covers attributes too large for
-// AppleDouble's 64 KiB header. They can come from the host or, on any
+// TestOversizeXattrTableIsAnError covers too many attribute entries for
+// AppleDouble's header. They can come from the host or, on any
 // platform, from a manifest's file_xattrs, so the build has to report
 // them rather than fail inside the encoder.
-func TestOversizeXattrsAreAnError(t *testing.T) {
+func TestOversizeXattrTableIsAnError(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "root")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
@@ -175,11 +176,15 @@ func TestOversizeXattrsAreAnError(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "f"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	attrs := make(map[string][]byte)
+	for i := range 500 {
+		attrs[fmt.Sprintf("user.%03d.%s", i, strings.Repeat("n", 110))] = nil
+	}
 	o := ComponentOptions{
 		Root:   root,
 		Xattrs: XattrsNone,
 		XattrOverrides: []XattrOverride{
-			{Path: "./f", Xattrs: map[string][]byte{"user.big": bytes.Repeat([]byte{1}, appledouble.MaxHeader+1)}},
+			{Path: "./f", Xattrs: attrs},
 		},
 	}
 	_, err := collectPayload(o, time.Time{})
