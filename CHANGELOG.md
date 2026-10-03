@@ -7,6 +7,14 @@
   The migration uses an immutable APFS commit pending codec qualification and
   release; filesystem transport and codesign work remain separately gated.
 
+## [0.7.3](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.7.2...v0.7.3) (2026-10-03)
+
+
+### Bug Fixes
+
+* match macOS 27 bundle relocation defaults ([d2cc3b5](https://github.com/deploymenttheory/go-macos-pkg/commit/d2cc3b560ff135f0d9e218a67478562e4dfb0275))
+* match macOS 27 bundle relocation defaults ([b97d100](https://github.com/deploymenttheory/go-macos-pkg/commit/b97d10066ddba3e0c144171f48bd05e63d77ce77))
+
 ## [0.7.2](https://github.com/deploymenttheory/go-macos-pkg/compare/v0.7.1...v0.7.2) (2026-09-24)
 
 
